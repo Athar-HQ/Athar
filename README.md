@@ -163,14 +163,7 @@ It connects to every host and port, fingerprints each open port (TLS certificate
 
 A real scan from 25 November 2026. Infrastructure like this moves fast, so these hosts may answer differently by the time you read this.
 
-```text
-$ athar scan -r rules/ -v -timeout 10s 144.202.110.94:443 130.12.171.248:9443
-open 130.12.171.248:9443 tls http 200 "ARTEX — Autonomous Penetration Testing Console"
-130.12.171.248:9443 (tls)  Agentic Offensive Framework - ARTEX  [offensive-tool] [high]
-open 144.202.110.94:443 tls http 200 "ARGOS — Autonomous Penetration Testing Console"
-144.202.110.94:443 (tls)  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  brand=ARGOS
-athar scan: 2 hosts, 2 checks, 2 open, 2 matches in 3.2s
-```
+![athar scan of 144.202.110.94:443 and 130.12.171.248:9443: the ARTEX variant rule matches an ARTEX console, the family rule matches an ARGOS console and extracts brand=ARGOS](docs/images/athar-scan.png)
 
 - **130.12.171.248:9443** is an ARTEX console. The ARTEX variant rule matches both its title prefix and its favicon hash, so it replaces the family match.
 - **144.202.110.94:443** is an ARGOS console behind a Caddy proxy with a Let's Encrypt certificate for the IP. The family rule matches and extracts the brand. The ARTEX variant rule does not, because neither the title prefix nor the favicon is ARTEX's.
