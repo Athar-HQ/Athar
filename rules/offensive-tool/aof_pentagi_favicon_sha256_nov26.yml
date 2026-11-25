@@ -53,3 +53,6 @@ tests:
     expect: no_match
     response:
       http.favicon.sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+native:
+  # 2026-11-25: 18 results (favicon.ico; favicon.svg also 18, favicon-96x96.png 0).
+  urlscan: 'hash:ec0eb56172d3c3fd926c7cee40c36624aee63369f3fab227408b5575756232bb'

@@ -53,3 +53,10 @@ tests:
     expect: no_match
     response:
       tls.cert.issuer.cn: 'PentAGI Consulting CA'
+native:
+  # 2026-11-25: 231 results; titles PentAGI, Anxinsec, Specter.
+  shodan: 'ssl.cert.issuer.cn:"PentAGI CA"'
+  # 2026-11-25: 1,419 results.
+  fofa: 'cert.issuer.cn=="PentAGI CA"'
+  # 2026-11-25: 3 results (2 "Login — PentAGI", 1 "PentAGI").
+  urlscan: 'page.tlsIssuer:"PentAGI CA"'
