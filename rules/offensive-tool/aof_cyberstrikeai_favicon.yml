@@ -1,0 +1,47 @@
+title: Agentic Offensive Framework - CyberStrikeAI favicon
+id: 24247b80-5f47-4ab2-bf57-36ec2f2978db
+related:
+  - id: 2876eb4d-df28-4cf0-ac9a-7b831e1d5139   # Agentic Offensive Framework - CyberStrikeAI
+    type: similar
+status: experimental
+description: |
+  The favicon CyberStrikeAI ships in web/static/favicon.ico, by its
+  MurmurHash3 (Shodan/FOFA style). Finds consoles whatever their title says.
+  Censys has no MurmurHash3 field; the SHA-256 favicon rule covers it.
+references:
+  - https://github.com/AIPentest/CyberStrikeAI
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_icon:
+    http.favicon.mmh3: -1349384020
+  condition: selection_icon
+identifies:
+  product: CyberStrikeAI
+  family: cyberstrikeai
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # The hash is computed from web/static/favicon.ico in the project repository.
+  - name: Project favicon with another title
+    expect: match
+    response:
+      http.title: 'Dashboard'
+      http.favicon.mmh3: -1349384020
+  - name: Other favicon
+    expect: no_match
+    response:
+      http.title: 'CyberStrikeAI'
+      http.favicon.mmh3: 1234567890
+native:
+  fofa: 'icon_hash="-1349384020"'

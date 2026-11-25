@@ -1,0 +1,46 @@
+title: Agentic Offensive Framework - CyberStrikeAI wordmark
+id: 45f674f9-c2dc-4e65-b075-78b764bbc680
+related:
+  - id: 2876eb4d-df28-4cf0-ac9a-7b831e1d5139   # Agentic Offensive Framework - CyberStrikeAI
+    type: similar
+status: experimental
+description: |
+  The two-part CyberStrikeAI wordmark in the page body: "CyberStrike"
+  followed by a separate span with the class brand-wordmark__ai for "AI".
+  The markup is specific to the console's frontend and survives a changed
+  page title.
+references:
+  - https://github.com/AIPentest/CyberStrikeAI
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_wordmark:
+    http.body|contains: 'CyberStrike</span><span class="brand-wordmark__ai">AI'
+  condition: selection_wordmark
+identifies:
+  product: CyberStrikeAI
+  family: cyberstrikeai
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the observed wordmark markup.
+  - name: Wordmark in the page body
+    expect: match
+    response:
+      http.body: '<a class="brand"><span class="brand-wordmark">CyberStrike</span><span class="brand-wordmark__ai">AI</span></a>'
+  - name: Product name as plain text
+    expect: no_match
+    response:
+      http.body: '<p>CyberStrikeAI combines more than 100 tools.</p>'
+native:
+  fofa: 'body="CyberStrike</span><span class=\"brand-wordmark__ai\">AI"'

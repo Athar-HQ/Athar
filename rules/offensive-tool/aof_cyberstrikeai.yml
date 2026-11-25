@@ -1,0 +1,49 @@
+title: Agentic Offensive Framework - CyberStrikeAI
+id: 2876eb4d-df28-4cf0-ac9a-7b831e1d5139
+status: experimental
+description: |
+  Web console of CyberStrikeAI, an open-source AI-driven penetration testing
+  platform written in Go that orchestrates more than 100 offensive tools.
+  Matched by the page title the project's frontend sets ("CyberStrikeAI").
+  The favicon and the body wordmark are separate rules, so that each signal
+  converts to every engine that can search it.
+references:
+  - https://github.com/AIPentest/CyberStrikeAI
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_title:
+    http.title: 'CyberStrikeAI'
+  condition: selection_title
+identifies:
+  product: CyberStrikeAI
+  family: cyberstrikeai
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Demo or documentation sites that use the product name as their title
+tests:
+  # Minimal samples built from the title in the project's frontend.
+  - name: Console title
+    expect: match
+    response:
+      http.title: 'CyberStrikeAI'
+  - name: Similarly named project
+    expect: no_match
+    response:
+      http.title: 'CyberStrike'
+  - name: Article about the tool
+    expect: no_match
+    response:
+      http.title: 'CyberStrikeAI: an AI attack kit goes open source'
+native:
+  fofa: 'title=="CyberStrikeAI"'
