@@ -14,10 +14,10 @@ description: |
   Workbench"), seen on a host that serves the fork's auto-generated
   certificate. Upstream Cairn is titled "Cairn", listens on port 8000
   without TLS and shows none of these signals. The titles are matched in
-  full: "衍迹" alone is a common word, and search engines drop the "·", so a
-  prefix match finds unrelated sites. Consoles rebranded with another name
-  in front of the workbench are not matched here; the fork's
-  TLS certificate is covered by separate rules.
+  full: search engines drop the "·", so a "衍迹 · " prefix becomes "title
+  contains 衍迹", which on Shodan matched unrelated sites. Consoles
+  rebranded with another name in front of the workbench are not matched
+  here; the fork's TLS certificate is covered by separate rules.
 references:
   - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/
