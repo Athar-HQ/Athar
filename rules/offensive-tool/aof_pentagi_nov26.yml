@@ -27,7 +27,6 @@ detection:
   condition: selection_title
 identifies:
   product: PentAGI
-  family: pentagi
   category: offensive-tool
 confidence: medium
 falsepositives:

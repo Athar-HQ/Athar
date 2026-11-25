@@ -7,9 +7,10 @@ status: experimental
 description: |
   The self-signed certificate that PentAGI's scripts/entrypoint.sh creates
   when no certificate is supplied: O=PentAGI, CN=localhost, issued by a local
-  CA named "PentAGI CA". The rule uses the issuer name because engines index
-  it; the subject organisation has no engine field. Finds consoles behind a
-  proxy or with a changed title, as long as the default certificate is kept.
+  CA named "PentAGI CA". The rule uses the issuer name because athar convert
+  turns it into a query on every engine that indexes certificates; it has no
+  mapping for the subject organisation yet. Finds consoles behind a proxy or
+  with a changed title, as long as the default certificate is kept.
 references:
   - https://github.com/vxcontrol/pentagi
 author: Gameel Ali (@MalGamy12)
@@ -29,7 +30,6 @@ detection:
   condition: selection_ca
 identifies:
   product: PentAGI
-  family: pentagi
   category: offensive-tool
 confidence: high
 falsepositives:
@@ -52,5 +52,3 @@ tests:
     expect: no_match
     response:
       tls.cert.issuer.cn: 'PentAGI Consulting CA'
-native:
-  censys: 'Organization:PentAGI'

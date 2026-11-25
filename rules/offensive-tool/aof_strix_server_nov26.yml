@@ -5,9 +5,11 @@ related:
     type: similar
 status: experimental
 description: |
-  Results viewer of Strix, an open-source AI penetration testing tool that runs autonomous agents against applications. Matched by the Server header of its built-in viewer, "StrixViewer/1.0"
-  (server_version in strix/interface/viewer/server.py), followed by the Python
-  version. Finds viewers whatever their title says.
+  Results viewer of Strix, an open-source AI penetration testing tool that
+  runs autonomous agents against applications. Matched by the viewer's Server
+  header, "StrixViewer/1.0" (server_version in
+  strix/interface/viewer/server.py) followed by the Python version. Finds
+  viewers whatever their title says.
 references:
   - https://github.com/usestrix/strix
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/
@@ -27,7 +29,6 @@ detection:
   condition: selection_main
 identifies:
   product: Strix
-  family: strix
   category: offensive-tool
 confidence: high
 falsepositives:

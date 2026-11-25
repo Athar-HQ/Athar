@@ -25,7 +25,6 @@ detection:
   condition: selection_title
 identifies:
   product: CyberStrikeAI
-  family: cyberstrikeai
   category: offensive-tool
 confidence: medium
 falsepositives:
