@@ -10,15 +10,32 @@ One folder per category, using the controlled category list from the spec:
 rules/
 ├── c2/
 ├── offensive-tool/
-│   ├── aof_artex_nov26.yml                  family rule
-│   ├── aof_artex_antifox_nov26.yml          AntiFox variant
-│   ├── aof_artex_artex_nov26.yml            ARTEX variant
-│   ├── aof_artex_artex_favicon_nov26.yml    ARTEX favicon
-│   ├── aof_artex_basic_auth_nov26.yml       ARTEX behind Basic auth
-│   ├── aof_artex_frontend_files_nov26.yml   SHA-256 of the family's frontend stylesheets
-│   ├── aof_artex_llm_console_nov26.yml      LLM-driven console phrase
-│   ├── aof_artex_rebrands_nov26.yml         family without ARTEX's title or favicon
-│   └── aof_artex_stylesheet_nov26.yml       paths of the family's frontend stylesheets
+│   ├── aof_artex_nov26.yml                         family rule
+│   ├── aof_artex_antifox_nov26.yml                 AntiFox variant
+│   ├── aof_artex_artex_nov26.yml                   ARTEX variant
+│   ├── aof_artex_artex_favicon_nov26.yml           ARTEX favicon
+│   ├── aof_artex_basic_auth_nov26.yml              ARTEX behind Basic auth
+│   ├── aof_artex_frontend_files_nov26.yml          SHA-256 of the family's frontend stylesheets
+│   ├── aof_artex_llm_console_nov26.yml             LLM-driven console phrase
+│   ├── aof_artex_rebrands_nov26.yml                family without ARTEX's title or favicon
+│   ├── aof_artex_stylesheet_nov26.yml              paths of the family's frontend stylesheets
+│   ├── aof_cairn_nov26.yml                         console title of the Cairn fork CL-STA-1238 used
+│   ├── aof_cairn_cert_nov26.yml                    the fork's certificate, common name
+│   ├── aof_cairn_cert_org_nov26.yml                the fork's certificate, organisation
+│   ├── aof_cyberstrikeai_nov26.yml                 CyberStrikeAI title
+│   ├── aof_cyberstrikeai_cert_nov26.yml            default certificate
+│   ├── aof_cyberstrikeai_favicon_nov26.yml         favicon, MurmurHash3
+│   ├── aof_cyberstrikeai_favicon_sha256_nov26.yml  favicon, SHA-256
+│   ├── aof_cyberstrikeai_wordmark_nov26.yml        wordmark in the classic interface
+│   ├── aof_pentagi_nov26.yml                       PentAGI title
+│   ├── aof_pentagi_cert_nov26.yml                  default certificate, issuer
+│   ├── aof_pentagi_cert_san_nov26.yml              default certificate, DNS name
+│   ├── aof_pentagi_favicon_nov26.yml               favicons, MurmurHash3
+│   ├── aof_pentagi_favicon_sha256_nov26.yml        favicons, SHA-256
+│   ├── aof_strix_nov26.yml                         Strix results viewer title
+│   ├── aof_strix_favicon_nov26.yml                 viewer icon, MurmurHash3
+│   ├── aof_strix_favicon_sha256_nov26.yml          viewer icon, SHA-256
+│   └── aof_strix_server_nov26.yml                  viewer Server header
 ├── phishing-kit/
 └── …
 ```

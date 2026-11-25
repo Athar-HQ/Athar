@@ -7,7 +7,8 @@ status: experimental
 description: |
   The DNS name pentagi.local in the self-signed certificate PentAGI creates in
   scripts/entrypoint.sh (subjectAltName=DNS:pentagi.local). Complements the
-  issuer rule for the same certificate.
+  issuer rule for the same certificate. athar convert has no engine field for
+  certificate names yet, so this rule is for the scanner and for stored data.
 references:
   - https://github.com/vxcontrol/pentagi
 author: Gameel Ali (@MalGamy12)

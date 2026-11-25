@@ -7,10 +7,12 @@ related:
     type: similar
 status: experimental
 description: |
-  The TLS certificate Cairn generates when it is not given one: its subject
-  common name contains "Cairn auto-generated TLS certificate" (and its
-  organisation is "Cairn Platform", see the related rule). Finds consoles
-  whatever their title says, as long as the default certificate is kept.
+  The auto-generated TLS certificate of the customized Cairn fork that
+  CL-STA-1238 used (see the Cairn rule): its subject common name contains
+  "Cairn auto-generated TLS certificate", and its organisation is "Cairn
+  Platform" (see the related rule). Upstream Cairn serves plain HTTP and
+  generates no certificate. Finds the fork's consoles whatever their title
+  says, as long as the certificate is kept.
 references:
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/
   - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
@@ -24,7 +26,7 @@ tags:
 target:
   protocol: http
   tls: required
-  ports: [8081]
+  ports: [8081]   # the actor's console (Shodan history)
 detection:
   selection_cn:
     tls.cert.subject.cn|contains: 'Cairn auto-generated TLS certificate'

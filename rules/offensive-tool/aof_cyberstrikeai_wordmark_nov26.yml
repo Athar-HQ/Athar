@@ -8,7 +8,10 @@ description: |
   The two-part CyberStrikeAI wordmark in the page body: "CyberStrike"
   followed by a separate span with the class brand-wordmark__ai for "AI".
   The markup is specific to the console's frontend and survives a changed
-  page title.
+  page title. It is in the classic web interface (web/templates/index.html)
+  of every release up to v1.8.1. The project replaced that interface on
+  2026-11-23 with a React app whose HTML has no wordmark, so releases after
+  v1.8.1 will not match; the title, favicon and certificate rules still do.
 references:
   - https://github.com/AIPentest/CyberStrikeAI
 author: Gameel Ali (@MalGamy12)
@@ -33,14 +36,20 @@ confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
 tests:
-  # Minimal samples built from the observed wordmark markup.
+  # Minimal samples built from web/templates/index.html in v1.8.1 and
+  # web/static/app/index.html on the main branch.
   - name: Wordmark in the page body
     expect: match
     response:
-      http.body: '<a class="brand"><span class="brand-wordmark">CyberStrike</span><span class="brand-wordmark__ai">AI</span></a>'
+      http.body: '<span class="brand-wordmark brand-wordmark--sm" aria-label="CyberStrikeAI"><span class="brand-wordmark__core">CyberStrike</span><span class="brand-wordmark__ai">AI</span></span>'
   - name: Product name as plain text
     expect: no_match
     response:
       http.body: '<p>CyberStrikeAI combines more than 100 tools.</p>'
+  - name: React interface after v1.8.1
+    expect: no_match
+    response:
+      http.title: 'CyberStrikeAI'
+      http.body: '<html lang="zh-CN" data-theme="light"><head><title>CyberStrikeAI</title><link rel="icon" href="/static/favicon.ico"></head><body><div id="root"></div></body></html>'
 native:
   fofa: 'body="CyberStrike</span><span class=\"brand-wordmark__ai\">AI"'

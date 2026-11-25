@@ -5,9 +5,10 @@ related:
     type: similar
 status: experimental
 description: |
-  The self-signed certificate CyberStrikeAI generates when it serves HTTPS without
-  one: subject CN "CyberStrikeAI", DNS name localhost, valid for 365 days
-  (internal/app/main_server_tls.go). Finds consoles whatever their title says.
+  The self-signed certificate CyberStrikeAI generates when it serves HTTPS
+  without one: subject CN "CyberStrikeAI", DNS name localhost, valid for 365
+  days (internal/app/main_server_tls.go). Finds consoles whatever their title
+  says.
 references:
   - https://github.com/AIPentest/CyberStrikeAI
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/
