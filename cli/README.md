@@ -116,7 +116,7 @@ $ athar match -r rules/ --format fofa fofa-export.json > candidates.jsonl
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 192.0.2.10 example.org
 ```
 
-1. **Targets.** IP addresses, hostnames and CIDR ranges (up to /16) as arguments, or one per line with `-iL <file>` (`-` for stdin). A `host:port` target is checked on that port only, so the output of `athar match` or a port scanner can be fed in directly. Checks go port by port across all hosts, in a spread order, so consecutive connections go to hosts far apart (different /24s of a /16) rather than to neighbours.
+1. **Targets.** IP addresses, hostnames and CIDR ranges (up to /16) as arguments, or one per line with `-iL <file>` (`-` for stdin). A `host:port` target is checked on that port only, so the output of `athar match` or a port scanner can be fed in directly. A target given twice, or one inside a given range, is checked once. A number that is not an IP address, such as `10.0.1`, is refused, and a hostname that does not resolve is skipped with a warning. Checks go port by port across all hosts, in a spread order, so consecutive connections go to hosts far apart (different /24s of a /16) rather than to neighbours.
 2. **Ports.** `-p` takes a list and ranges, as in Nmap: `-p 22,80,443,8000-8100`. Without `-p`, scan checks a built-in list of 106 ports plus every port the loaded rules name in `target.ports`. The list holds ports where the baseline probe can see something: common services, alternative web ports and admin consoles, container and infrastructure APIs, AI and LLM tools, and C2 and offensive tools. `athar scan -h` prints it.
 3. **Open ports.** A TCP connect to each host and port, with a 1.5 s timeout (`-connect-timeout`), long enough for one SYN retransmission. This needs no root privileges; ports that refuse or time out are skipped.
 4. **Fingerprint.** The scanner only collects what the loaded rules use:
@@ -137,7 +137,7 @@ Defaults that keep scanning polite and safe:
 - Ranges larger than /16 are refused; split them.
 - Ctrl-C stops the scan; matches found so far are already written.
 
-Exit codes: `0` scan completed (with or without matches), `2` usage error, invalid rules, or interrupted.
+Exit codes: `0` scan completed (with or without matches), `2` usage error, invalid rules, no target that resolves, or interrupted.
 
 Speed is set by `-rate`. Most addresses on the internet don't answer at all, so each check waits for the connect timeout, and `-c` must cover rate × timeout (200 × 1.5 s = 300) for the scan to reach its rate. With the defaults and the 106 built-in ports, a /24 takes a little over 2 minutes and a /16 about 10 hours. To sweep large ranges or all ports, find open ports with a fast port scanner you are allowed to run at that rate, and pass them as `host:port` lines; `-iL` reads all lines before the scan starts:
 

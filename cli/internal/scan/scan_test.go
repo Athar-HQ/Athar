@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -227,6 +229,74 @@ func TestPerHostLimitAndClosedPorts(t *testing.T) {
 	st := s.Run(context.Background(), []probe.Target{tg}, output.NewJSON(&buf))
 	if st.Checks != 3 || st.Open != 1 || st.Matches != 1 {
 		t.Errorf("stats = %+v\n%s", st, buf.String())
+	}
+}
+
+// A target given twice, alone or inside a range, is checked once.
+func TestDuplicateTargets(t *testing.T) {
+	srv := httptest.NewServer(page("NKW — Autonomous Penetration Testing Console"))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	o := opts()
+	o.Ports = []int{80}
+	o.Ports[0], _ = strconv.Atoi(u.Port())
+	var targets []probe.Target
+	for _, s := range []string{u.Host, "127.0.0.1", u.Host, "127.0.0.1", "127.0.0.1/32"} {
+		tg, err := probe.ParseTarget(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, tg)
+	}
+	var buf bytes.Buffer
+	st := New(repoRules(t), o).Run(context.Background(), targets, output.NewJSON(&buf))
+	if st.Hosts != 1 || st.Checks != 1 || st.Open != 1 || st.Matches != 1 {
+		t.Errorf("stats = %+v\n%s", st, buf.String())
+	}
+}
+
+// Resolve looks every hostname up once and drops the targets whose name
+// does not resolve.
+func TestResolve(t *testing.T) {
+	var mu sync.Mutex
+	lookups := map[string]int{}
+	o := opts()
+	o.Lookup = func(_ context.Context, host string) ([]string, error) {
+		mu.Lock()
+		lookups[host]++
+		mu.Unlock()
+		if strings.HasPrefix(host, "gone.") {
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		return []string{"192.0.2.1"}, nil
+	}
+	var targets []probe.Target
+	for _, s := range []string{"gone.example", "192.0.2.7", "ok.example", "gone.example:443", "192.0.2.0/30", "ok.example:8443", "2001:db8::1"} {
+		tg, err := probe.ParseTarget(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, tg)
+	}
+	s := New(repoRules(t), o)
+	got, warnings := s.Resolve(context.Background(), targets)
+	want := []probe.Target{targets[1], targets[2], targets[4], targets[5], targets[6]}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("targets:\n got %+v\nwant %+v", got, want)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "gone.example does not resolve (no such host)") {
+		t.Errorf("warnings = %q", warnings)
+	}
+	if len(lookups) != 2 || lookups["gone.example"] != 1 || lookups["ok.example"] != 1 {
+		t.Errorf("lookups = %v, want one for each of the two names", lookups)
+	}
+
+	// An interrupted lookup is not a name that does not resolve.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	o.Lookup = func(ctx context.Context, _ string) ([]string, error) { return nil, ctx.Err() }
+	if got, warnings := New(repoRules(t), o).Resolve(ctx, targets); len(got) != len(targets) || len(warnings) != 0 {
+		t.Errorf("after cancel: %d targets, warnings %q", len(got), warnings)
 	}
 }
 

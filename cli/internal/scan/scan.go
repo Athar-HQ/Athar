@@ -4,9 +4,11 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,6 +34,9 @@ type Options struct {
 	UserAgent   string
 	Log         io.Writer     // receives one line per open port; nil for none
 	LogColor    color.Palette // colors for Log
+
+	// Lookup resolves a hostname for Resolve; nil means the system resolver.
+	Lookup func(ctx context.Context, host string) ([]string, error)
 }
 
 // Stats summarise a scan.
@@ -145,11 +150,80 @@ func (s *Scanner) Warnings() []string { return s.warnings }
 // Needs reports which parts of the baseline probe will run.
 func (s *Scanner) Needs() probe.Needs { return s.prober.Needs }
 
+// Resolve looks up every hostname among the targets once. It returns the
+// targets without those whose name does not resolve, and one warning per
+// such name. Without it, such a host only shows as closed ports.
+func (s *Scanner) Resolve(ctx context.Context, targets []probe.Target) ([]probe.Target, []string) {
+	lookup := s.opts.Lookup
+	if lookup == nil {
+		lookup = net.DefaultResolver.LookupHost
+	}
+	// index maps a name to its place in names, counted from 1.
+	key := func(host string) string { return strings.ToLower(strings.TrimSuffix(host, ".")) }
+	var names []string
+	index := map[string]int{}
+	for _, t := range targets {
+		if _, err := netip.ParseAddr(t.Host); err == nil || t.Host == "" {
+			continue
+		}
+		if k := key(t.Host); index[k] == 0 {
+			names = append(names, t.Host)
+			index[k] = len(names)
+		}
+	}
+	errs := make([]error, len(names))
+	sem := make(chan struct{}, min(max(1, s.opts.Concurrency), 32))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer func() { <-sem; wg.Done() }()
+			c := ctx
+			if s.opts.Timeout > 0 {
+				var cancel context.CancelFunc
+				c, cancel = context.WithTimeout(ctx, s.opts.Timeout)
+				defer cancel()
+			}
+			_, errs[i] = lookup(c, name)
+		}()
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		// Interrupted: the lookups failed for that reason. Run reports it.
+		return targets, nil
+	}
+	var warnings []string
+	for i, err := range errs {
+		if err == nil {
+			continue
+		}
+		reason := err.Error()
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) {
+			reason = dnsErr.Err
+		}
+		warnings = append(warnings, fmt.Sprintf("%s does not resolve (%s); target skipped", names[i], reason))
+	}
+	if len(warnings) == 0 {
+		return targets, nil
+	}
+	var out []probe.Target
+	for _, t := range targets {
+		if i := index[key(t.Host)]; i == 0 || errs[i-1] == nil {
+			out = append(out, t)
+		}
+	}
+	return out, warnings
+}
+
 // Run scans every host and port of the targets and writes one record per
-// matched service. It returns when all checks are done or ctx is cancelled.
+// matched service. Targets that repeat or overlap are checked once. It
+// returns when all checks are done or ctx is cancelled.
 func (s *Scanner) Run(ctx context.Context, targets []probe.Target, w output.Sink) Stats {
 	start := time.Now()
 	var st Stats
+	targets = probe.Dedup(targets, s.opts.Ports)
 	st.Hosts, st.Checks = probe.Count(targets, s.opts.Ports)
 
 	if s.opts.Rate > 0 {
