@@ -3,11 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -272,8 +273,8 @@ func TestConvertCommand(t *testing.T) {
 }
 
 // The rule in the README's "A rule" section is the first one people read.
-// It must pass verify -strict, and apart from trimmed metadata and tests it
-// must be the real rule with the same id, so the two can't drift apart.
+// It is a shortened version of a real rule, so it must pass verify -strict,
+// and every value it matches on must still be in the real rule it links to.
 func TestReadmeRuleExample(t *testing.T) {
 	readme, err := os.ReadFile("../../../README.md")
 	if err != nil {
@@ -285,10 +286,16 @@ func TestReadmeRuleExample(t *testing.T) {
 		t.Fatal(`README has no "## A rule" section`)
 	}
 	text = text[section:]
+	if next := strings.Index(text[1:], "\n## "); next >= 0 {
+		text = text[:next+1]
+	}
 	start := strings.Index(text, "```yaml\n")
-	end := strings.Index(text[start+8:], "```")
-	if start < 0 || end < 0 {
+	if start < 0 {
 		t.Fatal(`no yaml block in the "A rule" section`)
+	}
+	end := strings.Index(text[start+8:], "```")
+	if end < 0 {
+		t.Fatal(`unterminated yaml block in the "A rule" section`)
 	}
 	example := text[start+8 : start+8+end]
 
@@ -300,37 +307,50 @@ func TestReadmeRuleExample(t *testing.T) {
 		t.Fatalf("README rule example fails verify -strict:\n%s%s", out, errOut)
 	}
 
+	link := regexp.MustCompile(`\]\((rules/[^)]+\.yml)\)`).FindStringSubmatch(text)
+	if link == nil {
+		t.Fatal(`the "A rule" section links to no rule in rules/`)
+	}
+	real, err := rule.Load("../../../" + link[1])
+	if err != nil {
+		t.Fatal(err)
+	}
 	ex, err := rule.Parse([]byte(example), "README.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := rule.Files([]string{"../../../rules"})
-	if err != nil {
-		t.Fatal(err)
+	have := map[string]bool{}
+	for _, v := range detectionValues(real.Detection) {
+		have[v] = true
 	}
-	var real *rule.Rule
-	for _, f := range files {
-		r, err := rule.Load(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if r.ID == ex.ID {
-			real = r
+	for _, v := range detectionValues(ex.Detection) {
+		if !have[v] {
+			t.Errorf("README rule example matches on %q, which %s no longer has; update the \"A rule\" section", v, link[1])
 		}
 	}
-	if real == nil {
-		t.Fatalf("README rule example has id %s, which no rule in rules/ has", ex.ID)
-	}
-	same := func(what string, a, b any) {
-		if !reflect.DeepEqual(a, b) {
-			t.Errorf("README rule example differs from %s in %s; update the \"A rule\" section\nREADME: %#v\nrule:   %#v", real.Path, what, a, b)
+}
+
+// detectionValues returns the values a detection block matches on.
+func detectionValues(det map[string]any) []string {
+	var out []string
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, e := range x {
+				if k != "condition" && k != "probe" {
+					walk(e)
+				}
+			}
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		case nil:
+		default:
+			out = append(out, fmt.Sprint(x))
 		}
 	}
-	same("title", ex.Title, real.Title)
-	same("target.protocol", ex.Target.Protocol, real.Target.Protocol)
-	same("target.ports", ex.Target.Ports, real.Target.Ports)
-	same("detection", ex.Detection, real.Detection)
-	same("identifies", ex.Identifies, real.Identifies)
-	same("extract", ex.Extract, real.Extract)
-	same("confidence", ex.Confidence, real.Confidence)
+	walk(det)
+	return out
 }

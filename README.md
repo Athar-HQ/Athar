@@ -22,72 +22,43 @@ Existing fingerprint formats each cover part of the problem. Nmap's probe databa
 
 ## A rule
 
-If you can read a Sigma rule, you can read this one. The metadata and the `detection` block are Sigma. New are `target`, `identifies`, `extract`, `confidence` and `tests`.
+If you can read a Sigma rule, you can read this one. The metadata and the `detection` block are Sigma. New are `target`, `identifies`, `confidence` and `tests`.
 
 ```yaml
 title: Agentic Offensive Framework - ARTEX family
-id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
+id: e16df89b-108c-4364-8b69-d5bc6ef04b5f
 status: experimental
-description: |
-  Web console of an agentic offensive framework that is deployed under many
-  brand names. Every brand keeps the same title suffix, in Chinese, Korean or
-  English, so matching the suffix finds the rebrands.
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
 target:
   protocol: http
-  ports: [8787, 8443, 443, 80]
 detection:
-  selection_title:
-    http.title|contains:
-      - '自主渗透测试控制台'
-      - '자율 침투 테스트 콘솔'
-      - 'Autonomous Penetration Testing Console'
-  condition: selection_title
+  selection:
+    http.title|contains: 'Autonomous Penetration Testing Console'
+  condition: selection
 identifies:
   family: artex
   category: offensive-tool
-extract:
-  brand:  # the text before the suffix
-    field: http.title
-    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console))'
 confidence: high
-tests:  # given this response, the rule must give this result
-  - name: ARTEX, Chinese title, em dash
+tests:
+  - name: ARTEX console
     response:
-      http.title: 'ARTEX — 自主渗透测试控制台'
+      http.title: 'ARTEX — Autonomous Penetration Testing Console'
     expect: match
-    extracted:
-      brand: ARTEX  # the value extract must find in this title
-  - name: ARTEX, Korean title, colon
-    response:
-      http.title: 'ARTEX: 자율 침투 테스트 콘솔'
-    expect: match
-    extracted:
-      brand: ARTEX
-  - name: English title
-    response:
-      http.title: 'NKW — Autonomous Penetration Testing Console'
-    expect: match
-    extracted:
-      brand: NKW
-  - name: English pentest vendor page
+  - name: Pentest vendor page
     response:
       http.title: 'Penetration Testing Services | Example Corp'
     expect: no_match
 ```
 
-Read it top to bottom:
+- **`target`**: the rule is about HTTP services.
+- **`detection`**: the page title contains `Autonomous Penetration Testing Console`. Every brand of this console keeps that phrase in its title, so one condition finds all the rebrands.
+- **`identifies`** and **`confidence`**: what a match is, and how sure the rule is about it.
+- **`tests`**: a page the rule must match and a near miss it must not. `athar verify` runs them, and CI rejects a rule whose tests fail.
 
-- **`target`**: an HTTP service, with or without TLS. The ports are where these consoles usually listen; they tell `athar scan` where to look and never decide a match.
-- **`detection`**: the page title contains the console's suffix in one of three languages. A list of values means "any of them", as in Sigma.
-- **`identifies`** and **`extract`**: a match is a console of the ARTEX family, and the brand is whatever comes before the suffix.
-- **`confidence`**: how likely a match is this software and not something that only looks like it.
-- **`tests`**: sample responses and the result the rule must give for each. `expect` is `match` or `no_match`; for a match, `extracted` lists what `extract` must find, so `brand: NKW` means the brand read from `NKW — Autonomous Penetration Testing Console` has to be `NKW`. `athar verify` runs the tests, and CI rejects a rule whose tests fail.
+The same rule drives every command: `athar scan` checks it against live services, `athar convert` turns it into a query for each search engine.
 
-The same rule drives every command. `athar scan` evaluates it on live responses and prints the brand it finds; `athar convert` turns it into a query for each search engine.
-
-The full rule, with references, false positives, more tests and the original engine queries, is in [rules/offensive-tool/aof_artex.yml](rules/offensive-tool/aof_artex.yml).
+This is a shortened version of the real rule, [rules/offensive-tool/aof_artex.yml](rules/offensive-tool/aof_artex.yml), which also matches the Chinese and Korean titles, reads the brand name out of the title with `extract`, and lists the ports these consoles use.
 
 ## How it works
 
@@ -261,26 +232,23 @@ The localized titles matter: on Shodan the Chinese title alone finds 2,847 hosts
 
 The engines disagree because each indexes pages differently. That is why the scanner, not the query, decides what matches: run `athar scan` on the candidates to confirm them.
 
-<details>
-<summary>Screenshots of the searches</summary>
+The searches as the platforms showed them:
 
-**Censys**
+**Censys**: 243 hosts
 
 ![Censys search for the converted family query: 243 hosts, matched fields html_title and body](docs/images/convert-censys.png)
 
-**ZoomEye**
+**ZoomEye**: about 525 results
 
 ![ZoomEye search for the converted family query: about 525 results with ARTEX titles](docs/images/convert-zoomeye.png)
 
-**Modat Magnify**
+**Modat Magnify**: 1,433 services
 
 ![Modat Magnify search for the converted family query: 1,433 results, most on port 8787, product label Artex](docs/images/convert-modat.png)
 
-**Shodan**
+**Shodan**: no results, because the route is not in Shodan's index
 
 ![Shodan search for the converted family query: no results found](docs/images/convert-shodan.png)
-
-</details>
 
 | Flag | Effect |
 | --- | --- |
