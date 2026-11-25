@@ -6,23 +6,41 @@ The reference implementation of the Athar rule format: one Go binary that verifi
 
 [docs/decisions.md](../docs/decisions.md#cli-in-go) explains why the CLI is written in Go.
 
-## Build and run
+## Install and use
 
-Requires Go 1.25 or newer.
-
-```bash
-go install github.com/Athar-HQ/Athar/cli/cmd/athar@latest
-```
-
-From a checkout:
-
-```bash
-cd cli && go build ./cmd/athar && ./athar verify ../rules
-```
-
-`athar verify` exits with 0 when every rule is valid and every test passes, 1 on errors or failed tests, and 2 on usage or read errors. `-strict` also fails on warnings (missing positive or negative test, unused selection, unknown top-level key); CI runs it that way.
+Release binaries, `go install` and the `verify` flags are described in the [main README](../README.md#cli).
 
 Not supported yet: tests for custom probes, and `jsonpath` beyond dotted paths such as `$.build.version`.
+
+## Develop
+
+The Go module sits at the repository root (`go.mod`), so one version tag versions the spec, the rules and the CLI together. Requires Go 1.25 or newer. From the repository root:
+
+```bash
+go test ./...
+```
+
+```bash
+go run ./cli/cmd/athar verify -strict rules
+```
+
+```bash
+go build -o athar ./cli/cmd/athar
+```
+
+## Release
+
+Push a version tag. The [release workflow](../.github/workflows/release.yml) runs the tests and `athar verify -strict rules`, builds archives for Linux, macOS and Windows (amd64 and arm64) with [scripts/build-release.sh](../scripts/build-release.sh), and publishes them with `checksums.txt` and generated release notes on the [releases page](https://github.com/Athar-HQ/Athar/releases).
+
+```bash
+git tag -a v0.1.0 -m "Athar v0.1.0"
+```
+
+```bash
+git push origin v0.1.0
+```
+
+Tags with a suffix, such as `v0.2.0-rc.1`, become pre-releases. The binary reports the tag in `athar version`. To try the build locally, run `scripts/build-release.sh v0.0.0-test /tmp/athar-dist`.
 
 ## Commands
 
@@ -91,11 +109,10 @@ The two highlighted evaluator boxes are one component. `verify` (tests), `match`
 
 ## Layout
 
-The CLI is its own Go module inside this folder, so rule contributors never have to touch Go tooling. Its only dependency is the YAML parser.
+All Go code lives in this folder; the module file (`go.mod`, module `github.com/Athar-HQ/Athar`) sits at the repository root. The only dependency is the YAML parser.
 
 ```text
 cli/
-├── go.mod                module github.com/Athar-HQ/Athar/cli
 ├── cmd/athar/            main and subcommand wiring
 └── internal/
     ├── rule/             load YAML, check metadata against the spec

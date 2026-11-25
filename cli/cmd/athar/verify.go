@@ -139,10 +139,17 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	fmt.Fprintf(stdout, "\n%d rules, %d failed; %d/%d tests passed; %d errors, %d warnings\n",
-		len(reports), nFailedRules, nPassed, nTests, nErr, nWarn)
+	fmt.Fprintf(stdout, "\n%s, %d failed; %d/%d tests passed; %s, %s\n",
+		plural(len(reports), "rule"), nFailedRules, nPassed, nTests, plural(nErr, "error"), plural(nWarn, "warning"))
 	if nFailedRules > 0 {
 		return exitFindings
 	}
 	return exitOK
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, word)
+	}
+	return fmt.Sprintf("%d %ss", n, word)
 }

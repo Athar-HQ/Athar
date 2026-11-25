@@ -33,6 +33,10 @@ What we give up is pySigma's parser and condition engine. The condition grammar 
 
 Rust would be worth revisiting only if evaluation became CPU-bound, for example matching thousands of rules against millions of stored responses. The evaluator could then be replaced on its own.
 
+### One version, released from tags
+
+A single tag such as `v0.1.0` versions the spec, the rules and the CLI together, which is why `go.mod` sits at the repository root. Pushing the tag builds the binaries and publishes the GitHub release. Separate versions per part can come later if the parts start moving at different speeds.
+
 ## Open
 
 - **Baseline probe.** How each engine actually fetches (redirects, Host header and SNI, favicon source, body truncation) is unknown. A controlled server that logs every request from FOFA, Shodan, Censys and ZoomEye crawlers would settle it.

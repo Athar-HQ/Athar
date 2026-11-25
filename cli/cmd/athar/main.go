@@ -6,10 +6,23 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 )
 
-// version is set at build time with -ldflags "-X main.version=...".
-var version = "dev"
+// version is set by release builds with -ldflags "-X main.version=v1.2.3".
+var version = ""
+
+// versionString returns the release version, else the module version Go
+// recorded at build time (e.g. for "go install ...@v1.2.3"), else "dev".
+func versionString() string {
+	if version != "" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return "dev"
+}
 
 // Exit codes.
 const (
@@ -49,7 +62,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "athar %s: not implemented yet, see cli/README.md\n", cmd)
 		return exitUsage
 	case "version", "-version", "--version":
-		fmt.Fprintln(stdout, "athar", version)
+		fmt.Fprintln(stdout, "athar", versionString())
 		return exitOK
 	case "help", "-h", "-help", "--help":
 		fmt.Fprint(stdout, usage)

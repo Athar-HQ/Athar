@@ -1,19 +1,18 @@
 <p align="center">
-  <img src="docs/images/logo.png" alt="Athar logo" width="320">
+  <img src="docs/images/athar-banner.png" alt="Athar — Service Fingerprinting. Rule Standard, Query Converter, Scanner." width="900">
 </p>
 
 # Athar
 
-**Athar** (أثر, Arabic for *trace* or *footprint*) is an open rule format that describes what a network service looks like on the wire, plus a tool that uses those rules to find and identify such services on the internet.
+**Athar** (أثر, Arabic for *trace* or *footprint*) is a service fingerprinting project built around a draft standard for portable YAML rules. Each rule describes one network service using observable signals such as HTTP headers, TLS certificates, or response banners.
 
-One YAML rule describes the observable properties of one service: HTTP title, body, headers, favicon, TLS certificate, JARM, banner. The same rule can
+- **Rule standard.** Define service fingerprints in YAML with Sigma-style detection logic and test cases.
+- **Query converter.** Translate the same rules into queries for FOFA, Shodan, Censys, and ZoomEye to find candidate services in indexed scan data.
+- **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
-- **convert** into queries for FOFA, Shodan, Censys and ZoomEye, to find candidates in existing scan data, and
-- **scan** live services to confirm a hit and identify product, family and version.
+> **Status (draft v0.1).** The Go CLI supports `athar verify` for syntax checks and rule tests. Query conversion, matching against stored data, and live scanning are planned.
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
-
-> **Status:** draft v0.1. The rule format can still change. The CLI can verify rules; conversion and scanning are not written yet.
 
 ## Why
 
@@ -103,27 +102,72 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 │   ├── README.md           naming, required tests, rule template
 │   └── offensive-tool/
 ├── cli/                    the athar command-line tool (Go)
-│   └── README.md
-├── .github/workflows/      CI: Go tests and athar verify on every rule
+│   └── README.md           commands, architecture, how to release
+├── go.mod                  Go module for the CLI
+├── scripts/
+│   └── build-release.sh    builds the release archives
+├── .github/workflows/      CI on every push; release build on version tags
 └── docs/
     ├── prior-art.md        existing formats and what Athar takes from each
-    └── decisions.md        decided, open and deferred design questions
+    ├── decisions.md        decided, open and deferred design questions
+    └── images/
 ```
 
 ## CLI
 
+`athar` is a single binary written in Go ([why Go](docs/decisions.md#cli-in-go)).
+
 | Command | Status | What it does |
 | --- | --- | --- |
-| `athar verify` | works | Checks rule syntax and runs every rule's tests. CI runs it on each pull request. |
+| `athar verify` | available | Checks rules against the spec and runs every rule's tests. |
 | `athar convert` | planned | Turns rules into FOFA, Shodan, Censys or ZoomEye queries, with fidelity and warnings. |
 | `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
 | `athar scan` | planned | Probes live services and writes identity records as JSONL. |
+
+### Install
+
+Download the archive for your platform (Linux, macOS, Windows; amd64 and arm64) from the [latest release](https://github.com/Athar-HQ/Athar/releases/latest) and put `athar` on your `PATH`. `checksums.txt` in the release lists the SHA-256 of every archive. The binaries are not signed yet; on macOS, clear the quarantine flag once with `xattr -d com.apple.quarantine athar`.
+
+Or build it with Go 1.25 or newer:
 
 ```bash
 go install github.com/Athar-HQ/Athar/cli/cmd/athar@latest
 ```
 
-The CLI will be written in Go. [docs/decisions.md](docs/decisions.md#cli-in-go) gives the reasons.
+### Verify rules
+
+`athar verify` takes rule files or folders. It checks every rule against the spec (required fields, field names, modifiers, the condition) and runs the rule's `tests`:
+
+```bash
+git clone https://github.com/Athar-HQ/Athar.git
+cd Athar
+athar verify rules/
+```
+
+```text
+rules/offensive-tool/ai_autonomous_pentest_console.yml        2/2 tests passed
+rules/offensive-tool/ai_autonomous_pentest_console_artex.yml  3/3 tests passed
+
+2 rules, 0 failed; 5/5 tests passed; 0 errors, 0 warnings
+```
+
+Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:
+
+```text
+$ athar verify c2/example_panel.yml
+c2/example_panel.yml  FAIL  0/1 tests passed
+  test "login page" failed: expected match, got no_match (selections that held: selection_title)
+  warning: no test with expect: no_match
+
+1 rule, 1 failed; 0/1 tests passed; 0 errors, 1 warning
+```
+
+| Flag | Effect |
+| --- | --- |
+| `-strict` | Warnings fail too: a missing positive or negative test, an unused selection, an unknown top-level key. This repository's CI runs `athar verify -strict rules`. |
+| `-q` | Print only rules with problems, plus the summary. |
+
+Exit codes: `0` everything passed, `1` rule errors or failed tests, `2` usage or read error. `athar version` prints the version.
 
 ## Contributing rules
 

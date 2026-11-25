@@ -1,0 +1,39 @@
+# Pushing a version tag (e.g. v0.1.0) runs the tests, builds athar for
+# Linux, macOS and Windows, and publishes the binaries as a GitHub release.
+# Tags with a suffix (v0.2.0-rc.1) become pre-releases.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test ./...
+          go run ./cli/cmd/athar verify -strict rules
+
+      - name: Build
+        run: scripts/build-release.sh "$VERSION" dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=(--title "Athar $VERSION" --generate-notes --verify-tag)
+          [[ "$VERSION" == *-* ]] && flags+=(--prerelease)
+          gh release create "$VERSION" dist/* "${flags[@]}"

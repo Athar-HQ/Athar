@@ -1,4 +1,4 @@
-module github.com/Athar-HQ/Athar/cli
+module github.com/Athar-HQ/Athar
 
 go 1.25.0
 
