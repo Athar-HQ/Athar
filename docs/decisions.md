@@ -34,6 +34,10 @@ urlscan.io is not a port scanner. It records what a browser showed for URLs that
 
 Many hunters already run Nuclei, so `athar convert -t nuclei` writes one template per rule (decided 2026-11-25). A scanner sees the whole live response, so most rules convert exactly, unlike engine queries. The rule's condition becomes one DSL matcher, which keeps negations and nested conditions; the template rebuilds the fields Athar's scanner reads. Templates are tested against real Nuclei with each rule's own tests. Other scanners and formats wait in [conversion-targets.md](conversion-targets.md) until someone asks for them, because every backend has to be maintained.
 
+### Nmap NSE as a convert target
+
+Nmap has the widest reach of any scanner, so `athar convert -t nse` came next (decided 2026-11-25). Every rule converting to generated Lua code would be much code to review, so the conversion is data instead: one hand-written script, `athar.nse`, embedded in the CLI, and one data file per rule with the condition (after the superset rule), folded literals, custom probes and what the rule needs from the baseline probe. The script is a second scanner and follows `athar scan` closely: it sends its own requests over Nmap's sockets rather than through `http.lua`, and reads status lines, headers, chunked and gzip bodies, titles, favicons and certificates as Go's libraries do. NSE has no PCRE binding, so regular expressions are compiled by Go's `regexp/syntax` and run in the script on a small Pike VM, which finds the same matches and groups as Go. Custom probes need `--script-args athar.probes`, like `athar scan -probes`. A test runs `athar scan` and the script on the same raw responses and compares every field. `athar.nse` carries an MIT header; the rule data keeps each rule's licence.
+
 ### CLI in Go
 
 The reference CLI is written in Go. Rust and Python were the alternatives.
@@ -111,4 +115,5 @@ Consumers that don't support host rules would ignore them. The scanner would get
 - [ ] Add JARM, JA3S and SSH host key fields to `athar scan`
 - [x] Build `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat and urlscan.io
 - [x] Convert rules to Nuclei templates
+- [x] Convert rules to an Nmap script (NSE)
 - [ ] Seed 20–30 rules with tests from published hunts (ARTEX family, common C2 panels)

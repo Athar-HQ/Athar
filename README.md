@@ -7,14 +7,14 @@
 **Athar** is a service fingerprinting project built around a draft standard for portable YAML rules. Each rule describes one network service using observable signals such as HTTP headers, TLS certificates, or response banners.
 
 - **Rule standard.** Define service fingerprints in YAML with Sigma-style detection logic and test cases.
-- **Converter.** Turn the same rules into Nuclei templates, to run them with the scanner you already use, or into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io, to find candidate services in indexed scan data.
+- **Converter.** Turn the same rules into Nuclei templates or an Nmap script, to run them with the scanner you already use, or into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io, to find candidate services in indexed scan data.
 - **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
 <p align="center">
   <a href="docs/images/athar-infographic.jpg"><img src="docs/images/athar-infographic.jpg" alt="Athar at a glance. Left, an Athar rule: a shortened ARTEX family rule with a description, a detection on the page title 'Autonomous Penetration Testing Console', identifies, confidence and false positives. Right, the Athar CLI: athar convert turns rules into Nuclei templates and FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io queries, with planned candidates; athar scan checks hosts, CIDR ranges and ports; athar match, planned, applies rules to stored data. Bottom, what is in the repository." width="900"></a>
 </p>
 
-> **Status: draft.** The rule format can still change. The Go CLI supports `athar scan` for live scanning, `athar convert` for Nuclei templates and search-engine queries, and `athar verify` for syntax checks and rule tests; matching against stored data is planned. Binaries are on the [latest release](https://github.com/Athar-HQ/Athar/releases/latest).
+> **Status: draft.** The rule format can still change. The Go CLI supports `athar scan` for live scanning, `athar convert` for Nuclei templates, Nmap scripts and search-engine queries, and `athar verify` for syntax checks and rule tests; matching against stored data is planned. Binaries are on the [latest release](https://github.com/Athar-HQ/Athar/releases/latest).
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
 
@@ -66,7 +66,7 @@ tests:
 - **`identifies`** and **`confidence`**: what a match is, and how sure the rule is about it.
 - **`tests`**: a page the rule must match and a near miss it must not. `athar verify` runs them, and CI rejects a rule whose tests fail.
 
-The same rule drives every command: `athar scan` checks it against live services, `athar convert` turns it into a Nuclei template or a query for each search engine.
+The same rule drives every command: `athar scan` checks it against live services, `athar convert` turns it into a Nuclei template, Nmap script data or a query for each search engine.
 
 This is a shortened version of the real rule, [rules/offensive-tool/aof_artex_nov26.yml](rules/offensive-tool/aof_artex_nov26.yml), which also matches the Chinese and Korean titles, reads the brand name out of the title with `extract`, and lists the ports these consoles use.
 
@@ -76,7 +76,7 @@ The rules are the only thing the commands share. Each command takes the rules pl
 
 | Command | Takes | Gives | Use it to |
 | --- | --- | --- | --- |
-| `athar convert` | Rules, and the targets to convert to (`-t`) | Nuclei templates, and queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io, each labelled `exact`, `approximate`, `superset` or `unsupported` | Run the rules in Nuclei, or find candidates on the internet without scanning yourself |
+| `athar convert` | Rules, and the targets to convert to (`-t`) | Nuclei templates, an Nmap script, and queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io, each labelled `exact`, `approximate`, `superset` or `unsupported` | Run the rules in Nuclei or Nmap, or find candidates on the internet without scanning yourself |
 | `athar scan` | Rules, hosts or CIDR ranges, and ports (`-p`, as in Nmap) | One line or JSON record per matching service: product, family, extracted brand or version, confidence and the rule's author | Check live services |
 | `athar match` (planned) | Rules, and data you already have: search-engine exports, recorded responses | The records that match, without sending a packet | Remove the over-matches of approximate queries |
 
@@ -138,7 +138,7 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 | --- | --- | --- |
 | `athar scan` | available | Checks hosts, CIDR ranges and ports for services that match the rules; writes the matches as JSONL. |
 | `athar verify` | available | Checks rules against the spec and runs every rule's tests. |
-| `athar convert` | available | Turns rules into Nuclei templates or into FOFA, Shodan, Censys, ZoomEye, Modat Magnify or urlscan.io queries, with fidelity and notes. |
+| `athar convert` | available | Turns rules into Nuclei templates, an Nmap script or FOFA, Shodan, Censys, ZoomEye, Modat Magnify or urlscan.io queries, with fidelity and notes. |
 | `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
 
 ### Install
@@ -200,7 +200,7 @@ Only scan hosts you are allowed to scan. The scanner identifies itself in its HT
 
 ### Convert
 
-`athar convert` turns rules into Nuclei templates and into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io. Give it rule files or folders; `-t` picks the targets.
+`athar convert` turns rules into Nuclei templates, an Nmap script and queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io. Give it rule files or folders; `-t` picks the targets.
 
 **Nuclei templates.** If you already scan with [Nuclei](https://github.com/projectdiscovery/nuclei), you don't need Athar's scanner: `-t nuclei` turns each rule into a Nuclei template. On its own it prints the template; `-o` writes one file per rule.
 
@@ -214,6 +214,30 @@ nuclei -t templates/ -l targets.txt
 Here Nuclei runs against four local services that answer like an ARTEX console, an NKW rebrand, PentAGI with its default certificate and a Strix viewer. The family template reads the brand out of the title, as `athar scan` does.
 
 The rule's condition becomes one DSL matcher, so negations and nested conditions carry over. The template computes the page title the way `athar scan` does, reads certificate fields from an `ssl` block, and sends one more request for the favicon and for each custom probe. Its fidelity label compares it with `athar scan` on the same service. Title, header, body and certificate rules convert exactly. Favicon rules are approximate, because the template fetches `/favicon.ico` while the scanner first follows `<link rel="icon">`. Each template names the rule's author and the DRL 1.1, and lists the rule's converted engine queries under `metadata`. When `nuclei` is installed, `go test` runs every template against the rule's own tests.
+
+**Nmap script.** `-t nse` runs the rules in [Nmap](https://nmap.org/). `-o` writes one script, `athar.nse`, and one data file per rule into `athar-rules/` next to it; Nmap runs the script on every open port it scans.
+
+```bash
+athar convert -t nse -o nse/ rules/
+nmap -sT -Pn -p 80,443,8787 --script nse/athar.nse 192.0.2.10
+```
+
+```text
+PORT     STATE SERVICE
+8787/tcp open  unknown
+| athar:
+|   Agentic Offensive Framework - ARTEX family:
+|     rule: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
+|     author: Gameel Ali (@MalGamy12)
+|     family: artex
+|     category: offensive-tool
+|     confidence: high
+|     tls: false
+|     extracted:
+|_      brand: NKW
+```
+
+The script collects what `athar scan` collects and matches the way it does: TLS first, `GET /` without following redirects, the favicon from `<link rel="icon">` or `/favicon.ico`, the same title, header and certificate values, and Go's regular expressions, which `athar convert` compiles into the data files. Every rule in the repository converts exactly. Not converted: the TLS version, cipher and ALPN, JARM, JA3S, the certificate DN and `self_signed`. Each match names the rule's author, and `-oX` writes it as `<table>` and `<elem>` elements. Nmap prints bytes outside printable ASCII, such as a Chinese brand name, as `\xHH`. Custom probes are sent only with `--script-args athar.probes`, as `athar scan` sends them only with `-probes`; `athar.rules` points the script at another folder, and `athar.timeout` changes the 3 s timeout. When `nmap` is installed, `go test` runs the script against each rule's own tests and compares it with `athar scan` on the same responses. The script is MIT-licensed; the rules' data files keep the rules' own licence.
 
 **Search-engine queries.** Without `-t`, `athar convert` writes one query per engine:
 
@@ -265,8 +289,8 @@ The searches as the platforms showed them:
 
 | Flag | Effect |
 | --- | --- |
-| `-t` | Targets, comma-separated: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`, `nuclei`. Default: all search engines. |
-| `-o` | Write each Nuclei template to this folder as `<template id>.yaml`. The output then lists the files. |
+| `-t` | Targets, comma-separated: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`, `nuclei`, `nse`. Default: all search engines. |
+| `-o` | Write templates to this folder: each Nuclei template as `<template id>.yaml`; for `nse`, `athar.nse` and each rule's data as `athar-rules/<rule file name>.lua`. The output then lists the files. |
 | `-json` | One JSON object per rule and target: rule id, path, title, engine, query or template, fidelity and notes. |
 | `-no-color` | No colours, as for `scan`. |
 

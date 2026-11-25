@@ -1,5 +1,5 @@
-// Package convert turns rules into search-engine queries (spec section 10)
-// and into Nuclei templates.
+// Package convert turns rules into search-engine queries (spec section 10),
+// Nuclei templates and data files for the Nmap script athar.nse.
 //
 // A rule's condition and selections become one boolean expression. Negations
 // are pushed down to single conditions, each condition is translated by the
@@ -38,7 +38,7 @@ func (f Fidelity) MarshalText() ([]byte, error) { return []byte(f.String()), nil
 var Engines = []string{"fofa", "shodan", "censys", "zoomeye", "modat", "urlscan"}
 
 // Scanners lists the scanners rules convert to as templates.
-var Scanners = []string{nucleiTarget}
+var Scanners = []string{nucleiTarget, nseTarget}
 
 // Result is one rule converted for one engine or scanner.
 type Result struct {
@@ -53,8 +53,11 @@ type Result struct {
 // Convert converts a rule that passed eval.Compile for one engine or
 // scanner.
 func Convert(r *rule.Rule, engine string) (Result, error) {
-	if engine == nucleiTarget {
+	switch engine {
+	case nucleiTarget:
 		return convertNuclei(r)
+	case nseTarget:
+		return convertNSE(r)
 	}
 	b, ok := backends[engine]
 	if !ok {

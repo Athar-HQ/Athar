@@ -20,7 +20,7 @@ The Go module sits at the repository root (`go.mod`), so one version tag version
 go test ./...
 ```
 
-If `nuclei` is on the `PATH`, `go test` also converts every rule to a Nuclei template and runs it against local servers that answer like the rule's tests. `go test -short` skips that.
+If `nuclei` is on the `PATH`, `go test` also converts every rule to a Nuclei template and runs it against local servers that answer like the rule's tests. If `nmap` is, it does the same with `athar.nse`, and runs `athar scan` and `athar.nse` on the same raw responses to check that they read every field alike. `go test -short` skips these.
 
 ```bash
 go run ./cli/cmd/athar verify -strict rules
@@ -52,7 +52,7 @@ Every command takes rules plus its own input. None of them depends on another co
 | --- | --- | --- | --- |
 | `athar verify` | Rule files or folders | Schema errors, lint findings, test results; non-zero exit on failure | No |
 | `athar scan` | Rules + hosts, CIDR ranges or `host:port` + ports | Matched services (readable lines, or JSONL with `-json`) | Yes |
-| `athar convert` | Rules + engines or `nuclei` (`-t`) | One query or Nuclei template per rule and target, with fidelity and notes (JSON with `-json`, template files with `-o`) | No |
+| `athar convert` | Rules + engines, `nuclei` or `nse` (`-t`) | One query, Nuclei template or `athar.nse` data file per rule and target, with fidelity and notes (JSON with `-json`, files with `-o`) | No |
 | `athar match` (planned) | Rules + stored data (engine exports, recorded responses) | Matched records (JSONL) | No |
 
 Example session (`verify`, `scan` and `convert` output is real; `match` is planned, not built yet):
@@ -160,7 +160,7 @@ flowchart LR
   V(["athar verify"]) -->|test responses| EV
   S(["athar scan"]) --> PL["Probe planner"] --> PR["Prober"] -->|live responses| EV
   M(["athar match"]) --> FA["Field adapters"] -->|engine records| EV
-  C(["athar convert"]) --> BE["Converter"] --> Q["Engine queries,<br/>Nuclei templates"]
+  C(["athar convert"]) --> BE["Converter"] --> Q["Engine queries,<br/>Nuclei templates,<br/>Nmap script data"]
   EV["Evaluator<br/>one implementation"] --> O["Matches or<br/>test results"]
   classDef eval fill:#e3efff,stroke:#2f6fdb,stroke-width:2px,color:#0b1f44
   class EV eval
@@ -171,7 +171,7 @@ flowchart LR
 - **Probe planner** expands targets and ports and works out which parts of the baseline probe the rules need and which custom probes to send, like Nuclei's template clustering, so each open port gets each request once.
 - **Prober** does the TCP connect check, sends the baseline probe and any opt-in probes, then computes the hashes: favicon mmh3, MD5 and SHA-256, body mmh3 and SHA-256. JARM and JA3S are planned.
 - **Field adapters** map engine exports (FOFA, Shodan, Censys, ZoomEye, Modat, urlscan) into taxonomy fields.
-- **Converter** builds one boolean expression from the condition and selections, pushes negations down to single conditions, lets each engine backend translate them, and replaces what an engine can't express with TRUE so the query can only over-match (the superset rule). Each result is labelled `exact`, `approximate`, `superset` or `unsupported`, with notes. The Nuclei backend renders the same expression as one DSL matcher and sends the requests its terms read: the baseline, the favicon, custom probes, and an `ssl` block for certificate fields.
+- **Converter** builds one boolean expression from the condition and selections, pushes negations down to single conditions, lets each engine backend translate them, and replaces what an engine can't express with TRUE so the query can only over-match (the superset rule). Each result is labelled `exact`, `approximate`, `superset` or `unsupported`, with notes. The Nuclei backend renders the same expression as one DSL matcher and sends the requests its terms read: the baseline, the favicon, custom probes, and an `ssl` block for certificate fields. The NSE backend writes the same expression as Lua data for `athar.nse`, a hand-written Nmap script that probes and parses as the prober does; regular expressions travel as programs compiled by Go's `regexp/syntax`, which the script runs on a small Pike VM.
 - **Evaluator** is a Sigma condition engine plus extraction, over taxonomy fields.
 
 ## Layout
@@ -190,7 +190,7 @@ cli/
     ├── scan/             scan runner: probe planning, rate and per-host limits, rule evaluation, precedence
     ├── output/           identity records as readable lines or JSONL
     ├── color/            ANSI colours, only on terminals and without NO_COLOR
-    └── convert/          rule to query: expression tree, superset rule, one backend per engine (fofa, shodan, censys, zoomeye, modat, urlscan), Nuclei templates
+    └── convert/          rule to query: expression tree, superset rule, one backend per engine (fofa, shodan, censys, zoomeye, modat, urlscan), Nuclei templates, athar.nse and its rule data
 ```
 
 Packages stay under `internal/` until the API settles. The evaluator is the first candidate to become public, so other tools can embed Athar rules.
@@ -199,5 +199,5 @@ Packages stay under `internal/` until the API settles. The evaluator is the firs
 
 1. ~~`rule`, `condition`, `eval` and `athar verify`~~ (done): the evaluator defines what rules mean, and CI needs it first.
 2. ~~`probe`, `scan`, `output` and `athar scan` for TCP, TLS and HTTP~~ (done). Next for scan: JARM, JA3S, SSH host key and key exchange.
-3. ~~`convert` and `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat and urlscan.io~~ (done), and Nuclei templates (done). Next: Censys header search, once its syntax is verified; other targets are in [docs/conversion-targets.md](../docs/conversion-targets.md).
+3. ~~`convert` and `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat and urlscan.io~~ (done), Nuclei templates (done) and Nmap NSE (done). Next: Censys header search, once its syntax is verified; other targets are in [docs/conversion-targets.md](../docs/conversion-targets.md).
 4. `fields` adapters and `athar match`.

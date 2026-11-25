@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Athar-HQ/Athar/cli/internal/convert"
 	"github.com/Athar-HQ/Athar/cli/internal/rule"
 )
 
@@ -316,6 +317,58 @@ func TestConvertNuclei(t *testing.T) {
 
 	if code, _, _ := runCLI("convert", "-t", "fofa", "-o", tdir, fixture); code != exitUsage {
 		t.Errorf("-o without nuclei: exit %d, want %d", code, exitUsage)
+	}
+}
+
+func TestConvertNSE(t *testing.T) {
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "family.yml")
+	if err := os.WriteFile(fixture, []byte(convertFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Alone, -t nse prints the rule's data file.
+	code, out, errOut := runCLI("convert", "-t", "nse", fixture)
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	if !strings.HasPrefix(out, "-- Athar rule data for athar.nse") || !strings.Contains(out, "\nreturn {\n  nse = 1,\n") {
+		t.Errorf("stdout is not the data file:\n%s", out)
+	}
+
+	// With -o, the script goes to the folder and the data file under
+	// athar-rules.
+	odir := filepath.Join(dir, "nse")
+	code, out, errOut = runCLI("convert", "-t", "nse", "-o", odir, "-no-color", fixture)
+	if code != exitOK {
+		t.Fatalf("-o: exit %d\n%s", code, errOut)
+	}
+	file := filepath.Join(odir, "athar-rules", "family.lua")
+	if !strings.Contains(out, "  nse      exact        "+file+"\n") {
+		t.Errorf("-o output:\n%s", out)
+	}
+	if b, err := os.ReadFile(filepath.Join(odir, "athar.nse")); err != nil || string(b) != convert.NSEScript {
+		t.Errorf("athar.nse not written: %v", err)
+	}
+	if b, err := os.ReadFile(file); err != nil || !strings.Contains(string(b), "return {") {
+		t.Errorf("data file: %v\n%s", err, b)
+	}
+
+	// -json carries the data file.
+	code, out, _ = runCLI("convert", "-t", "nse", "-json", fixture)
+	var res struct {
+		Engine, Template string
+		TemplateID       string `json:"template_id"`
+	}
+	if code != exitOK || json.Unmarshal([]byte(out), &res) != nil || res.Engine != "nse" ||
+		res.TemplateID != "family" || !strings.Contains(res.Template, "return {") {
+		t.Errorf("-json: exit %d, %+v\n%s", code, res, out)
+	}
+
+	// Both scanners: one document each, separated by ---, a comment in Lua.
+	code, out, _ = runCLI("convert", "-t", "nuclei,nse", fixture)
+	if code != exitOK || !strings.Contains(out, "\n---\n-- Athar rule data for athar.nse") {
+		t.Errorf("nuclei and nse: exit %d\n%s", code, out)
 	}
 }
 
