@@ -1,0 +1,56 @@
+title: Agentic Offensive Framework - ARTEX favicon
+id: 425e5153-ed37-41c1-875f-537808d58078
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
+    type: similar
+  - id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53
+    type: similar
+status: experimental
+description: |
+  Favicon of the ARTEX console, matched on its own. It finds ARTEX deployments
+  whose title no longer carries the family suffix, which the family and ARTEX
+  rules miss. Because it uses one signal, confirm hits with those rules. Linked
+  as similar rather than variant-of because it does not repeat the family title.
+references:
+  - https://x.com/MalGamy12/status/2115089738403037207
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_icon:
+    http.favicon.mmh3: -576220750
+  condition: selection_icon
+identifies:
+  product: ARTEX
+  family: artex
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Unrelated sites using the same icon file, if it is a framework or template default
+tests:
+  # Minimal samples built from the published favicon hash, not captured responses.
+  - name: ARTEX console
+    expect: match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+      http.favicon.mmh3: -576220750
+  - name: Same icon behind a changed title
+    expect: match
+    response:
+      http.title: 'Dashboard'
+      http.favicon.mmh3: -576220750
+  - name: Family brand with its own icon
+    expect: no_match
+    response:
+      http.title: 'GOOGTEX — 자율 침투 테스트 콘솔'
+      http.favicon.mmh3: 1234567890
+native:
+  fofa: 'icon_hash="-576220750"'

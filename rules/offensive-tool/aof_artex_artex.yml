@@ -6,13 +6,17 @@ related:
 status: experimental
 description: |
   The ARTEX-branded deployment, the most common brand of the family.
-  Recognised by its title prefix or by its favicon. The favicon hash is the one
-  the published variant hunt excludes as the original.
+  Recognised by the family title plus either the ARTEX brand at the start of
+  the title (ARTEX, ARTEX MX, ARTEX-PRO) or the ARTEX favicon. The favicon hash
+  is the one the published variant hunt excludes as the original.
 references:
-  - https://x.com/MalGamy12
+  - https://x.com/MalGamy12/status/2115089738403037207
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
+modified: 2026-11-25
 tags:
+  - attack.resource_development
+  - attack.t1588.002
   - category.offensive-tool
   - aof
 target:
@@ -20,14 +24,15 @@ target:
   tls: auto
 detection:
   selection_title:
-    http.title|contains: 'Autonomous Penetration Testing Console'
-  selection_route:
-    http.body|contains: '/function/tasks'
+    http.title|contains:
+      - '自主渗透测试控制台'
+      - '자율 침투 테스트 콘솔'
+      - 'Autonomous Penetration Testing Console'
   selection_brand:
     http.title|startswith: 'ARTEX'
   selection_icon:
     http.favicon.mmh3: -576220750
-  condition: selection_title and selection_route and (selection_brand or selection_icon)
+  condition: selection_title and (selection_brand or selection_icon)
 identifies:
   product: ARTEX
   family: artex
@@ -36,22 +41,28 @@ confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
 tests:
-  # Minimal samples built from the published title, route and favicon hash, not captured responses.
-  - name: ARTEX title prefix
+  # Minimal samples built from the published titles and favicon hash, not captured responses.
+  - name: ARTEX, Chinese title
     expect: match
     response:
-      http.title: 'ARTEX — Autonomous Penetration Testing Console'
-      http.body: '... /function/tasks ...'
-  - name: Title without brand prefix, ARTEX favicon
+      http.title: 'ARTEX — 自主渗透测试控制台'
+  - name: ARTEX-PRO, Chinese title
     expect: match
     response:
-      http.title: 'Autonomous Penetration Testing Console'
-      http.body: '... /function/tasks ...'
+      http.title: 'ARTEX-PRO — 自主渗透测试控制台'
+  - name: ARTEX, Korean title
+    expect: match
+    response:
+      http.title: 'ARTEX: 자율 침투 테스트 콘솔'
+  - name: Rebranded title with the ARTEX favicon
+    expect: match
+    response:
+      http.title: '渗透工作台 — 自主渗透测试控制台'
       http.favicon.mmh3: -576220750
   - name: Other brand of the family
     expect: no_match
     response:
-      http.title: 'NKW — Autonomous Penetration Testing Console'
-      http.body: '... /function/tasks ...'
+      http.title: 'GOOGTEX — 자율 침투 테스트 콘솔'
+      http.favicon.mmh3: 1234567890
 native:
-  fofa: '"Autonomous penetration testing" && body="/function/tasks"'
+  fofa: 'title="自主渗透测试控制台" && (title="ARTEX" || icon_hash="-576220750")'
