@@ -47,7 +47,7 @@ Rust would be worth revisiting only if evaluation became CPU-bound, for example 
 
 ### One version, released from tags
 
-A single tag such as `v0.1.0` versions the spec, the rules and the CLI together, which is why `go.mod` sits at the repository root. Pushing the tag builds the binaries and publishes the GitHub release. Separate versions per part can come later if the parts start moving at different speeds.
+A single tag such as `v0.1.0` versions the spec, the rules and the CLI together, which is why `go.mod` sits at the repository root. The spec carries no version number of its own. Pushing the tag builds the binaries and publishes the GitHub release. Separate versions per part can come later if the parts start moving at different speeds.
 
 ## Open
 
@@ -66,7 +66,7 @@ A single tag such as `v0.1.0` versions the spec, the rules and the CLI together,
 
 **The idea.** Some services might only be identifiable through a combination of ports on one host. Picture a framework whose operator UI on 443 looks like a generic nginx page and whose agent API on 8443 presents a default certificate that other products share too. Neither port is specific on its own; together they would be.
 
-**Why it is not in v0.1.**
+**Why it is not in the spec yet.**
 
 - **No known case needs it.** The strong signals (default certificates, favicons, titles, banners, JARM) sit on a single service. Where a framework exposes several ports, each one is usually identifiable alone, and the second port only adds confidence.
 - **It changes the unit of everything.** The evaluator, the identity record (`ip:port` becomes `ip`), the tests and the scanner would all have to work per host. The scanner would also have to probe ports it was not asked about.
@@ -96,7 +96,7 @@ Consumers that don't support host rules would ignore them. The scanner would get
 ## Next steps
 
 - [x] Decide standalone vs Sigma extension, pick a name, create the repository
-- [ ] Freeze the v0.1 field taxonomy and write a JSON Schema
+- [ ] Freeze the field taxonomy and write a JSON Schema
 - [ ] Run the baseline-probe measurement against FOFA, Shodan, Censys, ZoomEye and Modat
 - [x] Build the evaluator and `athar verify`, and run it in CI
 - [x] Build `athar scan` for TCP, TLS and HTTP on hosts, CIDR ranges and ports

@@ -1,6 +1,6 @@
 # Athar Rule Specification
 
-Version 0.1 · draft · 2026-11-25
+Draft. The spec has no version number of its own: it is versioned with the rules and the CLI by the repository's [release tags](https://github.com/Athar-HQ/Athar/releases).
 
 This document defines the Athar rule format: how a rule describes a network service, what a match means, and how a rule converts to search-engine queries. Background is in the [README](../README.md), the comparison with existing formats in [prior-art.md](../docs/prior-art.md), and open questions in [decisions.md](../docs/decisions.md).
 
@@ -16,7 +16,7 @@ This document defines the Athar rule format: how a rule describes a network serv
 8. [Families and variants](#8-families-and-variants)
 9. [Tests and provenance](#9-tests-and-provenance)
 10. [Conversion](#10-conversion)
-11. [Out of scope for v0.1](#11-out-of-scope-for-v01)
+11. [Out of scope for now](#11-out-of-scope-for-now)
 - [Appendix A: Engine field mapping](#appendix-a-engine-field-mapping)
 
 ## 1. Overview
@@ -389,7 +389,7 @@ Basic auth, urlscan.io (unsupported): urlscan indexes no header but Server.
 
 At Modat host level, a query goes into `same_service( … )`.
 
-## 11. Out of scope for v0.1
+## 11. Out of scope for now
 
 - **Multi-service fingerprints**, where only a combination of ports on one host identifies a service. Deferred; see [decisions.md](../docs/decisions.md#multi-service-fingerprints).
 - **Engine-specific header and body hashes** whose algorithms are undocumented (section 5).

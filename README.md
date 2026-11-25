@@ -10,7 +10,7 @@
 - **Query converter.** Translate the same rules into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io to find candidate services in indexed scan data.
 - **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
-> **Status (draft v0.1).** The Go CLI supports `athar scan` for live scanning, `athar convert` for search-engine queries and `athar verify` for syntax checks and rule tests. Matching against stored data is planned.
+> **Status: draft.** The rule format can still change. The Go CLI supports `athar scan` for live scanning, `athar convert` for search-engine queries and `athar verify` for syntax checks and rule tests; matching against stored data is planned. Binaries are on the [latest release](https://github.com/Athar-HQ/Athar/releases/latest).
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
 
@@ -108,7 +108,7 @@ The **scanner defines what a rule means**. `match` and `scan` use the same evalu
 
 ## Scope
 
-One rule matches **one service**: one IP address and one port. Fingerprints that only work when two ports of the same host are combined are deliberately left out of v0.1. [docs/decisions.md](docs/decisions.md#multi-service-fingerprints) explains why and how they could be added later without changing existing rules.
+One rule matches **one service**: one IP address and one port. Fingerprints that only work when two ports of the same host are combined are deliberately left out for now. [docs/decisions.md](docs/decisions.md#multi-service-fingerprints) explains why and how they could be added later without changing existing rules.
 
 ## Repository layout
 
@@ -248,10 +248,6 @@ The searches as the platforms showed them:
 **Modat Magnify**: 1,433 services
 
 ![Modat Magnify search for the converted family query: 1,433 results, most on port 8787, product label Artex](docs/images/convert-modat.png)
-
-**Shodan**: no results, because the route is not in Shodan's index
-
-![Shodan search for the converted family query: no results found](docs/images/convert-shodan.png)
 
 | Flag | Effect |
 | --- | --- |
