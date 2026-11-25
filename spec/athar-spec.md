@@ -148,7 +148,7 @@ Detection is Sigma's grammar, unchanged except for the `probe` key. A map is AND
 
 **Same service.** All selections must hold on the same service (one IP and port). A scanner does this implicitly. Backends must enforce it where an engine indexes whole hosts.
 
-**Matching.** String matching is case-insensitive by default, as in Sigma. A bare value is an exact match. This differs from FOFA, where `title="x"` is a substring match; backends handle such differences, authors don't. As in Sigma, `*` and `?` in a value are wildcards (`\*`, `\?` and `\\` are literals), and a `re` expression is used as written, so it is case-sensitive unless it starts with `(?i)`.
+**Matching.** String matching is case-insensitive by default, as in Sigma. A bare value is an exact match. This differs from FOFA, where `title="x"` is a substring match; backends handle such differences, authors don't. As in Sigma, `*` and `?` in a value are wildcards (`\*`, `\?` and `\\` are literals), and a `re` expression is used as written, so it is case-sensitive unless it starts with `(?i)`. A value for a string or `hex` field is the text the rule gives, also where YAML reads an unquoted value as a number, a boolean or a date: `tls.cert.serial: 0100` is `0100`, not 64. The same holds for the response values in `tests`. Values of `int` and `bool` fields, of `exists` and of the numeric comparisons are read as YAML reads them.
 
 | Modifier | Source | Meaning |
 | --- | --- | --- |

@@ -1,6 +1,7 @@
 package rule
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -88,6 +89,94 @@ func TestParseErrors(t *testing.T) {
 		if _, err := Parse([]byte(src), name); err == nil {
 			t.Errorf("%s: want error", name)
 		}
+	}
+}
+
+// String fields keep the text the author wrote; numeric and boolean fields
+// and the values of exists and the comparisons keep what YAML decoded.
+func TestParseValuesAsWritten(t *testing.T) {
+	r, err := Parse([]byte(`
+title: t
+x-serial: &serial 0100
+x-common: &common
+  http.title: 1_000
+  http.status_code: 200
+detection:
+  sel:
+    <<: *common
+    tls.cert.serial: *serial
+    service.banner|hex|contains: [0016, '17']
+    service.port|hex: 0016
+    http.headers.etag|cased: [0x1F, True, 2.0, 2026-11-26, plain]
+    http.favicon.mmh3: [-576220750, 0x10]
+    http.body.mmh3|gt: 1e3
+    http.title|exists: true
+    tls.cert.self_signed: true
+    tls.jarm: ~
+    probe: p
+  any:
+    - http.title: .5
+    - http.status_code: 0100
+  keywords: [2.0, text, ~]
+  word: 0100
+  condition: sel
+tests:
+  - name: a
+    expect: match
+    response:
+      <<: *common
+      tls.cert.serial: *serial
+      tls.cert.san: [1e3, a]
+      http.body.mmh3: 0x10
+      tls.cert.self_signed: true
+      tls.jarm: ~
+    probes:
+      p: { http.body: 2.0, http.status_code: 2_00 }
+`), "t.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDetection := map[string]any{
+		"sel": map[string]any{
+			"http.title":                  "1_000",
+			"http.status_code":            200,
+			"tls.cert.serial":             "0100",
+			"service.banner|hex|contains": []any{"0016", "17"},
+			"service.port|hex":            "0016",
+			"http.headers.etag|cased":     []any{"0x1F", "True", "2.0", "2026-11-26", "plain"},
+			"http.favicon.mmh3":           []any{-576220750, 16},
+			"http.body.mmh3|gt":           1000.0,
+			"http.title|exists":           true,
+			"tls.cert.self_signed":        true,
+			"tls.jarm":                    nil,
+			"probe":                       "p",
+		},
+		"any": []any{
+			map[string]any{"http.title": ".5"},
+			map[string]any{"http.status_code": 64},
+		},
+		"keywords":  []any{"2.0", "text", nil},
+		"word":      64,
+		"condition": "sel",
+	}
+	if !reflect.DeepEqual(r.Detection, wantDetection) {
+		t.Errorf("detection:\n got %#v\nwant %#v", r.Detection, wantDetection)
+	}
+	wantResponse := map[string]any{
+		"http.title":           "1_000",
+		"http.status_code":     200,
+		"tls.cert.serial":      "0100",
+		"tls.cert.san":         []any{"1e3", "a"},
+		"http.body.mmh3":       16,
+		"tls.cert.self_signed": true,
+		"tls.jarm":             nil,
+	}
+	if got := r.Tests[0].Response; !reflect.DeepEqual(got, wantResponse) {
+		t.Errorf("response:\n got %#v\nwant %#v", got, wantResponse)
+	}
+	wantProbe := map[string]any{"http.body": "2.0", "http.status_code": 200}
+	if got := r.Tests[0].Probes["p"]; !reflect.DeepEqual(got, wantProbe) {
+		t.Errorf("probe response:\n got %#v\nwant %#v", got, wantProbe)
 	}
 }
 

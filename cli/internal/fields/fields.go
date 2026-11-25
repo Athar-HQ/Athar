@@ -47,6 +47,18 @@ const HeaderPrefix = "http.headers."
 // Keyword fields are searched by Sigma keyword selections (spec section 6).
 var Keyword = []string{"service.banner", "http.headers_raw", "http.body"}
 
+// typed lists the fields of type int or bool. All other fields hold strings.
+var typed = map[string]bool{
+	"service.port":         true,
+	"http.status_code":     true,
+	"http.body.mmh3":       true,
+	"http.favicon.mmh3":    true,
+	"tls.cert.self_signed": true,
+}
+
+// Typed reports whether name is a field whose value is a number or a boolean.
+func Typed(name string) bool { return typed[name] }
+
 // Known reports whether name is a taxonomy field, a single-header field with a
 // lowercase name, or an engine-specific x-<engine>. field.
 func Known(name string) bool {

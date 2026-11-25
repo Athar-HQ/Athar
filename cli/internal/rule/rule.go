@@ -122,6 +122,9 @@ func Parse(data []byte, path string) (*Rule, error) {
 	if err := yaml.Unmarshal(data, r); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := r.valuesAsWritten(data); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	for k := range top {
 		if !knownKeys[k] {
 			r.unknownKeys = append(r.unknownKeys, k)
