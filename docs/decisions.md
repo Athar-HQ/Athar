@@ -97,5 +97,5 @@ Consumers that don't support host rules would ignore them. The scanner would get
 - [x] Build the evaluator and `athar verify`, and run it in CI
 - [x] Build `athar scan` for TCP, TLS and HTTP on hosts, CIDR ranges and ports
 - [ ] Add JARM, JA3S and SSH host key fields to `athar scan`
-- [ ] Build `athar convert` for FOFA, Shodan, Censys and Modat
+- [x] Build `athar convert` for FOFA, Shodan, Censys, ZoomEye and Modat
 - [ ] Seed 20–30 rules with tests from published hunts (ARTEX family, common C2 panels)

@@ -21,14 +21,21 @@ type Node interface {
 	Names(dst []string) []string
 }
 
-type ident string
-type not struct{ x Node }
-type and []Node
-type or []Node
+// Ident refers to one named selection.
+type Ident string
 
-func (n ident) Eval(t map[string]bool) bool { return t[string(n)] }
-func (n not) Eval(t map[string]bool) bool   { return !n.x.Eval(t) }
-func (n and) Eval(t map[string]bool) bool {
+// Not negates X.
+type Not struct{ X Node }
+
+// And holds if all children hold.
+type And []Node
+
+// Or holds if any child holds.
+type Or []Node
+
+func (n Ident) Eval(t map[string]bool) bool { return t[string(n)] }
+func (n Not) Eval(t map[string]bool) bool   { return !n.X.Eval(t) }
+func (n And) Eval(t map[string]bool) bool {
 	for _, x := range n {
 		if !x.Eval(t) {
 			return false
@@ -36,7 +43,7 @@ func (n and) Eval(t map[string]bool) bool {
 	}
 	return true
 }
-func (n or) Eval(t map[string]bool) bool {
+func (n Or) Eval(t map[string]bool) bool {
 	for _, x := range n {
 		if x.Eval(t) {
 			return true
@@ -45,15 +52,15 @@ func (n or) Eval(t map[string]bool) bool {
 	return false
 }
 
-func (n ident) Names(dst []string) []string { return append(dst, string(n)) }
-func (n not) Names(dst []string) []string   { return n.x.Names(dst) }
-func (n and) Names(dst []string) []string {
+func (n Ident) Names(dst []string) []string { return append(dst, string(n)) }
+func (n Not) Names(dst []string) []string   { return n.X.Names(dst) }
+func (n And) Names(dst []string) []string {
 	for _, x := range n {
 		dst = x.Names(dst)
 	}
 	return dst
 }
-func (n or) Names(dst []string) []string {
+func (n Or) Names(dst []string) []string {
 	for _, x := range n {
 		dst = x.Names(dst)
 	}
@@ -110,7 +117,7 @@ func (p *parser) or() (Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	n := or{x}
+	n := Or{x}
 	for p.peek() == "or" {
 		p.next()
 		y, err := p.and()
@@ -130,7 +137,7 @@ func (p *parser) and() (Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	n := and{x}
+	n := And{x}
 	for p.peek() == "and" {
 		p.next()
 		y, err := p.unary()
@@ -152,7 +159,7 @@ func (p *parser) unary() (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		return not{x}, nil
+		return Not{x}, nil
 	}
 	return p.primary()
 }
@@ -189,21 +196,21 @@ func (p *parser) primary() (Node, error) {
 		}
 		nodes := make([]Node, len(matched))
 		for i, m := range matched {
-			nodes[i] = ident(m)
+			nodes[i] = Ident(m)
 		}
 		if len(nodes) == 1 {
 			return nodes[0], nil
 		}
 		if t == "1" {
-			return or(nodes), nil
+			return Or(nodes), nil
 		}
-		return and(nodes), nil
+		return And(nodes), nil
 	default:
 		name := p.next()
 		if !contains(p.names, name) {
 			return nil, fmt.Errorf("unknown selection %q", name)
 		}
-		return ident(name), nil
+		return Ident(name), nil
 	}
 }
 

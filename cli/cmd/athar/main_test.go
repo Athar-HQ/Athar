@@ -200,3 +200,49 @@ func TestScanUsageErrors(t *testing.T) {
 		t.Errorf("invalid rule: exit %d\n%s", code, errOut)
 	}
 }
+
+func TestConvertCommand(t *testing.T) {
+	code, out, errOut := runCLI("convert", "-t", "fofa,shodan", "../../../rules/offensive-tool/aof_artex.yml")
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	want := "Agentic Offensive Framework - ARTEX family  ../../../rules/offensive-tool/aof_artex.yml\n" +
+		"  fofa     exact        title=\"Autonomous Penetration Testing Console\" && body=\"/function/tasks\"\n" +
+		"  shodan   approximate  http.title:\"Autonomous Penetration Testing Console\" http.html:\"/function/tasks\"\n" +
+		"                        note: shodan does not index all of a large body; a body condition can miss hosts the scanner finds\n"
+	if out != want {
+		t.Errorf("text output:\n got %q\nwant %q", out, want)
+	}
+
+	code, out, _ = runCLI("convert", "../../../rules", "-json", "-t", "censys")
+	if code != exitOK {
+		t.Fatalf("-json: exit %d", code)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("want one line per rule, got %q", out)
+	}
+	var res struct {
+		Rule, Engine, Query, Fidelity string
+		Notes                         []string
+	}
+	for _, l := range lines {
+		if err := json.Unmarshal([]byte(l), &res); err != nil {
+			t.Fatalf("%q: %v", l, err)
+		}
+		if res.Engine != "censys" || res.Rule == "" || res.Fidelity == "" {
+			t.Errorf("record = %+v", res)
+		}
+	}
+
+	for _, args := range [][]string{
+		{"convert"},
+		{"convert", "-t", "bing", "../../../rules"},
+		{"convert", "-t", ",", "../../../rules"},
+		{"convert", "/does/not/exist"},
+	} {
+		if code, _, _ := runCLI(args...); code != exitUsage {
+			t.Errorf("%v: exit %d, want %d", args, code, exitUsage)
+		}
+	}
+}

@@ -10,7 +10,7 @@
 - **Query converter.** Translate the same rules into queries for FOFA, Shodan, Censys, ZoomEye and Modat Magnify to find candidate services in indexed scan data.
 - **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
-> **Status (draft v0.1).** The Go CLI supports `athar scan` for live scanning and `athar verify` for syntax checks and rule tests. Query conversion and matching against stored data are planned.
+> **Status (draft v0.1).** The Go CLI supports `athar scan` for live scanning, `athar convert` for search-engine queries and `athar verify` for syntax checks and rule tests. Matching against stored data is planned.
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
 
@@ -92,7 +92,7 @@ For internet-wide hunting the commands can be combined: run a converted query in
 
 The **scanner defines what a rule means**. `match` and `scan` use the same evaluator as `verify`, so an engine query can be loose without making the results wrong.
 
-`athar scan` and `athar verify` are available; `convert` and `match` are planned. See [CLI](#cli).
+`athar scan`, `athar convert` and `athar verify` are available; `match` is planned. See [CLI](#cli).
 
 ## Principles
 
@@ -138,7 +138,7 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 | --- | --- | --- |
 | `athar scan` | available | Checks hosts, CIDR ranges and ports for services that match the rules; writes the matches as JSONL. |
 | `athar verify` | available | Checks rules against the spec and runs every rule's tests. |
-| `athar convert` | planned | Turns rules into FOFA, Shodan, Censys, ZoomEye or Modat Magnify queries, with fidelity and warnings. |
+| `athar convert` | available | Turns rules into FOFA, Shodan, Censys, ZoomEye or Modat Magnify queries, with fidelity and notes. |
 | `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
 
 ### Install
@@ -195,6 +195,64 @@ $ athar scan -r rules/ -json -timeout 10s 130.12.171.248:9443
 | `-v` | Print every open port to stderr, with what it answered. A port that accepts connections but answers nothing shows as `no response (tried TLS, HTTP)`. |
 
 Only scan hosts you are allowed to scan. The scanner identifies itself in its HTTP `User-Agent` as `athar`.
+
+### Convert
+
+`athar convert` turns rules into queries for FOFA, Shodan, Censys, ZoomEye and Modat Magnify. Give it rule files or folders; `-t` picks the engines.
+
+```bash
+athar convert rules/offensive-tool/aof_artex.yml rules/offensive-tool/aof_artex_artex.yml
+```
+
+![athar convert output for the ARTEX family and ARTEX rules: one query per engine, each labelled exact, approximate or superset, with notes on what was lost](docs/images/athar-convert.png)
+
+Every query carries a fidelity label, and the notes say what was lost and why:
+
+| Fidelity | Meaning |
+| --- | --- |
+| `exact` | Same result set as the rule on the engine's data. |
+| `approximate` | Same intent, looser operator: tokenised text, a prefix searched as a substring, case-sensitive equality. |
+| `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. The ARTEX rule's `title starts with ARTEX or ARTEX favicon` has no Shodan form, because Shodan has no OR. |
+| `unsupported` | Nothing meaningful is left, and no query is printed. |
+
+**The family rule on the platforms**, 25 November 2026:
+
+| Platform | Result of the converted query |
+| --- | --- |
+| Censys | 243 hosts. Censys's own software label `artex` is on 239 of them. |
+| ZoomEye | About 525 results. |
+| Modat Magnify | 1,433 services. Modat's own product label `Artex` is on about 1,390 of them. Most run on port 8787. |
+| Shodan | No results. The route sits in an inline script near the end of a 12 KB page, which Shodan's `http.html` index does not reach. The title condition alone finds 292 hosts. |
+| FOFA | Not tested yet: searching `body` needs a registered FOFA account. |
+
+The engines disagree because each indexes pages differently. That is why the scanner, not the query, decides what matches: run `athar scan` on the candidates to confirm them.
+
+<details>
+<summary>Screenshots of the searches</summary>
+
+**Censys**
+
+![Censys search for the converted family query: 243 hosts, matched fields html_title and body](docs/images/convert-censys.png)
+
+**ZoomEye**
+
+![ZoomEye search for the converted family query: about 525 results with ARTEX titles](docs/images/convert-zoomeye.png)
+
+**Modat Magnify**
+
+![Modat Magnify search for the converted family query: 1,433 results, most on port 8787, product label Artex](docs/images/convert-modat.png)
+
+**Shodan**
+
+![Shodan search for the converted family query: no results found](docs/images/convert-shodan.png)
+
+</details>
+
+| Flag | Effect |
+| --- | --- |
+| `-t` | Engines, comma-separated: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`. Default: all. |
+| `-json` | One JSON object per rule and engine: rule id, path, title, engine, query, fidelity and notes. |
+| `-no-color` | No colours, as for `scan`. |
 
 ### Verify rules
 

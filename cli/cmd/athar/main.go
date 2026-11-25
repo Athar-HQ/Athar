@@ -40,7 +40,7 @@ Usage:
 Commands:
   scan      check hosts, ranges and ports for services that match the rules
   verify    check rule syntax and run every rule's tests
-  convert   turn rules into search-engine queries (not implemented yet)
+  convert   turn rules into FOFA, Shodan, Censys, ZoomEye and Modat queries
   match     evaluate rules against stored data (not implemented yet)
   version   print the version
 
@@ -78,7 +78,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdVerify(args[1:], stdout, stderr)
 	case "scan":
 		return cmdScan(args[1:], stdout, stderr)
-	case "convert", "match":
+	case "convert":
+		return cmdConvert(args[1:], stdout, stderr)
+	case "match":
 		fmt.Fprintf(stderr, "athar %s: not implemented yet, see cli/README.md\n", cmd)
 		return exitUsage
 	case "version", "-version", "--version":

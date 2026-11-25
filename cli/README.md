@@ -2,7 +2,7 @@
 
 The reference implementation of the Athar rule format: one Go binary that verifies, converts and evaluates rules, and scans live services.
 
-> **Status:** `athar verify` and `athar scan` work. `convert` and `match` are planned; their flags below are the target design and may change.
+> **Status:** `athar verify`, `athar scan` and `athar convert` work. `match` is planned; its flags below are the target design and may change.
 
 [docs/decisions.md](../docs/decisions.md#cli-in-go) explains why the CLI is written in Go.
 
@@ -50,10 +50,10 @@ Every command takes rules plus its own input. None of them depends on another co
 | --- | --- | --- | --- |
 | `athar verify` | Rule files or folders | Schema errors, lint findings, test results; non-zero exit on failure | No |
 | `athar scan` | Rules + hosts, CIDR ranges or `host:port` + ports | Matched services (readable lines, or JSONL with `-json`) | Yes |
-| `athar convert` | Rules + target engine | One query per rule, with fidelity and warnings | No |
+| `athar convert` | Rules + engines (`-t`) | One query per rule and engine, with fidelity and notes (JSON with `-json`) | No |
 | `athar match` | Rules + stored data (engine exports, recorded responses) | Matched records (JSONL) | No |
 
-Example session (`verify` and `scan` output is real; `convert` and `match` are illustrative):
+Example session (`verify`, `scan` and `convert` output is real; `match` is illustrative):
 
 ```text
 $ athar verify rules/
@@ -66,9 +66,11 @@ rules/offensive-tool/aof_artex_basic_auth.yml  2/2 tests passed
 $ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
 athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
 
-$ athar convert -t fofa rules/offensive-tool/aof_artex.yml
-# Agentic Offensive Framework - ARTEX family  [exact]
-title="Autonomous Penetration Testing Console" && body="/function/tasks"
+$ athar convert -t fofa,modat rules/offensive-tool/aof_artex.yml
+Agentic Offensive Framework - ARTEX family  rules/offensive-tool/aof_artex.yml
+  fofa     exact        title="Autonomous Penetration Testing Console" && body="/function/tasks"
+  modat    approximate  http.title~"Autonomous Penetration Testing Console" and http.body~"/function/tasks"
+                        note: modat matches whole words on http.body
 
 $ athar match -r rules/ --format fofa fofa-export.json > candidates.jsonl
 ```
@@ -115,7 +117,7 @@ flowchart LR
   V(["athar verify"]) -->|test responses| EV
   S(["athar scan"]) --> PL["Probe planner"] --> PR["Prober"] -->|live responses| EV
   M(["athar match"]) --> FA["Field adapters"] -->|engine records| EV
-  C(["athar convert"]) --> BE["Backends"] --> Q["Engine queries"]
+  C(["athar convert"]) --> BE["Converter"] --> Q["Engine queries"]
   EV["Evaluator<br/>one implementation"] --> O["Matches or<br/>test results"]
   classDef eval fill:#e3efff,stroke:#2f6fdb,stroke-width:2px,color:#0b1f44
   class EV eval
@@ -126,7 +128,7 @@ flowchart LR
 - **Probe planner** expands targets and ports and works out which parts of the baseline probe the rules need and which custom probes to send, like Nuclei's template clustering, so each open port gets each request once.
 - **Prober** does the TCP connect check, sends the baseline probe and any opt-in probes, then computes the hashes: favicon mmh3, MD5 and SHA-256, body mmh3 and SHA-256. JARM and JA3S are planned.
 - **Field adapters** map engine exports (FOFA, Shodan, Censys, ZoomEye, Modat) into taxonomy fields.
-- **Backends** translate rules into one engine's query language and report the fidelity.
+- **Converter** builds one boolean expression from the condition and selections, pushes negations down to single conditions, lets each engine backend translate them, and replaces what an engine can't express with TRUE so the query can only over-match (the superset rule). Each result is labelled `exact`, `approximate`, `superset` or `unsupported`, with notes.
 - **Evaluator** is a Sigma condition engine plus extraction, over taxonomy fields.
 
 ## Layout
@@ -145,7 +147,7 @@ cli/
     ├── scan/             scan runner: probe planning, rate and per-host limits, rule evaluation, precedence
     ├── output/           identity records as readable lines or JSONL
     ├── color/            ANSI colours, only on terminals and without NO_COLOR
-    └── backend/          planned: one file per engine (fofa, shodan, censys, zoomeye, modat)
+    └── convert/          rule to query: expression tree, superset rule, one backend per engine (fofa, shodan, censys, zoomeye, modat)
 ```
 
 Packages stay under `internal/` until the API settles. The evaluator is the first candidate to become public, so other tools can embed Athar rules.
@@ -154,5 +156,5 @@ Packages stay under `internal/` until the API settles. The evaluator is the firs
 
 1. ~~`rule`, `condition`, `eval` and `athar verify`~~ (done): the evaluator defines what rules mean, and CI needs it first.
 2. ~~`probe`, `scan`, `output` and `athar scan` for TCP, TLS and HTTP~~ (done). Next for scan: JARM, JA3S, SSH host key and key exchange.
-3. `backend` and `athar convert` for FOFA, Shodan and Censys.
+3. ~~`convert` and `athar convert` for FOFA, Shodan, Censys, ZoomEye and Modat~~ (done). Next: Censys header search, once its syntax is verified.
 4. `fields` adapters and `athar match`.
