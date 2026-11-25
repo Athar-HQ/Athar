@@ -7,8 +7,11 @@ status: experimental
 description: |
   The icon AutoCVE's page links, frontend/public/autocve_icon.svg, by its
   MurmurHash3 (Shodan/FOFA style), computed from the file in the repository.
-  Finds interfaces whatever their title says. Censys has no MurmurHash3 field;
-  the SHA-256 favicon rule covers it.
+  Finds interfaces whatever their title says. AutoCVE serves no /favicon.ico
+  (404) and links an SVG icon, so Shodan and ZoomEye store no favicon for
+  these hosts; the hash finds them on FOFA and with athar scan, and the title
+  rule covers Shodan and ZoomEye. Censys has no MurmurHash3 field; the
+  SHA-256 favicon rule covers it.
 references:
   - https://github.com/larlarua/AutoCVE
 author: Gameel Ali (@MalGamy12)
