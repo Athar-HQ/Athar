@@ -8,6 +8,10 @@ description: |
   root layout (webapp/src/app/layout.tsx) sets for every page; the only page
   that overrides it (invite) uses the same title. The favicon is covered by
   separate rules.
+
+  Without a session, GET / answers with a redirect to /login. athar scan does
+  not follow redirects, so it never sees this title; the favicon rules find
+  those consoles, because /favicon.ico is served without a session.
 references:
   - https://github.com/samugit83/redamon
 author: Gameel Ali (@MalGamy12)
