@@ -17,6 +17,7 @@ rules/
 │   ├── aof_artex_basic_auth_nov26.yml              ARTEX behind Basic auth
 │   ├── aof_artex_frontend_files_nov26.yml          SHA-256 of the family's frontend stylesheets
 │   ├── aof_artex_llm_console_nov26.yml             LLM-driven console phrase
+│   ├── aof_artex_opx_nov26.yml                     OPX rebrand with an operations console title
 │   ├── aof_artex_rebrands_nov26.yml                family without ARTEX's title or favicon
 │   ├── aof_artex_stylesheet_nov26.yml              paths of the family's frontend stylesheets
 │   ├── aof_autocve_nov26.yml                       AutoCVE title
