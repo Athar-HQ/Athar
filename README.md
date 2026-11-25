@@ -307,7 +307,7 @@ rules/offensive-tool/aof_autocve_favicon_sha256_nov26.yml        2/2 tests passe
 rules/offensive-tool/aof_autocve_nov26.yml                       2/2 tests passed
 rules/offensive-tool/aof_cairn_cert_nov26.yml                    2/2 tests passed
 rules/offensive-tool/aof_cairn_cert_org_nov26.yml                2/2 tests passed
-rules/offensive-tool/aof_cairn_nov26.yml                         2/2 tests passed
+rules/offensive-tool/aof_cairn_nov26.yml                         6/6 tests passed
 rules/offensive-tool/aof_cyberstrikeai_cert_nov26.yml            2/2 tests passed
 rules/offensive-tool/aof_cyberstrikeai_favicon_nov26.yml         2/2 tests passed
 rules/offensive-tool/aof_cyberstrikeai_favicon_sha256_nov26.yml  2/2 tests passed
@@ -320,7 +320,6 @@ rules/offensive-tool/aof_pentagi_cert_nov26.yml                  3/3 tests passe
 rules/offensive-tool/aof_pentagi_cert_san_nov26.yml              2/2 tests passed
 rules/offensive-tool/aof_pentagi_favicon_nov26.yml               4/4 tests passed
 rules/offensive-tool/aof_pentagi_favicon_sha256_nov26.yml        4/4 tests passed
-rules/offensive-tool/aof_pentagi_nov26.yml                       3/3 tests passed
 rules/offensive-tool/aof_redamon_favicon_nov26.yml               3/3 tests passed
 rules/offensive-tool/aof_redamon_favicon_sha256_nov26.yml        3/3 tests passed
 rules/offensive-tool/aof_redamon_nov26.yml                       2/2 tests passed
@@ -329,7 +328,7 @@ rules/offensive-tool/aof_strix_favicon_sha256_nov26.yml          2/2 tests passe
 rules/offensive-tool/aof_strix_nov26.yml                         2/2 tests passed
 rules/offensive-tool/aof_strix_server_nov26.yml                  2/2 tests passed
 
-35 rules, 0 failed; 103/103 tests passed; 0 errors, 0 warnings
+34 rules, 0 failed; 104/104 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:
