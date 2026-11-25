@@ -84,7 +84,6 @@ rules/offensive-tool/aof_pentagi_cert_nov26.yml                  3/3 tests passe
 rules/offensive-tool/aof_pentagi_cert_san_nov26.yml              2/2 tests passed
 rules/offensive-tool/aof_pentagi_favicon_nov26.yml               4/4 tests passed
 rules/offensive-tool/aof_pentagi_favicon_sha256_nov26.yml        4/4 tests passed
-rules/offensive-tool/aof_pentagi_nov26.yml                       3/3 tests passed
 rules/offensive-tool/aof_redamon_favicon_nov26.yml               3/3 tests passed
 rules/offensive-tool/aof_redamon_favicon_sha256_nov26.yml        3/3 tests passed
 rules/offensive-tool/aof_redamon_nov26.yml                       2/2 tests passed
@@ -93,7 +92,7 @@ rules/offensive-tool/aof_strix_favicon_sha256_nov26.yml          2/2 tests passe
 rules/offensive-tool/aof_strix_nov26.yml                         2/2 tests passed
 rules/offensive-tool/aof_strix_server_nov26.yml                  2/2 tests passed
 
-35 rules, 0 failed; 103/103 tests passed; 0 errors, 0 warnings
+34 rules, 0 failed; 100/100 tests passed; 0 errors, 0 warnings
 
 $ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
 warning: 1 rule(s) declare custom probes, which are only sent with -probes; selections on them never match

@@ -1,8 +1,5 @@
 title: Agentic Offensive Framework - PentAGI favicon
 id: 4e88da89-a27f-4f67-a273-c5d5b49f18a1
-related:
-  - id: 22406af1-42ab-45b8-b540-9868e65d5c5e   # Agentic Offensive Framework - PentAGI
-    type: similar
 status: experimental
 description: |
   The favicons PentAGI ships in frontend/public/favicon, by their MurmurHash3

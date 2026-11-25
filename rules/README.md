@@ -33,7 +33,6 @@ rules/
 │   ├── aof_deepaudit_nov26.yml                     DeepAudit title
 │   ├── aof_deepaudit_favicon_nov26.yml             favicon, MurmurHash3
 │   ├── aof_deepaudit_favicon_sha256_nov26.yml      favicon, SHA-256
-│   ├── aof_pentagi_nov26.yml                       PentAGI title
 │   ├── aof_pentagi_cert_nov26.yml                  default certificate, issuer
 │   ├── aof_pentagi_cert_san_nov26.yml              default certificate, DNS name
 │   ├── aof_pentagi_favicon_nov26.yml               favicons, MurmurHash3
