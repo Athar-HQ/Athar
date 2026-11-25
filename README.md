@@ -104,7 +104,7 @@ The **scanner defines what a rule means**. `match` and `scan` use the same evalu
 4. **Passive first, active to confirm.** Rules that only use the baseline request (what engines index anyway) are fully convertible. Extra probes are opt-in, safe by construction, and make those parts active-only.
 5. **Identify, don't just alert.** A match yields product, vendor, family, version and CPE, as Recog and Nmap do.
 6. **Tested.** Every rule carries example responses that run as tests on every pull request, so an edit that breaks a rule cannot merge.
-7. **Licence-clean.** Rules are shared under a permissive licence. Encumbered methods such as JA4S/JA4X are optional fields, never required.
+7. **Licence-clean.** Rules are shared under the Detection Rule License (DRL) 1.1, as Sigma rules are. Encumbered methods such as JA4S/JA4X are optional fields, never required.
 
 ## Scope
 
@@ -116,6 +116,7 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 .
 ├── README.md               this file
 ├── AGENTS.md               instructions for AI agents (CLAUDE.md points to it)
+├── LICENSE.Detection.Rules.md  Detection Rule License 1.1 for the rules
 ├── spec/
 │   └── athar-spec.md       the rule format (normative)
 ├── rules/                  the rule collection, one folder per category
@@ -162,7 +163,7 @@ Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames,
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24
 ```
 
-It connects to every host and port, fingerprints each open port (TLS certificate, `GET /`, favicon, banner) and prints one line per service that matches a rule. With `-v` it also lists every open port on stderr, with what it answered. On a terminal the output is coloured; `-no-color` or the `NO_COLOR` environment variable turns colours off.
+It connects to every host and port, fingerprints each open port (TLS certificate, `GET /`, favicon, banner) and prints one line per service that matches a rule, ending with the rule's author: the [DRL 1.1](LICENSE.Detection.Rules.md) the rules are licensed under asks every message about a match to name it. With `-v` it also lists every open port on stderr, with what it answered. On a terminal the output is coloured; `-no-color` or the `NO_COLOR` environment variable turns colours off.
 
 A real scan from 25 November 2026. Infrastructure like this moves fast, so these hosts may answer differently by the time you read this.
 
@@ -181,8 +182,8 @@ For tools, `-json` prints one JSON object per line instead, for example to pipe 
 
 ```text
 $ athar scan -r rules/ -json -timeout 10s 130.12.171.248:9443
-{"target":"130.12.171.248:9443","tls":true,"rule":"0536c409-98ed-4d1d-8e07-7c80b39a4f53","title":"Agentic Offensive Framework - ARTEX","product":"ARTEX","family":"artex","category":"offensive-tool","confidence":"high","matched":["selection_brand","selection_icon","selection_title"],"probes":["default"],"observed":"2026-11-25T09:16:50Z"}
-{"target":"130.12.171.248:9443","tls":true,"rule":"425e5153-ed37-41c1-875f-537808d58078","title":"Agentic Offensive Framework - ARTEX favicon","product":"ARTEX","family":"artex","category":"offensive-tool","confidence":"medium","matched":["selection_icon"],"probes":["default"],"observed":"2026-11-25T09:16:50Z"}
+{"target":"130.12.171.248:9443","tls":true,"rule":"0536c409-98ed-4d1d-8e07-7c80b39a4f53","title":"Agentic Offensive Framework - ARTEX","author":"Gameel Ali (@MalGamy12)","product":"ARTEX","family":"artex","category":"offensive-tool","confidence":"high","matched":["selection_brand","selection_icon","selection_title"],"probes":["default"],"observed":"2026-11-25T09:16:50Z"}
+{"target":"130.12.171.248:9443","tls":true,"rule":"425e5153-ed37-41c1-875f-537808d58078","title":"Agentic Offensive Framework - ARTEX favicon","author":"Gameel Ali (@MalGamy12)","product":"ARTEX","family":"artex","category":"offensive-tool","confidence":"medium","matched":["selection_icon"],"probes":["default"],"observed":"2026-11-25T09:16:50Z"}
 ```
 
 | Flag | Effect |
@@ -301,7 +302,7 @@ Exit codes: `0` everything passed, `1` rule errors or failed tests, `2` usage or
 
 ## Contributing rules
 
-Rules live in [rules/](rules/), one folder per category. Every rule needs at least one positive and one negative test, a reference to the public source of the hunt, and no engine syntax outside the `native` section. [rules/README.md](rules/README.md) has the conventions and a template.
+Rules live in [rules/](rules/), one folder per category. Every rule needs at least one positive and one negative test, a reference to the public source of the hunt, and no engine syntax outside the `native` section. [rules/README.md](rules/README.md) has the conventions and a template. By contributing a rule you license it under the [DRL 1.1](LICENSE.Detection.Rules.md).
 
 You don't have to write the YAML by hand. Most hunts start as a FOFA, Shodan, Censys, ZoomEye, Modat or urlscan.io query; give it to an AI coding agent in this repository together with a host it found, and ask for an Athar rule. [AGENTS.md](AGENTS.md) tells the agent how to map each engine's syntax to Athar fields, write the tests, and check the result with `athar verify` and `athar convert`.
 
@@ -312,4 +313,6 @@ You don't have to write the YAML by hand. Most hunts start as a FOFA, Shodan, Ce
 
 ## Licence
 
-Not decided yet. The proposal is the Detection Rule License (DRL) 1.1 for rules, as Sigma uses, and a permissive licence for the code. See [docs/decisions.md](docs/decisions.md#open).
+The rules in [rules/](rules/) are licensed under the [Detection Rule License (DRL) 1.1](LICENSE.Detection.Rules.md), the licence of the Sigma rules. Anyone may use, change and share them, commercially too. Whoever shares a rule keeps its `author`, a link to the rule and the licence; whoever reports matches of a rule names its author in those messages.
+
+The licence for the CLI, the specification and the documentation is not decided yet; see [docs/decisions.md](docs/decisions.md#open).

@@ -104,7 +104,8 @@ func TestRebrandMatchExtractsBrand(t *testing.T) {
 		t.Fatalf("got %d records: %+v", len(recs), recs)
 	}
 	r := recs[0]
-	if r.Rule != "7b24901b-6476-48a0-9d08-a28544384844" || r.Extracted["brand"] != "NKW" || r.Family != "artex" {
+	// The author is in every record: DRL 1.1 asks match messages to keep it.
+	if r.Rule != "7b24901b-6476-48a0-9d08-a28544384844" || r.Extracted["brand"] != "NKW" || r.Family != "artex" || r.Author != "Gameel Ali (@MalGamy12)" {
 		t.Errorf("record = %+v", r)
 	}
 	if r.Target != strings.TrimPrefix(srv.URL, "http://") || r.TLS || r.IP != "" {

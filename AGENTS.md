@@ -123,3 +123,4 @@ A product with rebrands gets a family rule plus variant rules (spec section 8): 
 - Behaviour changes go into the docs in the same change: [README.md](README.md), [cli/README.md](cli/README.md), and the spec if the rule format changes. The README's "A rule" example is tested against the rule it links to.
 - Design decisions and open questions are in [docs/decisions.md](docs/decisions.md). Don't change the rule format without the maintainers' agreement; open an issue instead.
 - Published rule `id`s never change.
+- Rules are licensed under the [Detection Rule License 1.1](LICENSE.Detection.Rules.md). When you copy or adapt a rule, keep its `author` and add your own; when you report matches, name the rule's author.

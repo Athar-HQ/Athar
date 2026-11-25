@@ -280,6 +280,7 @@ func (s *Scanner) Evaluate(svc *probe.Service) []output.Record {
 			TLS:        svc.TLS,
 			Rule:       r.ID,
 			Title:      r.Title,
+			Author:     r.Author,
 			Product:    r.Identifies.Product,
 			Vendor:     r.Identifies.Vendor,
 			Family:     r.Identifies.Family,

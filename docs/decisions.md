@@ -49,6 +49,10 @@ Rust would be worth revisiting only if evaluation became CPU-bound, for example 
 
 A single tag such as `v0.1.0` versions the spec, the rules and the CLI together, which is why `go.mod` sits at the repository root. The spec carries no version number of its own. Pushing the tag builds the binaries and publishes the GitHub release. Separate versions per part can come later if the parts start moving at different speeds.
 
+### Rules under the Detection Rule License 1.1
+
+Every rule in this repository is licensed under the [Detection Rule License (DRL) 1.1](../LICENSE.Detection.Rules.md), decided on 2026-11-25. It is the licence of the Sigma rules, so people who already use Sigma know its terms. It allows any use, commercial included, and asks for one thing in return: credit. Whoever shares a rule keeps its `author`, a link and the licence, and messages based on a rule's matches name its author. Rules already carry an `author` field, so nothing in the format changes.
+
 ## Open
 
 - **Baseline probe.** How each engine actually fetches (redirects, Host header and SNI, favicon source, body truncation) is unknown. A controlled server that logs every request from FOFA, Shodan, Censys, ZoomEye and Modat crawlers would settle it.
@@ -56,7 +60,7 @@ A single tag such as `v0.1.0` versions the spec, the rules and the CLI together,
 - **Body size limit.** `http.body` holds the first 1 MiB for now; the limit still has to be agreed.
 - **Tests for custom probes.** `tests.response` covers the baseline probe only. Rules with custom probes need a way to give one response per probe.
 - **Variant inheritance.** Variants repeat their family's selections today. An `extends: <id>` key would remove the duplication, but every converter would need to resolve it.
-- **Licensing.** Rules under DRL 1.1, as Sigma. Licence for the CLI to be chosen. JA4+ fields stay optional because of the FoxIO licence, and [JARM and HASSH are reportedly patented](https://hdm.io/posts/20230927111137909613461915/), which needs checking. Nothing may be copied from `nmap-service-probes`.
+- **Licensing.** Rules are under DRL 1.1 (decided above). The licence for the CLI, the spec and the docs is still to be chosen. JA4+ fields stay optional because of the FoxIO licence, and [JARM and HASSH are reportedly patented](https://hdm.io/posts/20230927111137909613461915/), which needs checking. Nothing may be copied from `nmap-service-probes`.
 - **Active probing policy.** Scanning infrastructure you don't own carries legal and ethical limits. Proposal: baseline probe only by default, custom probes opt-in, safe methods only, rate limits in the reference scanner.
 - **Format versioning.** A top-level `format: 1` key would let converters reject rules written for a newer spec.
 

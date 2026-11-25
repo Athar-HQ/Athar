@@ -219,6 +219,7 @@ What a scanner emits for one matched service:
   "tls": false,
   "rule": "0ce69e91-baee-4475-81ee-4b8eca1a6c3b",
   "title": "Agentic Offensive Framework - ARTEX family",
+  "author": "Gameel Ali (@MalGamy12)",
   "family": "artex",
   "category": "offensive-tool",
   "extracted": { "brand": "NKW" },
@@ -228,6 +229,8 @@ What a scanner emits for one matched service:
   "observed": "2026-11-24T19:46:00Z"
 }
 ```
+
+`author` comes from the rule. Rules in the Athar repository are licensed under the [Detection Rule License 1.1](../LICENSE.Detection.Rules.md), which asks every message based on a rule's match to name the rule's author, so a scanner should always include it.
 
 When several rules match one service, the most specific wins: a variant over its family, then higher `confidence`. This mirrors Nmap's hard match over soft match.
 

@@ -15,6 +15,7 @@ var argos = Record{
 	TLS:        true,
 	Rule:       "0ce69e91-baee-4475-81ee-4b8eca1a6c3b",
 	Title:      "Agentic Offensive Framework - ARTEX family",
+	Author:     "Gameel Ali (@MalGamy12)",
 	Family:     "artex",
 	Category:   "offensive-tool",
 	Extracted:  map[string]string{"brand": "ARGOS", "version": "1.2"},
@@ -29,13 +30,13 @@ func TestText(t *testing.T) {
 	if err := NewText(&buf, color.New(false)).Write(argos); err != nil {
 		t.Fatal(err)
 	}
-	want := "144.202.110.94:443 (tls)  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  brand=ARGOS version=1.2\n"
+	want := "144.202.110.94:443 (tls)  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  brand=ARGOS version=1.2  by Gameel Ali (@MalGamy12)\n"
 	if buf.String() != want {
 		t.Errorf("got  %q\nwant %q", buf.String(), want)
 	}
 
 	r := argos
-	r.Target, r.IP, r.TLS, r.Extracted, r.Confidence = "panel.example:8443", "192.0.2.7", false, nil, "low"
+	r.Target, r.IP, r.TLS, r.Extracted, r.Confidence, r.Author = "panel.example:8443", "192.0.2.7", false, nil, "low", ""
 	buf.Reset()
 	NewText(&buf, color.New(false)).Write(r)
 	if want := "panel.example:8443 (192.0.2.7)  Agentic Offensive Framework - ARTEX family  [offensive-tool] [low]\n"; buf.String() != want {
@@ -65,7 +66,7 @@ func TestJSON(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &back); err != nil {
 		t.Fatal(err)
 	}
-	if back.Extracted["brand"] != "ARGOS" || !strings.HasSuffix(buf.String(), "}\n") {
+	if back.Extracted["brand"] != "ARGOS" || back.Author != "Gameel Ali (@MalGamy12)" || !strings.HasSuffix(buf.String(), "}\n") {
 		t.Errorf("JSON line = %q", buf.String())
 	}
 }

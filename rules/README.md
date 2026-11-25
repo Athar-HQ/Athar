@@ -35,6 +35,7 @@ Create a category folder when its first rule arrives.
 
 - [ ] `id` is a fresh UUIDv4. Published ids never change.
 - [ ] `status: experimental` for new rules.
+- [ ] `author` credits you the way you want: rules are licensed under the [DRL 1.1](../LICENSE.Detection.Rules.md), which requires everyone who shares the rule or reports its matches to keep it.
 - [ ] `references` point to the public source of the hunt.
 - [ ] At least one `match` test and one `no_match` test. The negative test should be a near miss (similar title, generic page), not random text.
 - [ ] No engine syntax outside `native`. Detection uses taxonomy fields only.

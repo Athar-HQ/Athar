@@ -20,6 +20,7 @@ type Record struct {
 	TLS        bool              `json:"tls"`
 	Rule       string            `json:"rule"`
 	Title      string            `json:"title"`
+	Author     string            `json:"author,omitempty"` // the rule's author; DRL 1.1 asks match messages to keep it
 	Product    string            `json:"product,omitempty"`
 	Vendor     string            `json:"vendor,omitempty"`
 	Family     string            `json:"family,omitempty"`
@@ -57,7 +58,7 @@ func (j *JSON) Write(r Record) error {
 
 // Text writes one readable line per record:
 //
-//	144.202.110.94:443 (tls)  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  brand=ARGOS
+//	144.202.110.94:443 (tls)  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  brand=ARGOS  by Gameel Ali (@MalGamy12)
 type Text struct {
 	mu sync.Mutex
 	w  io.Writer
@@ -98,6 +99,9 @@ func (t *Text) Write(r Record) error {
 		for _, k := range keys {
 			b.WriteString(" " + c.Dim(k+"=") + c.Bold(c.Yellow(r.Extracted[k])))
 		}
+	}
+	if r.Author != "" {
+		b.WriteString("  " + c.Dim("by "+r.Author))
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
