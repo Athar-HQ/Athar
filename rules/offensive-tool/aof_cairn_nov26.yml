@@ -2,15 +2,8 @@ title: Agentic Offensive Framework - Cairn
 id: de0b1c3f-b9a8-43c7-9073-36b9f91c5a70
 status: experimental
 description: |
-  Web console of a customized fork of Cairn, an open-source AI penetration
-  testing framework in which model-driven agent workers coordinate through a
-  shared blackboard. Unit 42 reports that the cluster CL-STA-1238, which it
-  assesses as China-nexus, used the fork against at least 19 organisations
-  in August and September 2026. Matched by the fork's console title
-  "衍迹 · 自主探索工作台" ("Evolutionary Traces · Autonomous Exploration
-  Workbench"), seen on the actor's servers. Upstream Cairn is titled "Cairn",
-  listens on port 8000 without TLS and shows none of these signals. The
-  fork's TLS certificate is covered by separate rules.
+  Console of the customized Cairn fork that CL-STA-1238 used (Unit 42), by
+  its title. Upstream Cairn is titled "Cairn" and does not match.
 references:
   - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/

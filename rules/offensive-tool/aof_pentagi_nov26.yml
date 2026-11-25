@@ -2,12 +2,7 @@ title: Agentic Offensive Framework - PentAGI
 id: 22406af1-42ab-45b8-b540-9868e65d5c5e
 status: experimental
 description: |
-  Web console of PentAGI, an open-source system of autonomous AI agents for
-  penetration testing. Matched by the page title the project's frontend sets
-  ("PentAGI"). The favicon and the default certificate are separate rules, so
-  that each signal converts to every engine that can search it. The console
-  listens on 8443 and binds to 127.0.0.1 by default, so an exposed instance
-  was opened up on purpose.
+  PentAGI web console, by its title.
 references:
   - https://github.com/vxcontrol/pentagi
 author: Gameel Ali (@MalGamy12)

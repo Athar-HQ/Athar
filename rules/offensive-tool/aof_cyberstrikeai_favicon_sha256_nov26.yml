@@ -7,9 +7,7 @@ related:
     type: similar
 status: experimental
 description: |
-  The same favicon as the CyberStrikeAI favicon rule, by its SHA-256, for
-  engines that store that hash instead of MurmurHash3 (Censys, Modat). The
-  hash is computed from web/static/favicon.ico in the project repository.
+  CyberStrikeAI favicon (SHA-256), for Censys and Modat.
 references:
   - https://github.com/AIPentest/CyberStrikeAI
 author: Gameel Ali (@MalGamy12)

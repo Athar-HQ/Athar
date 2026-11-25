@@ -7,12 +7,8 @@ related:
     type: similar
 status: experimental
 description: |
-  The auto-generated TLS certificate of the customized Cairn fork that
-  CL-STA-1238 used (see the Cairn rule): its subject common name contains
-  "Cairn auto-generated TLS certificate", and its organisation is "Cairn
-  Platform" (see the related rule). Upstream Cairn serves plain HTTP and
-  generates no certificate. Finds the fork's consoles whatever their title
-  says, as long as the certificate is kept.
+  Auto-generated TLS certificate of the same Cairn fork, by its common name.
+  Upstream Cairn serves no TLS.
 references:
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/
   - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/

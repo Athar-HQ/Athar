@@ -2,11 +2,7 @@ title: Agentic Offensive Framework - CyberStrikeAI
 id: 2876eb4d-df28-4cf0-ac9a-7b831e1d5139
 status: experimental
 description: |
-  Web console of CyberStrikeAI, an open-source AI-driven penetration testing
-  platform written in Go that orchestrates more than 100 offensive tools.
-  Matched by the page title the project's frontend sets ("CyberStrikeAI").
-  The favicon and the body wordmark are separate rules, so that each signal
-  converts to every engine that can search it.
+  CyberStrikeAI web console, by its title.
 references:
   - https://github.com/AIPentest/CyberStrikeAI
 author: Gameel Ali (@MalGamy12)

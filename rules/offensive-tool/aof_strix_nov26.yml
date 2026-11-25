@@ -2,12 +2,8 @@ title: Agentic Offensive Framework - Strix
 id: 808ca4a3-24b1-4359-9e17-8018263205ca
 status: experimental
 description: |
-  Results viewer of Strix, an open-source AI penetration testing tool that
-  runs autonomous agents against applications. Matched by the viewer title
-  "Strix Results" from strix/interface/viewer/frontend/index.html. The
-  Server header and favicon are separate rules. The viewer binds to
-  127.0.0.1 on a random port unless it is started with --host, so the rules
-  list no ports.
+  Strix results viewer, by its title. The viewer binds to 127.0.0.1 unless
+  started with --host.
 references:
   - https://github.com/usestrix/strix
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/

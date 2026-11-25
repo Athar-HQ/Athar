@@ -5,12 +5,8 @@ related:
     type: similar
 status: experimental
 description: |
-  The favicons PentAGI ships in frontend/public/favicon, by their MurmurHash3
-  (Shodan/FOFA style): favicon-96x96.png (1567951828), favicon.svg
-  (535491455) and favicon.ico (-1596753120). The page links all three, in
-  that order; athar scan hashes the first, and engines differ on which one
-  they hash. Finds consoles whatever their title says. Censys has no
-  MurmurHash3 field; the SHA-256 favicon rule covers it.
+  PentAGI favicons (MurmurHash3). The page links three; athar scan hashes
+  the first, favicon-96x96.png.
 references:
   - https://github.com/vxcontrol/pentagi
 author: Gameel Ali (@MalGamy12)

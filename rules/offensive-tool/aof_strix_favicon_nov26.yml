@@ -5,11 +5,7 @@ related:
     type: similar
 status: experimental
 description: |
-  Results viewer of Strix, an open-source AI penetration testing tool that
-  runs autonomous agents against applications. Matched by the MurmurHash3
-  (Shodan/FOFA style) of the viewer's icon, logo.png, computed from the file
-  in the repository. Censys has no MurmurHash3 field; the SHA-256 favicon
-  rule covers it.
+  Strix viewer icon, logo.png (MurmurHash3).
 references:
   - https://github.com/usestrix/strix
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/
