@@ -1,0 +1,526 @@
+package convert
+
+import (
+	"bufio"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/md5"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"html"
+	"math/big"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Athar-HQ/Athar/cli/internal/eval"
+	"github.com/Athar-HQ/Athar/cli/internal/probe"
+	"github.com/Athar-HQ/Athar/cli/internal/rule"
+)
+
+// These tests run the converted templates in Nuclei against local servers
+// that answer like the rules' tests. They need the nuclei binary and are
+// skipped without it, and with -short.
+
+// TestNucleiTemplatesRun checks every rule in rules/. An exact template must
+// give each test's expected result and extracted values; a superset one must
+// at least find every match. Tests whose response can't be rebuilt from its
+// fields (hashes of unknown files) are skipped.
+func TestNucleiTemplatesRun(t *testing.T) {
+	bin := nucleiBin(t)
+	files, err := rule.Files([]string{"../../../rules"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rules []*rule.Rule
+	for _, f := range files {
+		r, err := rule.Load(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules = append(rules, r)
+	}
+	nucleiCheck(t, bin, rules, nil, false)
+}
+
+// TestNucleiTemplateFeatures checks conversions the repository's rules don't
+// use yet, strictly: approximate templates must also give the expected
+// result here.
+func TestNucleiTemplateFeatures(t *testing.T) {
+	bin := nucleiBin(t)
+	icon := []byte("\x00\x00\x01\x00 not really an icon")
+	page := "<html><head><title>Hash test</title></head><body>hashed</body></html>"
+	sum := func(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
+	md := md5.Sum(icon)
+	hashes := fmt.Sprintf(`
+title: hashes
+id: 22222222-2222-4222-8222-222222222222
+detection:
+  selection_icon:
+    http.favicon.mmh3: %d
+  selection_icon_md5:
+    http.favicon.md5: %s
+  selection_icon_sha256:
+    http.favicon.sha256: %s
+  selection_body_sha256:
+    http.body.sha256: %s
+  selection_body_mmh3:
+    http.body.mmh3: %d
+  condition: all of selection_*
+`, probe.FaviconMMH3(icon), hex.EncodeToString(md[:]), sum(icon), sum([]byte(page)), probe.MMH3([]byte(page)))
+
+	rules := []*rule.Rule{
+		parse(t, "features_http.yml", `
+title: features
+id: 11111111-1111-4111-8111-111111111111
+detection:
+  selection_title:
+    http.title|startswith: 'acme'
+  selection_wild:
+    http.title: 'Acme * Console'
+  selection_server:
+    http.headers.server|contains: 'acme'
+  selection_status:
+    http.status_code: 200
+  selection_cased:
+    http.body|contains|cased: 'MixedCase'
+  filter_proxy:
+    http.headers.x-powered-by: 'nginx'
+  condition: selection_title and selection_wild and selection_server and selection_status and selection_cased and not filter_proxy
+extract:
+  version:
+    field: http.headers.server
+    regex: '(?i)acme/([0-9.]+)'
+tests:
+  - name: all signals
+    expect: match
+    response:
+      http.title: 'Acme Ops Console'
+      http.headers.server: 'Acme/1.2'
+      http.body: 'x MixedCase x'
+    extracted:
+      version: '1.2'
+  - name: wrong case in the body
+    expect: no_match
+    response:
+      http.title: 'Acme Ops Console'
+      http.headers.server: 'Acme/1.2'
+      http.body: 'x mixedcase x'
+  - name: behind the filtered proxy
+    expect: no_match
+    response:
+      http.title: 'Acme Ops Console'
+      http.headers.server: 'Acme/1.2'
+      http.headers.x-powered-by: 'nginx'
+      http.body: 'x MixedCase x'
+  - name: other status
+    expect: no_match
+    response:
+      http.status_code: 404
+      http.title: 'Acme Ops Console'
+      http.headers.server: 'Acme/1.2'
+      http.body: 'x MixedCase x'
+  - name: title without the wildcard part
+    expect: no_match
+    response:
+      http.title: 'Acme Ops'
+      http.headers.server: 'Acme/1.2'
+      http.body: 'x MixedCase x'
+`),
+		parse(t, "features_probe.yml", `
+title: probe
+id: 33333333-3333-4333-8333-333333333333
+probes:
+  health:
+    protocol: http
+    request:
+      method: HEAD
+      path: /api/health
+detection:
+  keywords:
+    - 'powered-by-acme'
+  selection_raw:
+    http.headers_raw|contains: 'x-acme-trace'
+  selection_health:
+    probe: health
+    http.status_code: 204
+  condition: keywords and selection_raw and selection_health
+tests:
+  - name: keyword, header and health check
+    expect: match
+    response:
+      http.headers.x-acme-trace: 'abc'
+      http.body: 'powered-by-acme'
+    probes:
+      health:
+        http.status_code: 204
+  - name: no health check
+    expect: no_match
+    response:
+      http.headers.x-acme-trace: 'abc'
+      http.body: 'powered-by-acme'
+  - name: no keyword
+    expect: no_match
+    response:
+      http.headers.x-acme-trace: 'abc'
+      http.body: 'nothing here'
+    probes:
+      health:
+        http.status_code: 204
+`),
+		parse(t, "features_tls.yml", `
+title: tls
+id: 44444444-4444-4444-8444-444444444444
+detection:
+  selection_cn:
+    tls.cert.subject.cn: 'acme panel'
+  selection_san:
+    tls.cert.san|endswith: '.acme.example'
+  selection_san_name:
+    tls.cert.san: 'other.example'
+  filter_ca:
+    tls.cert.issuer.o: 'Evil CA'
+  condition: selection_cn and selection_san and selection_san_name and not filter_ca
+tests:
+  - name: panel certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'Acme Panel'
+      tls.cert.san: ['other.example', 'panel.acme.example']
+      tls.cert.issuer.o: 'Good CA'
+  - name: SAN suffix only inside a name
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'Acme Panel'
+      tls.cert.san: ['other.example', 'panel.acme.example.org']
+  - name: filtered issuer
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'Acme Panel'
+      tls.cert.san: ['other.example', 'panel.acme.example']
+      tls.cert.issuer.o: 'Evil CA'
+`),
+		parse(t, "features_hashes.yml", hashes),
+	}
+
+	serve := func(ico []byte) string {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/favicon.ico" {
+				w.Write(ico)
+				return
+			}
+			fmt.Fprint(w, page)
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	extra := []nucleiCase{
+		{rule: "athar-features-hashes", test: "hashes: same favicon and body", target: serve(icon), expect: true},
+		{rule: "athar-features-hashes", test: "hashes: other favicon", target: serve([]byte("other")), expect: false},
+	}
+	nucleiCheck(t, bin, rules, extra, true)
+}
+
+func nucleiBin(t *testing.T) string {
+	t.Helper()
+	bin, err := exec.LookPath("nuclei")
+	if err != nil {
+		t.Skip("nuclei not installed")
+	}
+	if testing.Short() {
+		t.Skip("runs nuclei")
+	}
+	return bin
+}
+
+func parse(t *testing.T, path, src string) *rule.Rule {
+	t.Helper()
+	r, err := rule.Parse([]byte(src), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+type nucleiCase struct {
+	rule, test, target string
+	expect             bool
+	extracted          map[string]string
+	fid                Fidelity
+}
+
+// nucleiCheck converts the rules, serves their tests, runs Nuclei once over
+// all templates and targets, and compares. strict also holds approximate
+// templates to the expected result.
+func nucleiCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nucleiCase, strict bool) {
+	t.Helper()
+	dir := t.TempDir()
+	fids := map[string]Fidelity{}
+	skipped := 0
+	for _, r := range rules {
+		if _, _, err := eval.Compile(r); err != nil {
+			t.Fatalf("%s: %v", r.Path, err)
+		}
+		res, err := Convert(r, nucleiTarget)
+		if err != nil {
+			t.Fatalf("%s: %v", r.Path, err)
+		}
+		if res.Template == "" {
+			continue
+		}
+		fids[res.TemplateID] = res.Fidelity
+		if err := os.WriteFile(filepath.Join(dir, res.TemplateID+".yaml"), []byte(res.Template), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range r.Tests {
+			srv, ok := serveTest(t, r, tc)
+			if !ok {
+				skipped++
+				continue
+			}
+			cases = append(cases, nucleiCase{res.TemplateID, filepath.Base(r.Path) + ": " + tc.Name, srv, tc.Expect == "match", tc.Extracted, 0})
+		}
+	}
+	var targets []string
+	for i := range cases {
+		cases[i].fid = fids[cases[i].rule]
+		targets = append(targets, cases[i].target)
+	}
+	list := filepath.Join(dir, "targets.txt")
+	if err := os.WriteFile(list, []byte(strings.Join(targets, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "-duc", "-silent", "-nc", "-jsonl", "-t", dir, "-l", list, "-timeout", "5", "-retries", "0")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("nuclei: %v\n%s", err, out)
+	}
+	hit := map[string]bool{}
+	extracted := map[string][]string{}
+	sc := bufio.NewScanner(strings.NewReader(string(out)))
+	sc.Buffer(nil, 1<<20)
+	for sc.Scan() {
+		var ev struct {
+			TemplateID string   `json:"template-id"`
+			Host       string   `json:"host"`
+			URL        string   `json:"url"`
+			MatchedAt  string   `json:"matched-at"`
+			Extracted  []string `json:"extracted-results"`
+		}
+		if json.Unmarshal(sc.Bytes(), &ev) != nil {
+			continue
+		}
+		for _, s := range []string{ev.Host, ev.URL, ev.MatchedAt} {
+			if u, err := url.Parse(s); err == nil && u.Host != "" {
+				s = u.Host
+			}
+			if s != "" {
+				hit[ev.TemplateID+" "+s] = true
+				extracted[ev.TemplateID+" "+s] = append(extracted[ev.TemplateID+" "+s], ev.Extracted...)
+			}
+		}
+	}
+	matches := 0
+	for _, c := range cases {
+		u, _ := url.Parse(c.target)
+		key := c.rule + " " + u.Host
+		got := hit[key]
+		if got {
+			matches++
+		}
+		hard := strict || c.fid == Exact || (c.fid == Superset && c.expect)
+		if got != c.expect {
+			if hard {
+				t.Errorf("%s (%s): nuclei matched=%v, test expects %v", c.test, c.fid, got, c.expect)
+			} else {
+				t.Logf("%s (%s): nuclei matched=%v, test expects %v", c.test, c.fid, got, c.expect)
+			}
+			continue
+		}
+		for name, want := range c.extracted {
+			found := false
+			for _, v := range extracted[key] {
+				found = found || v == want
+			}
+			if !found && hard {
+				t.Errorf("%s: extract %s: want %q, nuclei extracted %q", c.test, name, want, extracted[key])
+			}
+		}
+	}
+	if matches == 0 {
+		t.Errorf("nuclei matched nothing; the harness is broken")
+	}
+	t.Logf("%d test responses checked with nuclei (%d matches), %d skipped", len(cases), matches, skipped)
+}
+
+// serveTest starts a server that answers like one rule test: the baseline
+// response at / and custom probe responses at their paths. It returns the
+// target URL, or false if the response can't be rebuilt from its fields.
+func serveTest(t *testing.T, r *rule.Rule, tc rule.Test) (string, bool) {
+	t.Helper()
+	type page struct {
+		status  int
+		headers http.Header
+		body    string
+	}
+	build := func(resp map[string]any) (page, bool) {
+		p := page{status: 200, headers: http.Header{}}
+		var title string
+		hasTitle := false
+		for k, v := range resp {
+			switch {
+			case k == "http.status_code":
+				fmt.Sscan(fmt.Sprint(v), &p.status)
+			case k == "http.title":
+				title, hasTitle = fmt.Sprint(v), true
+			case k == "http.body":
+				p.body = fmt.Sprint(v)
+			case k == "http.headers_raw":
+				for _, line := range strings.Split(fmt.Sprint(v), "\n") {
+					if name, val, ok := strings.Cut(strings.TrimRight(line, "\r"), ":"); ok && !strings.HasPrefix(name, "HTTP/") {
+						p.headers.Add(strings.TrimSpace(name), strings.TrimSpace(val))
+					}
+				}
+			case strings.HasPrefix(k, "http.headers."):
+				name := strings.TrimPrefix(k, "http.headers.")
+				if list, ok := v.([]any); ok {
+					for _, e := range list {
+						p.headers.Add(name, fmt.Sprint(e))
+					}
+				} else {
+					p.headers.Set(name, fmt.Sprint(v))
+				}
+			case strings.HasPrefix(k, "tls.cert.subject."), strings.HasPrefix(k, "tls.cert.issuer."), k == "tls.cert.san",
+				k == "service.protocol", k == "service.transport", k == "service.port":
+			default:
+				return p, false // hashes, banners, other TLS fields: can't be rebuilt
+			}
+		}
+		if hasTitle {
+			p.body = "<html><head><title>" + html.EscapeString(title) + "</title></head><body>\n" + p.body + "</body></html>"
+		}
+		return p, true
+	}
+	pages := map[string]page{}
+	if tc.Response != nil {
+		p, ok := build(tc.Response)
+		if !ok {
+			return "", false
+		}
+		pages["/"] = p
+	}
+	for id, resp := range tc.Probes {
+		pr, ok := r.Probes[id]
+		if !ok || pr.Request == nil {
+			return "", false
+		}
+		p, ok := build(resp)
+		if !ok {
+			return "", false
+		}
+		path := pr.Request.Path
+		if path == "" {
+			path = "/"
+		}
+		pages[path] = p
+	}
+	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		p, ok := pages[req.URL.RequestURI()]
+		if !ok {
+			w.WriteHeader(404)
+			return
+		}
+		for k, vs := range p.headers {
+			w.Header()[http.CanonicalHeaderKey(k)] = vs
+		}
+		w.WriteHeader(p.status)
+		fmt.Fprint(w, p.body)
+	})
+	srv := httptest.NewUnstartedServer(h)
+	if cert, ok := testCert(t, tc.Response); ok {
+		srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+		srv.StartTLS()
+	} else {
+		srv.Start()
+	}
+	t.Cleanup(srv.Close)
+	return srv.URL, true
+}
+
+// testCert builds a certificate with the test's subject, issuer and SAN
+// fields, or returns false if the test has none.
+func testCert(t *testing.T, resp map[string]any) (tls.Certificate, bool) {
+	strs := func(k string) []string {
+		switch v := resp[k].(type) {
+		case nil:
+			return nil
+		case []any:
+			var out []string
+			for _, e := range v {
+				out = append(out, fmt.Sprint(e))
+			}
+			return out
+		default:
+			return []string{fmt.Sprint(v)}
+		}
+	}
+	hasTLS := false
+	for k := range resp {
+		hasTLS = hasTLS || strings.HasPrefix(k, "tls.")
+	}
+	if !hasTLS {
+		return tls.Certificate{}, false
+	}
+	subject := pkix.Name{Organization: strs("tls.cert.subject.o")}
+	if cn := strs("tls.cert.subject.cn"); cn != nil {
+		subject.CommonName = cn[0]
+	}
+	issuer := pkix.Name{Organization: strs("tls.cert.issuer.o")}
+	if cn := strs("tls.cert.issuer.cn"); cn != nil {
+		issuer.CommonName = cn[0]
+	}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	leaf := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      subject,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	for _, s := range strs("tls.cert.san") {
+		if ip := net.ParseIP(s); ip != nil {
+			leaf.IPAddresses = append(leaf.IPAddresses, ip)
+		} else {
+			leaf.DNSNames = append(leaf.DNSNames, s)
+		}
+	}
+	parent := leaf
+	if issuer.CommonName != "" || len(issuer.Organization) > 0 {
+		parent = &x509.Certificate{
+			SerialNumber:          big.NewInt(1),
+			Subject:               issuer,
+			NotBefore:             leaf.NotBefore,
+			NotAfter:              leaf.NotAfter,
+			IsCA:                  true,
+			BasicConstraintsValid: true,
+			KeyUsage:              x509.KeyUsageCertSign,
+		}
+	}
+	der, err := x509.CreateCertificate(rand.Reader, leaf, parent, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, true
+}

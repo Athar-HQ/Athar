@@ -1,4 +1,5 @@
-// Package convert turns rules into search-engine queries (spec section 10).
+// Package convert turns rules into search-engine queries (spec section 10)
+// and into Nuclei templates.
 //
 // A rule's condition and selections become one boolean expression. Negations
 // are pushed down to single conditions, each condition is translated by the
@@ -33,22 +34,31 @@ func (f Fidelity) String() string {
 
 func (f Fidelity) MarshalText() ([]byte, error) { return []byte(f.String()), nil }
 
-// Engines lists the supported engines in output order.
+// Engines lists the supported search engines in output order.
 var Engines = []string{"fofa", "shodan", "censys", "zoomeye", "modat", "urlscan"}
 
-// Result is one rule converted for one engine.
+// Scanners lists the scanners rules convert to as templates.
+var Scanners = []string{nucleiTarget}
+
+// Result is one rule converted for one engine or scanner.
 type Result struct {
-	Engine   string   `json:"engine"`
-	Query    string   `json:"query,omitempty"`
-	Fidelity Fidelity `json:"fidelity"`
-	Notes    []string `json:"notes,omitempty"`
+	Engine     string   `json:"engine"`
+	Query      string   `json:"query,omitempty"`
+	TemplateID string   `json:"template_id,omitempty"`
+	Template   string   `json:"template,omitempty"`
+	Fidelity   Fidelity `json:"fidelity"`
+	Notes      []string `json:"notes,omitempty"`
 }
 
-// Convert converts a rule that passed eval.Compile for one engine.
+// Convert converts a rule that passed eval.Compile for one engine or
+// scanner.
 func Convert(r *rule.Rule, engine string) (Result, error) {
+	if engine == nucleiTarget {
+		return convertNuclei(r)
+	}
 	b, ok := backends[engine]
 	if !ok {
-		return Result{}, fmt.Errorf("unknown engine %q (supported: %s)", engine, strings.Join(Engines, ", "))
+		return Result{}, fmt.Errorf("unknown target %q (supported: %s, %s)", engine, strings.Join(Engines, ", "), strings.Join(Scanners, ", "))
 	}
 	e, err := build(r)
 	if err != nil {

@@ -17,7 +17,7 @@ Inside this repository, `go run ./cli/cmd/athar <command>` works without install
 | Command | Use it to |
 | --- | --- |
 | `athar verify -strict <rule or folder>` | Check a rule against the spec and run its tests. Run it after every edit. Exit code 0 means pass. |
-| `athar convert -json -t <engines> <rule>` | Turn a rule into search-engine queries (`fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`). One JSON object per rule and engine with `query`, `fidelity` and, when something was lost, `notes`. |
+| `athar convert -json -t <engines> <rule>` | Turn a rule into search-engine queries (`fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`) or a Nuclei template (`nuclei`; `-o <folder>` writes the files). One JSON object per rule and target with `query` or `template`, `fidelity` and, when something was lost, `notes`. |
 | `athar scan -json -r <rules> [-p ports] <targets>` | Probe hosts and print one JSON line per matching service. Sends network traffic; see "Scanning" below. |
 
 Add `-no-color` (or set `NO_COLOR=1`) when you parse text output. Exit codes for all commands: `0` success, `1` failed rules or tests, `2` usage or read error.
