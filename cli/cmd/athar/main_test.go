@@ -130,19 +130,17 @@ func TestScanCommand(t *testing.T) {
 	defer srv.Close()
 	target := strings.TrimPrefix(srv.URL, "http://")
 
+	// Readable lines by default, without colors when not on a terminal.
 	code, out, errOut := runCLI("scan", target, "-r", "../../../rules", "-timeout", "2s", "-v")
 	if code != exitOK {
 		t.Fatalf("exit %d\n%s", code, errOut)
 	}
-	var rec struct {
-		Target    string
-		Extracted map[string]string
+	wantLine := target + "  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  brand=NKW\n"
+	if out != wantLine {
+		t.Errorf("text output:\n got %q\nwant %q", out, wantLine)
 	}
-	if err := json.Unmarshal([]byte(out), &rec); err != nil {
-		t.Fatalf("output %q: %v", out, err)
-	}
-	if rec.Target != target || rec.Extracted["brand"] != "NKW" {
-		t.Errorf("record = %+v", rec)
+	if strings.Contains(out+errOut, "\x1b[") {
+		t.Error("colors written to a non-terminal")
 	}
 	for _, want := range []string{"open " + target + " http 200", "1 host, 1 check, 1 open, 1 match"} {
 		if !strings.Contains(errOut, want) {
@@ -150,12 +148,28 @@ func TestScanCommand(t *testing.T) {
 		}
 	}
 
+	// JSON lines with -json.
+	code, out, errOut = runCLI("scan", target, "-r", "../../../rules", "-json")
+	if code != exitOK {
+		t.Fatalf("-json: exit %d\n%s", code, errOut)
+	}
+	var rec struct {
+		Target    string
+		Extracted map[string]string
+	}
+	if err := json.Unmarshal([]byte(out), &rec); err != nil {
+		t.Fatalf("-json output %q: %v", out, err)
+	}
+	if rec.Target != target || rec.Extracted["brand"] != "NKW" {
+		t.Errorf("record = %+v", rec)
+	}
+
 	// Results to a file, targets from a file.
 	dir := t.TempDir()
 	list := filepath.Join(dir, "targets.txt")
 	os.WriteFile(list, []byte("# comment\n\n"+target+"\n"), 0o644)
 	results := filepath.Join(dir, "out.jsonl")
-	if code, out, errOut := runCLI("scan", "-r", "../../../rules", "-iL", list, "-o", results); code != exitOK || out != "" {
+	if code, out, errOut := runCLI("scan", "-r", "../../../rules", "-iL", list, "-json", "-o", results); code != exitOK || out != "" {
 		t.Fatalf("exit %d, stdout %q\n%s", code, out, errOut)
 	}
 	if b, _ := os.ReadFile(results); !bytes.Contains(b, []byte(`"brand":"NKW"`)) {

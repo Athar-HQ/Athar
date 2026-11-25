@@ -49,7 +49,7 @@ Every command takes rules plus its own input. None of them depends on another co
 | Command | Input | Output | Sends packets |
 | --- | --- | --- | --- |
 | `athar verify` | Rule files or folders | Schema errors, lint findings, test results; non-zero exit on failure | No |
-| `athar scan` | Rules + hosts, CIDR ranges or `host:port` + ports | Matched services (JSONL) | Yes |
+| `athar scan` | Rules + hosts, CIDR ranges or `host:port` + ports | Matched services (readable lines, or JSONL with `-json`) | Yes |
 | `athar convert` | Rules + target engine | One query per rule, with fidelity and warnings | No |
 | `athar match` | Rules + stored data (engine exports, recorded responses) | Matched records (JSONL) | No |
 
@@ -62,7 +62,7 @@ rules/offensive-tool/aof_artex_artex.yml  3/3 tests passed
 
 2 rules, 0 failed; 5/5 tests passed; 0 errors, 0 warnings
 
-$ athar scan -r rules/ -p 80,443,18080 127.0.0.0/30 > matches.jsonl
+$ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
 athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
 
 $ athar convert -t fofa rules/offensive-tool/aof_artex.yml
@@ -89,7 +89,7 @@ athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 192.0.2.10 example.org
    - **HTTP** `GET /` over TLS or plaintext, without following redirects. The `Host` header is the target as given. Body is kept up to 1 MiB, and the title, headers, raw header block and body hashes are computed.
    - **Favicon**, only when a rule uses `http.favicon.*`: from `<link rel="icon">` (also inline `data:` icons), else `/favicon.ico`; icons on other hosts are not fetched.
    - **Custom probes** declared by rules, only with `-probes`. Each distinct probe is sent once per port, however many rules use it.
-5. **Match.** Every rule is evaluated on the responses, honouring `target.tls` (`required`, `none`). Each matching service is written as one JSON line: target, rule, product or family, extracted values, confidence, matched selections. When a variant and its family both match, only the variant is written.
+5. **Match.** Every rule is evaluated on the responses, honouring `target.tls` (`required`, `none`). Each matching service is written as one line: a readable line with target, title, category, confidence and extracted values (coloured on a terminal), or with `-json` a JSON object that also has the rule id, product, family and matched selections. When a variant and its family both match, only the variant is written.
 
 At start, scan warns about rules it can't fully evaluate. Not collected yet: `tls.jarm`, `tls.ja3s`, `tls.ja4s`, `tls.cert.ja4x`, `ssh.hostkey.sha256`, `ssh.kex_algorithms`, and `x-<engine>.` fields. UDP rules are skipped.
 
@@ -142,7 +142,8 @@ cli/
     ├── fields/           field taxonomy (engine export adapters later)
     ├── probe/            targets and ports, prober (TCP, TLS, HTTP, favicon, banner, custom probes), hashes
     ├── scan/             scan runner: probe planning, rate and per-host limits, rule evaluation, precedence
-    ├── output/           identity records as JSONL
+    ├── output/           identity records as readable lines or JSONL
+    ├── color/            ANSI colours, only on terminals and without NO_COLOR
     └── backend/          planned: one file per engine (fofa, shodan, censys, zoomeye)
 ```
 

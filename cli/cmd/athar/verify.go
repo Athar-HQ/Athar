@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/Athar-HQ/Athar/cli/internal/color"
 	"github.com/Athar-HQ/Athar/cli/internal/eval"
 	"github.com/Athar-HQ/Athar/cli/internal/rule"
 )
@@ -41,8 +42,9 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	strict := fs.Bool("strict", false, "treat warnings as failures")
 	quiet := fs.Bool("q", false, "only print rules with problems, and the summary")
+	noColor := fs.Bool("no-color", false, "no colors (also set by the NO_COLOR environment variable)")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: athar verify [-strict] [-q] <rule file or folder>...")
+		fmt.Fprintln(stderr, "Usage: athar verify [-strict] [-q] [-no-color] <rule file or folder>...")
 		fmt.Fprintln(stderr, "\nChecks every rule against the spec and runs its tests.")
 		fmt.Fprintln(stderr, "Exit code 0: all good, 1: errors or failed tests, 2: usage or read error.")
 		fmt.Fprintln(stderr)
@@ -59,6 +61,7 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 		fs.Usage()
 		return exitUsage
 	}
+	c := color.For(stdout, *noColor)
 
 	files, err := rule.Files(paths)
 	if err != nil {
@@ -120,28 +123,34 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 
 		status := fmt.Sprintf("%d/%d tests passed", passed, len(rep.tests))
 		if failed {
-			status = "FAIL  " + status
+			status = c.Bold(c.Red("FAIL")) + "  " + status
+		} else {
+			status = c.Green(status)
 		}
-		fmt.Fprintf(stdout, "%-*s  %s\n", width, rep.path, status)
+		fmt.Fprintf(stdout, "%s  %s\n", fmt.Sprintf("%-*s", width, rep.path), status)
 		for _, p := range rep.problems {
 			if p.Severity == rule.Error {
-				fmt.Fprintf(stdout, "  %s: %s\n", p.Severity, p.Msg)
+				fmt.Fprintf(stdout, "  %s %s\n", c.Red("error:"), p.Msg)
 			}
 		}
 		for _, t := range rep.tests {
 			if !t.Passed {
-				fmt.Fprintf(stdout, "  test %q failed: %s\n", t.Name, t.Detail)
+				fmt.Fprintf(stdout, "  %s %s\n", c.Red(fmt.Sprintf("test %q failed:", t.Name)), t.Detail)
 			}
 		}
 		for _, p := range rep.problems {
 			if p.Severity == rule.Warning {
-				fmt.Fprintf(stdout, "  %s: %s\n", p.Severity, p.Msg)
+				fmt.Fprintf(stdout, "  %s %s\n", c.Yellow("warning:"), p.Msg)
 			}
 		}
 	}
 
-	fmt.Fprintf(stdout, "\n%s, %d failed; %d/%d tests passed; %s, %s\n",
-		plural(len(reports), "rule"), nFailedRules, nPassed, nTests, plural(nErr, "error"), plural(nWarn, "warning"))
+	failedRules := fmt.Sprintf("%d failed", nFailedRules)
+	if nFailedRules > 0 {
+		failedRules = c.Bold(c.Red(failedRules))
+	}
+	fmt.Fprintf(stdout, "\n%s, %s; %d/%d tests passed; %s, %s\n",
+		plural(len(reports), "rule"), failedRules, nPassed, nTests, plural(nErr, "error"), plural(nWarn, "warning"))
 	if nFailedRules > 0 {
 		return exitFindings
 	}

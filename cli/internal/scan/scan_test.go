@@ -68,7 +68,7 @@ func scanOne(t *testing.T, s *Scanner, rawURL string) []output.Record {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	st := s.Run(context.Background(), []probe.Target{tg}, output.NewWriter(&buf))
+	st := s.Run(context.Background(), []probe.Target{tg}, output.NewJSON(&buf))
 	if st.Open != 1 {
 		t.Fatalf("open = %d, want 1", st.Open)
 	}
@@ -214,7 +214,7 @@ func TestPerHostLimitAndClosedPorts(t *testing.T) {
 	s := New(repoRules(t), o)
 	tg, _ := probe.ParseTarget("127.0.0.1")
 	var buf bytes.Buffer
-	st := s.Run(context.Background(), []probe.Target{tg}, output.NewWriter(&buf))
+	st := s.Run(context.Background(), []probe.Target{tg}, output.NewJSON(&buf))
 	if st.Checks != 3 || st.Open != 1 || st.Matches != 1 {
 		t.Errorf("stats = %+v\n%s", st, buf.String())
 	}
@@ -224,7 +224,7 @@ func TestCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	tg, _ := probe.ParseTarget("127.0.0.0/24")
-	st := New(repoRules(t), opts()).Run(ctx, []probe.Target{tg}, output.NewWriter(&bytes.Buffer{}))
+	st := New(repoRules(t), opts()).Run(ctx, []probe.Target{tg}, output.NewJSON(&bytes.Buffer{}))
 	if !st.Interrupted || st.Open != 0 {
 		t.Errorf("stats after cancel = %+v", st)
 	}
@@ -265,7 +265,7 @@ func TestLogSilentPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s.Run(context.Background(), []probe.Target{tg}, output.NewWriter(&bytes.Buffer{}))
+		s.Run(context.Background(), []probe.Target{tg}, output.NewJSON(&bytes.Buffer{}))
 	}
 	want := "open " + silent + " no response (tried TLS, HTTP)\nopen " + web + " http 200 \"Login\"\n"
 	if log.String() != want {

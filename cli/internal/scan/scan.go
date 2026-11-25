@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Athar-HQ/Athar/cli/internal/color"
 	"github.com/Athar-HQ/Athar/cli/internal/eval"
 	"github.com/Athar-HQ/Athar/cli/internal/output"
 	"github.com/Athar-HQ/Athar/cli/internal/probe"
@@ -28,7 +29,8 @@ type Options struct {
 	Timeout     time.Duration // connect, handshake and read timeout
 	Probes      bool          // send the custom probes rules declare
 	UserAgent   string
-	Log         io.Writer // receives one line per open port; nil for none
+	Log         io.Writer     // receives one line per open port; nil for none
+	LogColor    color.Palette // colors for Log
 }
 
 // Stats summarise a scan.
@@ -143,7 +145,7 @@ func (s *Scanner) Needs() probe.Needs { return s.prober.Needs }
 
 // Run scans every host and port of the targets and writes one record per
 // matched service. It returns when all checks are done or ctx is cancelled.
-func (s *Scanner) Run(ctx context.Context, targets []probe.Target, w *output.Writer) Stats {
+func (s *Scanner) Run(ctx context.Context, targets []probe.Target, w output.Sink) Stats {
 	start := time.Now()
 	var st Stats
 	st.Hosts, st.Checks = probe.Count(targets, s.opts.Ports)
@@ -303,25 +305,26 @@ func (s *Scanner) logOpen(svc *probe.Service) {
 	if s.opts.Log == nil {
 		return
 	}
-	parts := []string{"open", net.JoinHostPort(svc.Host, strconv.Itoa(svc.Port))}
+	c := s.opts.LogColor
+	parts := []string{c.Green("open"), c.Cyan(net.JoinHostPort(svc.Host, strconv.Itoa(svc.Port)))}
 	if svc.TLS {
-		parts = append(parts, "tls")
+		parts = append(parts, c.Dim("tls"))
 	}
 	if code, ok := svc.Fields["http.status_code"]; ok {
 		parts = append(parts, fmt.Sprintf("http %v", code))
 		if t, ok := svc.Fields["http.title"].(string); ok && t != "" {
-			parts = append(parts, strconv.Quote(truncate(t, 60)))
+			parts = append(parts, c.Bold(strconv.Quote(truncate(t, 60))))
 		}
 	} else if b, ok := svc.Fields["ssh.banner"].(string); ok {
-		parts = append(parts, strconv.Quote(b))
+		parts = append(parts, c.Bold(strconv.Quote(b)))
 	} else if b, ok := svc.Fields["service.banner"].(string); ok {
-		parts = append(parts, "banner "+strconv.Quote(truncate(b, 60)))
+		parts = append(parts, "banner "+c.Bold(strconv.Quote(truncate(b, 60))))
 	}
 	if len(parts) == 2 {
 		// The port accepted the connection but answered nothing the scanner
 		// tried. Say so, rather than leaving the line looking incomplete.
 		if tried := s.tried(); tried != "" {
-			parts = append(parts, "no response (tried "+tried+")")
+			parts = append(parts, c.Yellow("no response (tried "+tried+")"))
 		}
 	}
 	fmt.Fprintln(s.opts.Log, strings.Join(parts, " "))

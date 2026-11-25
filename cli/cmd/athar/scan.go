@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Athar-HQ/Athar/cli/internal/color"
 	"github.com/Athar-HQ/Athar/cli/internal/eval"
 	"github.com/Athar-HQ/Athar/cli/internal/output"
 	"github.com/Athar-HQ/Athar/cli/internal/probe"
@@ -38,11 +39,13 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	timeout := fs.Duration("timeout", 3*time.Second, "connect, handshake and read timeout")
 	probes := fs.Bool("probes", false, "also send the custom probes rules declare")
 	verbose := fs.Bool("v", false, "print every open port to stderr")
+	jsonOut := fs.Bool("json", false, "print matches as JSON lines instead of readable lines")
+	noColor := fs.Bool("no-color", false, "no colors (also set by the NO_COLOR environment variable)")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: athar scan -r <rules> [flags] <target>...")
 		fmt.Fprintln(stderr, "\nChecks every host and port, fingerprints open ports and prints the services")
-		fmt.Fprintln(stderr, "that match a rule, one JSON line each. Targets are IP addresses, hostnames,")
-		fmt.Fprintln(stderr, "CIDR ranges (up to /16) or host:port.")
+		fmt.Fprintln(stderr, "that match a rule, one line each (JSON with -json). Targets are IP addresses,")
+		fmt.Fprintln(stderr, "hostnames, CIDR ranges (up to /16) or host:port.")
 		fmt.Fprintln(stderr, "\nExample: athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24")
 		fmt.Fprintln(stderr)
 		fs.PrintDefaults()
@@ -140,25 +143,38 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		Probes:      *probes,
 		UserAgent:   "Mozilla/5.0 (compatible; athar/" + versionString() + "; +https://github.com/Athar-HQ/Athar)",
 	}
+	ce := color.For(stderr, *noColor)
 	if *verbose {
 		opts.Log = stderr
+		opts.LogColor = ce
 	}
 	s := scan.New(compiled, opts)
 	for _, w := range s.Warnings() {
-		fmt.Fprintln(stderr, "warning:", w)
+		fmt.Fprintln(stderr, ce.Yellow("warning:"), w)
+	}
+
+	var sink output.Sink = output.NewText(out, color.For(out, *noColor))
+	if *jsonOut {
+		sink = output.NewJSON(out)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	st := s.Run(ctx, targets, output.NewWriter(out))
+	st := s.Run(ctx, targets, sink)
 
 	status := ""
 	if st.Interrupted {
-		status = " (interrupted)"
+		status = ce.Yellow(" (interrupted)")
 	}
-	fmt.Fprintf(stderr, "athar scan: %s, %s, %d open, %d %s in %s%s\n",
-		plural(st.Hosts, "host"), plural(st.Checks, "check"), st.Open, st.Matches,
-		map[bool]string{true: "match", false: "matches"}[st.Matches == 1],
+	found := fmt.Sprintf("%d matches", st.Matches)
+	if st.Matches == 1 {
+		found = "1 match"
+	}
+	if st.Matches > 0 {
+		found = ce.Bold(ce.Green(found))
+	}
+	fmt.Fprintf(stderr, "%s %s, %s, %d open, %s in %s%s\n",
+		ce.Bold("athar scan:"), plural(st.Hosts, "host"), plural(st.Checks, "check"), st.Open, found,
 		st.Elapsed.Round(100*time.Millisecond), status)
 	if st.Interrupted {
 		return exitUsage

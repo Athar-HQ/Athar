@@ -159,25 +159,33 @@ Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames,
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24
 ```
 
-It connects to every host and port, fingerprints each open port (TLS certificate, `GET /`, favicon, banner) and prints one JSON line per service that matches a rule. With `-v` it also lists every open port on stderr, with what it answered.
+It connects to every host and port, fingerprints each open port (TLS certificate, `GET /`, favicon, banner) and prints one line per service that matches a rule. With `-v` it also lists every open port on stderr, with what it answered. On a terminal the output is coloured; `-no-color` or the `NO_COLOR` environment variable turns colours off.
 
-Two real scans from 25 November 2026. Infrastructure like this moves fast, so these hosts may answer differently by the time you read this.
-
-**A match.** An ARGOS-branded console behind a Caddy proxy with a Let's Encrypt certificate for the IP. The family rule identifies it and extracts the brand. The ARTEX variant rule does not match, because neither the title prefix nor the favicon is ARTEX's.
+A real scan from 25 November 2026. Infrastructure like this moves fast, so these hosts may answer differently by the time you read this.
 
 ```text
-$ athar scan -r rules/ -v -timeout 10s 144.202.110.94:443
+$ athar scan -r rules/ -v -timeout 10s 144.202.110.94:443 130.12.171.248:9443
+open 130.12.171.248:9443 tls http 200 "ARTEX — Autonomous Penetration Testing Console"
+130.12.171.248:9443 (tls)  Agentic Offensive Framework - ARTEX  [offensive-tool] [high]
 open 144.202.110.94:443 tls http 200 "ARGOS — Autonomous Penetration Testing Console"
-{"target":"144.202.110.94:443","tls":true,"rule":"0ce69e91-baee-4475-81ee-4b8eca1a6c3b","title":"Agentic Offensive Framework - ARTEX family","family":"artex","category":"offensive-tool","extracted":{"brand":"ARGOS"},"confidence":"high","matched":["selection_route","selection_title"],"probes":["default"],"observed":"2026-11-25T08:11:37Z"}
-athar scan: 1 host, 1 check, 1 open, 1 match in 4.8s
+144.202.110.94:443 (tls)  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  brand=ARGOS
+athar scan: 2 hosts, 2 checks, 2 open, 2 matches in 3.2s
 ```
 
-**No match.** The port accepts connections but resets every TLS handshake and HTTP request, so there is nothing to fingerprint. A source-IP filter or a proxy whose backend is gone looks like this.
+- **130.12.171.248:9443** is an ARTEX console. The ARTEX variant rule matches both its title prefix and its favicon hash, so it replaces the family match.
+- **144.202.110.94:443** is an ARGOS console behind a Caddy proxy with a Let's Encrypt certificate for the IP. The family rule matches and extracts the brand. The ARTEX variant rule does not, because neither the title prefix nor the favicon is ARTEX's.
+
+An hour earlier the first host accepted connections but reset every request, perhaps because of a source-IP filter or a restart. `-v` showed it as:
 
 ```text
-$ athar scan -r rules/ -v -timeout 10s 130.12.171.248:9443
 open 130.12.171.248:9443 no response (tried TLS, HTTP)
-athar scan: 1 host, 1 check, 1 open, 0 matches in 2s
+```
+
+For tools, `-json` prints one JSON object per line instead, for example to pipe into `jq`:
+
+```text
+$ athar scan -r rules/ -json -timeout 10s 130.12.171.248:9443
+{"target":"130.12.171.248:9443","tls":true,"rule":"0536c409-98ed-4d1d-8e07-7c80b39a4f53","title":"Agentic Offensive Framework - ARTEX","product":"ARTEX","family":"artex","category":"offensive-tool","confidence":"high","matched":["selection_brand","selection_icon","selection_route","selection_title"],"probes":["default"],"observed":"2026-11-25T08:18:27Z"}
 ```
 
 | Flag | Effect |
@@ -185,11 +193,13 @@ athar scan: 1 host, 1 check, 1 open, 0 matches in 2s
 | `-r` | Rule file or folder; repeat for more. Required. |
 | `-p` | Ports, e.g. `22,80,443,8000-8100`. Without it, a built-in list of common ports plus the ports the rules list under `target.ports` (`athar scan -h` prints the list). |
 | `-iL` | Read targets from a file, one per line; `-` reads stdin. |
-| `-o` | Write the matches to a file instead of stdout. |
+| `-json` | Print matches as JSON lines instead of readable lines. |
+| `-o` | Write the matches to a file instead of stdout, as readable lines or, with `-json`, JSON lines. |
+| `-no-color` | No colours. Colours are also off when the output is not a terminal or `NO_COLOR` is set. |
 | `-c`, `-per-host`, `-rate` | Parallel checks (50), parallel checks per host (8), new connections per second (200). |
 | `-timeout` | Connect, handshake and read timeout (3s). |
 | `-probes` | Also send the custom probes rules declare. Off by default. |
-| `-v` | Print every open port to stderr, with what it answered. A port that accepts connections but answers nothing shows as `open 192.0.2.7:9443 no response (tried TLS, HTTP)`. |
+| `-v` | Print every open port to stderr, with what it answered. A port that accepts connections but answers nothing shows as `no response (tried TLS, HTTP)`. |
 
 Only scan hosts you are allowed to scan. The scanner identifies itself in its HTTP `User-Agent` as `athar`.
 
@@ -225,6 +235,7 @@ c2/example_panel.yml  FAIL  0/1 tests passed
 | --- | --- |
 | `-strict` | Warnings fail too: a missing positive or negative test, an unused selection, an unknown top-level key. This repository's CI runs `athar verify -strict rules`. |
 | `-q` | Print only rules with problems, plus the summary. |
+| `-no-color` | No colours, as for `scan`. |
 
 Exit codes: `0` everything passed, `1` rule errors or failed tests, `2` usage or read error. `athar version` prints the version.
 
