@@ -10,6 +10,10 @@
 - **Converter.** Turn the same rules into Nuclei templates, to run them with the scanner you already use, or into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io, to find candidate services in indexed scan data.
 - **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
+<p align="center">
+  <a href="docs/images/athar-infographic.jpg"><img src="docs/images/athar-infographic.jpg" alt="Athar at a glance. Left, an Athar rule: a shortened ARTEX family rule with a description, a detection on the page title 'Autonomous Penetration Testing Console', identifies, confidence and false positives. Right, the Athar CLI: athar convert turns rules into Nuclei templates and FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io queries, with planned candidates; athar scan checks hosts, CIDR ranges and ports; athar match, planned, applies rules to stored data. Bottom, what is in the repository." width="900"></a>
+</p>
+
 > **Status: draft.** The rule format can still change. The Go CLI supports `athar scan` for live scanning, `athar convert` for Nuclei templates and search-engine queries, and `athar verify` for syntax checks and rule tests; matching against stored data is planned. Binaries are on the [latest release](https://github.com/Athar-HQ/Athar/releases/latest).
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
