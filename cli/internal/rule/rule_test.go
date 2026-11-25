@@ -9,6 +9,8 @@ const validRule = `
 title: Example
 id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
 status: experimental
+tags:
+  - category.web-server
 target:
   protocol: http
 detection:
@@ -74,6 +76,82 @@ func TestCheckProblems(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("replacing %q: no %s containing %q in %v", tt.replace, tt.severity, tt.want, Check(r))
+		}
+	}
+}
+
+// Typos in nested keys and values out of range must not pass silently.
+func TestCheckNested(t *testing.T) {
+	const (
+		target = "  protocol: http\n"
+		end    = "confidence: high"
+		probes = end + "\nprobes:\n  p:\n"
+	)
+	tests := []struct {
+		replace, with string
+		severity      Severity
+		want          string // "" means no problems at all
+	}{
+		// Unknown keys below the top level.
+		{target, target + "  port: [8080]\n", Error, `line 9: target: unknown key "port"`},
+		{target, target + "  tsl: required\n", Error, `target: unknown key "tsl"`},
+		{"  product: Example\n", "  product: Example\n  categroy: cms\n", Error, `identifies: unknown key "categroy"`},
+		{end, probes + "    protocol: http\n    paht: /x", Error, `probe "p": unknown key "paht"`},
+		{end, probes + "    protocol: http\n    request: { path: /x, follow: true }", Error, `probe "p": request: unknown key "follow"`},
+		{end, probes + "    protocol: tcp\n    read: { max_byte: 512 }", Error, `probe "p": read: unknown key "max_byte"`},
+		{end, end + "\nextract:\n  brand:\n    field: http.title\n    regex: '(x)'\n    regexp: y", Error, `extract brand: unknown key "regexp"`},
+		{end, end + "\nrelated:\n  - id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53\n    type: similar\n    typ: x", Error, `related entry 1: unknown key "typ"`},
+		{"    expect: match\n", "    expect: match\n    extract: { brand: X }\n", Error, `test "hit": unknown key "extract"`},
+		{target, target + "  x-note: y\n", Error, `target: unknown key "x-note"`},
+
+		// Values out of range.
+		{target, target + "  ports: [0]\n", Error, "target.ports: 0 is not a port"},
+		{target, target + "  ports: [80, 70000]\n", Error, "target.ports: 70000 is not a port"},
+		{target, target + "  ports: [-1]\n", Error, "target.ports: -1 is not a port"},
+		{target, target + "  transport: sctp\n", Error, "target.transport"},
+		{target, "  protocol: mqtt\n  transport: udp\n  tls: none\n  ports: [1, 65535]\n", Error, ""},
+
+		// Probes the scanner cannot send.
+		{end, probes + "    protocol: udp", Error, `probe "p": protocol "udp" is not one of http, tcp`},
+		{end, probes + "    protocol: tcp\n    send: '\\qGARBAGE'", Error, `probe "p": send: unknown escape \q`},
+		{end, probes + "    protocol: http\n    request: { path: /x, body: a=b }", Error, `probe "p": request.body is not allowed`},
+		{end, probes + "    protocol: tcp\n    read: { max_bytes: 0 }", Error, `probe "p": read.max_bytes 0 is not between 1 and 1048576`},
+		{end, probes + "    protocol: tcp\n    read: { max_bytes: -5 }", Error, "read.max_bytes -5"},
+		{end, probes + "    protocol: tcp\n    read: { max_bytes: 1048577 }", Error, "read.max_bytes 1048577"},
+		{end, probes + "    protocol: tcp\n    read: { timeout_ms: 0 }", Error, `probe "p": read.timeout_ms 0 is not between 1 and 30000`},
+		{end, probes + "    protocol: tcp\n    read: { timeout_ms: 86400000 }", Error, "read.timeout_ms 86400000"},
+		{end, probes + "    protocol: tcp\n    send: '\\x00PING'\n    read: { max_bytes: 1048576, timeout_ms: 30000 }", Error, ""},
+		{end, probes + "    protocol: tcp\n    read: { timeout_ms: 3000 }", Error, ""},
+		{end, probes + "    protocol: HTTP\n    request: { method: GET, path: /x, headers: { Accept: text/html } }", Error, ""},
+
+		// The category tag repeats identifies.category.
+		{"  - category.web-server", "  - category.database", Error, `tag "category.database" does not repeat identifies.category "web-server"`},
+		{"  - category.web-server", "  - category.web-server\n  - category.cms", Error, `tag "category.cms"`},
+		{"  - category.web-server", "  - aof", Warning, "no category.* tag; add category.web-server"},
+		{"tags:\n  - category.web-server\n", "", Warning, "no category.* tag; add category.web-server"},
+	}
+	for _, tt := range tests {
+		src := strings.Replace(validRule, tt.replace, tt.with, 1)
+		r, err := Parse([]byte(src), "x.yml")
+		if err != nil {
+			t.Errorf("%q: %v", tt.with, err)
+			continue
+		}
+		got := Check(r)
+		if tt.want == "" {
+			if len(got) != 0 {
+				t.Errorf("%q: unexpected problems: %v", tt.with, got)
+			}
+			continue
+		}
+		found := false
+		for _, p := range got {
+			if p.Severity == tt.severity && strings.Contains(p.Msg, tt.want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%q: no %s containing %q in %v", tt.with, tt.severity, tt.want, got)
 		}
 	}
 }
