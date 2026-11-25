@@ -10,8 +10,8 @@ One folder per category, using the controlled category list from the spec:
 rules/
 ├── c2/
 ├── offensive-tool/
-│   ├── ai_autonomous_pentest_console.yml         family rule
-│   └── ai_autonomous_pentest_console_artex.yml   variant rule
+│   ├── aof_artex.yml         family rule
+│   └── aof_artex_artex.yml   variant rule
 ├── phishing-kit/
 └── …
 ```
@@ -21,8 +21,8 @@ Create a category folder when its first rule arrives.
 ## File names
 
 - Lowercase, words separated by underscores, extension `.yml`.
-- Name the file after the product or family it identifies: `ai_autonomous_pentest_console.yml`.
-- A variant adds its name to the family's file name: `ai_autonomous_pentest_console_artex.yml`. Family and variants then sort next to each other.
+- Name the file after the product or family it identifies: `aof_artex.yml` for the ARTEX family of agentic offensive frameworks (AOF).
+- A variant adds its name to the family's file name: `aof_artex_artex.yml` for its ARTEX brand. Family and variants then sort next to each other.
 
 ## Checklist before a pull request
 

@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,5 +113,76 @@ func TestUsage(t *testing.T) {
 	}
 	if code, out, _ := runCLI("version"); code != exitOK || !strings.HasPrefix(out, "athar ") {
 		t.Errorf("version: exit %d, output %q", code, out)
+	}
+}
+
+// Flags may follow the positional arguments, as in Nmap.
+func TestInterleavedFlags(t *testing.T) {
+	if code, out, errOut := runCLI("verify", "../../../rules", "-strict", "-q"); code != exitOK {
+		t.Errorf("exit %d\n%s%s", code, out, errOut)
+	}
+}
+
+func TestScanCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<title>NKW — Autonomous Penetration Testing Console</title><a href="/function/tasks">`))
+	}))
+	defer srv.Close()
+	target := strings.TrimPrefix(srv.URL, "http://")
+
+	code, out, errOut := runCLI("scan", target, "-r", "../../../rules", "-timeout", "2s", "-v")
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	var rec struct {
+		Target    string
+		Extracted map[string]string
+	}
+	if err := json.Unmarshal([]byte(out), &rec); err != nil {
+		t.Fatalf("output %q: %v", out, err)
+	}
+	if rec.Target != target || rec.Extracted["brand"] != "NKW" {
+		t.Errorf("record = %+v", rec)
+	}
+	for _, want := range []string{"open " + target + " http 200", "1 host, 1 check, 1 open, 1 match"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr misses %q:\n%s", want, errOut)
+		}
+	}
+
+	// Results to a file, targets from a file.
+	dir := t.TempDir()
+	list := filepath.Join(dir, "targets.txt")
+	os.WriteFile(list, []byte("# comment\n\n"+target+"\n"), 0o644)
+	results := filepath.Join(dir, "out.jsonl")
+	if code, out, errOut := runCLI("scan", "-r", "../../../rules", "-iL", list, "-o", results); code != exitOK || out != "" {
+		t.Fatalf("exit %d, stdout %q\n%s", code, out, errOut)
+	}
+	if b, _ := os.ReadFile(results); !bytes.Contains(b, []byte(`"brand":"NKW"`)) {
+		t.Errorf("results file = %q", b)
+	}
+}
+
+func TestScanUsageErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"scan", "127.0.0.1"},            // no rules
+		{"scan", "-r", "../../../rules"}, // no targets
+		{"scan", "-r", "../../../rules", "-p", "0", "127.0.0.1"},
+		{"scan", "-r", "../../../rules", "-rate", "-1", "127.0.0.1"},
+		{"scan", "-r", "../../../rules", "10.0.0.0/8"}, // range too large
+		{"scan", "-r", "../../../rules", "http://example.org"},
+		{"scan", "-r", "/does/not/exist", "127.0.0.1"},
+	} {
+		if code, _, errOut := runCLI(args...); code != exitUsage {
+			t.Errorf("%v: exit %d, want %d\n%s", args, code, exitUsage, errOut)
+		}
+	}
+
+	// Invalid rules stop the scan before any packet is sent.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "bad.yml"), []byte("title: x\n"), 0o644)
+	code, _, errOut := runCLI("scan", "-r", dir, "127.0.0.1")
+	if code != exitUsage || !strings.Contains(errOut, "athar verify") {
+		t.Errorf("invalid rule: exit %d\n%s", code, errOut)
 	}
 }

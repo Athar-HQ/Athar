@@ -2,7 +2,7 @@
 
 The reference implementation of the Athar rule format: one Go binary that verifies, converts and evaluates rules, and scans live services.
 
-> **Status:** `athar verify` works. `scan`, `convert` and `match` are planned; their flags below are the target design and may change.
+> **Status:** `athar verify` and `athar scan` work. `convert` and `match` are planned; their flags below are the target design and may change.
 
 [docs/decisions.md](../docs/decisions.md#cli-in-go) explains why the CLI is written in Go.
 
@@ -53,19 +53,20 @@ Every command takes rules plus its own input. None of them depends on another co
 | `athar convert` | Rules + target engine | One query per rule, with fidelity and warnings | No |
 | `athar match` | Rules + stored data (engine exports, recorded responses) | Matched records (JSONL) | No |
 
-Example session (`verify` output is real; the rest is illustrative):
+Example session (`verify` and `scan` output is real; `convert` and `match` are illustrative):
 
 ```text
 $ athar verify rules/
-rules/offensive-tool/ai_autonomous_pentest_console.yml        2/2 tests passed
-rules/offensive-tool/ai_autonomous_pentest_console_artex.yml  3/3 tests passed
+rules/offensive-tool/aof_artex.yml        2/2 tests passed
+rules/offensive-tool/aof_artex_artex.yml  3/3 tests passed
 
 2 rules, 0 failed; 5/5 tests passed; 0 errors, 0 warnings
 
-$ athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 > matches.jsonl
+$ athar scan -r rules/ -p 80,443,18080 127.0.0.0/30 > matches.jsonl
+athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
 
-$ athar convert -t fofa rules/offensive-tool/ai_autonomous_pentest_console.yml
-# AI Autonomous Penetration Testing Console (ARTEX family)  [exact]
+$ athar convert -t fofa rules/offensive-tool/aof_artex.yml
+# Agentic Offensive Framework - ARTEX family  [exact]
 title="Autonomous Penetration Testing Console" && body="/function/tasks"
 
 $ athar match -r rules/ --format fofa fofa-export.json > candidates.jsonl
@@ -79,17 +80,28 @@ $ athar match -r rules/ --format fofa fofa-export.json > candidates.jsonl
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 192.0.2.10 example.org
 ```
 
-1. **Targets.** IP addresses, hostnames and CIDR ranges as arguments, or one per line with `-iL <file>` (`-` for stdin). A `host:port` target is checked on that port only, so the output of `athar match` or another tool can be fed in directly.
-2. **Ports.** `-p` takes a list and ranges, as in Nmap: `-p 22,80,443,8000-8100`. Without `-p`, scan checks a built-in list of common service ports plus every port the loaded rules name in `target.ports`.
+1. **Targets.** IP addresses, hostnames and CIDR ranges (up to /16) as arguments, or one per line with `-iL <file>` (`-` for stdin). A `host:port` target is checked on that port only, so the output of `athar match` or another tool can be fed in directly. Checks go port by port across all hosts, so consecutive connections hit different hosts.
+2. **Ports.** `-p` takes a list and ranges, as in Nmap: `-p 22,80,443,8000-8100`. Without `-p`, scan checks a built-in list of common service ports (`athar scan -h` prints it) plus every port the loaded rules name in `target.ports`.
 3. **Open ports.** A TCP connect to each host and port. This needs no root privileges; ports that refuse or time out are skipped.
-4. **Fingerprint.** On each open port, scan runs the baseline probe (TLS handshake when possible, `GET /` and the favicon for HTTP, the banner for raw TCP), plus any custom probes the rules declare if `-probes` is set. Each probe is sent once per port, however many rules use it.
-5. **Match.** Every rule is evaluated on the responses. Each matching service is written as one JSON line: target, rule, product or family, extracted values, confidence, matched selections. When a variant and its family both match, the variant wins.
+4. **Fingerprint.** The scanner only collects what the loaded rules use:
+   - **Banner**, only when a rule's `target.protocol` is not `http`: wait up to 2 seconds for the server to speak first (SSH, FTP, SMTP). A banner ends the baseline probe for that port.
+   - **TLS** on the same, still unused connection, unless every rule says `tls: none`: certificate fields, version and cipher. SNI is sent only for hostname targets.
+   - **HTTP** `GET /` over TLS or plaintext, without following redirects. The `Host` header is the target as given. Body is kept up to 1 MiB, and the title, headers, raw header block and body hashes are computed.
+   - **Favicon**, only when a rule uses `http.favicon.*`: from `<link rel="icon">` (also inline `data:` icons), else `/favicon.ico`; icons on other hosts are not fetched.
+   - **Custom probes** declared by rules, only with `-probes`. Each distinct probe is sent once per port, however many rules use it.
+5. **Match.** Every rule is evaluated on the responses, honouring `target.tls` (`required`, `none`). Each matching service is written as one JSON line: target, rule, product or family, extracted values, confidence, matched selections. When a variant and its family both match, only the variant is written.
+
+At start, scan warns about rules it can't fully evaluate. Not collected yet: `tls.jarm`, `tls.ja3s`, `tls.ja4s`, `tls.cert.ja4x`, `ssh.hostkey.sha256`, `ssh.kex_algorithms`, and `x-<engine>.` fields. UDP rules are skipped.
 
 Defaults that keep scanning polite and safe:
 
-- Baseline probe only. Custom probes run only with `-probes`.
-- Safe HTTP methods only (GET, HEAD, OPTIONS). Anything else needs an explicit operator flag.
-- Rate limit and per-host concurrency limit on by default, adjustable with flags.
+- Baseline probe only. Custom probes run only with `-probes`, and only with GET, HEAD or OPTIONS.
+- At most 200 new connections per second (`-rate`), 50 parallel checks (`-c`), 8 per host (`-per-host`).
+- The HTTP `User-Agent` names the tool: `Mozilla/5.0 (compatible; athar/<version>; +https://github.com/Athar-HQ/Athar)`.
+- Ranges larger than /16 are refused; split them.
+- Ctrl-C stops the scan; matches found so far are already written.
+
+Exit codes: `0` scan completed (with or without matches), `2` usage error, invalid rules, or interrupted.
 
 UDP scanning and raw SYN scanning are out of scope for the first version.
 
@@ -110,8 +122,8 @@ flowchart LR
 
 `verify` (rule tests), `scan` (live responses) and `match` (engine records) all call the same evaluator, so a rule means the same thing everywhere. That is what keeps approximate conversions honest: `convert` only translates, and anything it lets through is judged by the evaluator later.
 
-- **Probe planner** expands targets and ports and groups rules by the probes they need, like Nuclei's template clustering, so each open port gets each request once.
-- **Prober** does the TCP connect check, sends the baseline probe and any opt-in probes, then computes every hash variant: favicon mmh3, MD5 and SHA-256, body hashes, JARM, JA3S.
+- **Probe planner** expands targets and ports and works out which parts of the baseline probe the rules need and which custom probes to send, like Nuclei's template clustering, so each open port gets each request once.
+- **Prober** does the TCP connect check, sends the baseline probe and any opt-in probes, then computes the hashes: favicon mmh3, MD5 and SHA-256, body mmh3 and SHA-256. JARM and JA3S are planned.
 - **Field adapters** map engine exports (FOFA, Shodan, Censys, ZoomEye) into taxonomy fields.
 - **Backends** translate rules into one engine's query language and report the fidelity.
 - **Evaluator** is a Sigma condition engine plus extraction, over taxonomy fields.
@@ -128,9 +140,10 @@ cli/
     ├── condition/        Sigma condition parser
     ├── eval/             the evaluator: modifiers, keywords, probes, extraction, rule tests
     ├── fields/           field taxonomy (engine export adapters later)
-    ├── backend/          planned: one file per engine (fofa, shodan, censys, zoomeye)
-    ├── probe/            planned: targets and ports, probe planner, prober (TCP, TLS, HTTP, hashes, JARM)
-    └── output/           planned: identity records as JSONL
+    ├── probe/            targets and ports, prober (TCP, TLS, HTTP, favicon, banner, custom probes), hashes
+    ├── scan/             scan runner: probe planning, rate and per-host limits, rule evaluation, precedence
+    ├── output/           identity records as JSONL
+    └── backend/          planned: one file per engine (fofa, shodan, censys, zoomeye)
 ```
 
 Packages stay under `internal/` until the API settles. The evaluator is the first candidate to become public, so other tools can embed Athar rules.
@@ -138,6 +151,6 @@ Packages stay under `internal/` until the API settles. The evaluator is the firs
 ## Build order
 
 1. ~~`rule`, `condition`, `eval` and `athar verify`~~ (done): the evaluator defines what rules mean, and CI needs it first.
-2. `probe`, `output` and `athar scan` for TCP, TLS and HTTP: the command people will use most.
+2. ~~`probe`, `scan`, `output` and `athar scan` for TCP, TLS and HTTP~~ (done). Next for scan: JARM, JA3S, SSH host key and key exchange.
 3. `backend` and `athar convert` for FOFA, Shodan and Censys.
 4. `fields` adapters and `athar match`.

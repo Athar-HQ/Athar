@@ -104,6 +104,32 @@ func Compile(r *rule.Rule) (*Compiled, []rule.Problem, error) {
 	return c, warnings, nil
 }
 
+// FieldsUsed returns the fields the rule reads, per probe id ("default" for
+// the baseline probe). Scanners use it to collect only what rules need.
+func (c *Compiled) FieldsUsed() map[string][]string {
+	set := map[string]map[string]bool{}
+	add := func(probe, field string) {
+		if set[probe] == nil {
+			set[probe] = map[string]bool{}
+		}
+		set[probe][field] = true
+	}
+	for _, s := range c.selections {
+		s.usedFields(add)
+	}
+	for _, x := range c.extract {
+		add(DefaultProbe, x.field)
+	}
+	out := make(map[string][]string, len(set))
+	for probe, fs := range set {
+		for f := range fs {
+			out[probe] = append(out[probe], f)
+		}
+		sort.Strings(out[probe])
+	}
+	return out
+}
+
 // Eval evaluates the rule against the responses of one service.
 func (c *Compiled) Eval(resp Responses) Result {
 	truth := make(map[string]bool, len(c.selections))
@@ -123,7 +149,28 @@ func (c *Compiled) Eval(resp Responses) Result {
 }
 
 // selection is one named search identifier of the detection block.
-type selection interface{ match(Responses) bool }
+type selection interface {
+	match(Responses) bool
+	usedFields(add func(probe, field string))
+}
+
+func (s *mapSelection) usedFields(add func(probe, field string)) {
+	for _, m := range s.matchers {
+		add(s.probe, m.field)
+	}
+}
+
+func (s anySelection) usedFields(add func(probe, field string)) {
+	for _, m := range s {
+		m.usedFields(add)
+	}
+}
+
+func (s keywordSelection) usedFields(add func(probe, field string)) {
+	for _, f := range fields.Keyword {
+		add(DefaultProbe, f)
+	}
+}
 
 // mapSelection is a map of field conditions (AND), bound to one probe.
 type mapSelection struct {

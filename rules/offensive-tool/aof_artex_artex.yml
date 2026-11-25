@@ -1,4 +1,4 @@
-title: ARTEX Autonomous Penetration Testing Console
+title: Agentic Offensive Framework - ARTEX
 id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53
 related:
   - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
@@ -14,6 +14,7 @@ author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
 tags:
   - category.offensive-tool
+  - aof
 target:
   protocol: http
   tls: auto
@@ -29,7 +30,7 @@ detection:
   condition: selection_title and selection_route and (selection_brand or selection_icon)
 identifies:
   product: ARTEX
-  family: ai-autonomous-pentest-console
+  family: artex
   category: offensive-tool
 confidence: high
 falsepositives:

@@ -10,7 +10,7 @@
 - **Query converter.** Translate the same rules into queries for FOFA, Shodan, Censys, and ZoomEye to find candidate services in indexed scan data.
 - **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
-> **Status (draft v0.1).** The Go CLI supports `athar verify` for syntax checks and rule tests. Query conversion, matching against stored data, and live scanning are planned.
+> **Status (draft v0.1).** The Go CLI supports `athar scan` for live scanning and `athar verify` for syntax checks and rule tests. Query conversion and matching against stored data are planned.
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
 
@@ -25,7 +25,7 @@ Existing fingerprint formats each cover part of the problem. Nmap's probe databa
 If you can read a Sigma rule, you can read this one. The metadata and the `detection` block are Sigma. New are `target`, `identifies`, `extract`, `confidence` and `tests`.
 
 ```yaml
-title: AI Autonomous Penetration Testing Console (ARTEX family)
+title: Agentic Offensive Framework - ARTEX family
 id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
 status: experimental
 author: Gameel Ali (@MalGamy12)
@@ -40,7 +40,7 @@ detection:
     http.body|contains: '/function/tasks'
   condition: selection_title and selection_route
 identifies:
-  family: ai-autonomous-pentest-console
+  family: artex
   category: offensive-tool
 extract:
   brand:
@@ -56,7 +56,7 @@ tests:
       http.body: '... /function/tasks ...'
 ```
 
-The full rule, with its description, negative test and the original FOFA query, is in [rules/offensive-tool/ai_autonomous_pentest_console.yml](rules/offensive-tool/ai_autonomous_pentest_console.yml).
+The full rule, with its description, negative test and the original FOFA query, is in [rules/offensive-tool/aof_artex.yml](rules/offensive-tool/aof_artex.yml).
 
 ## How it works
 
@@ -92,7 +92,7 @@ For internet-wide hunting the commands can be combined: run a converted query in
 
 The **scanner defines what a rule means**. `match` and `scan` use the same evaluator as `verify`, so an engine query can be loose without making the results wrong.
 
-Only `athar verify` exists so far; `scan`, `convert` and `match` are planned. See [cli/](cli/).
+`athar scan` and `athar verify` are available; `convert` and `match` are planned. See [CLI](#cli).
 
 ## Principles
 
@@ -136,10 +136,10 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 
 | Command | Status | What it does |
 | --- | --- | --- |
+| `athar scan` | available | Checks hosts, CIDR ranges and ports for services that match the rules; writes the matches as JSONL. |
 | `athar verify` | available | Checks rules against the spec and runs every rule's tests. |
 | `athar convert` | planned | Turns rules into FOFA, Shodan, Censys or ZoomEye queries, with fidelity and warnings. |
 | `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
-| `athar scan` | planned | Checks hosts, CIDR ranges and ports for services that match the rules; writes the matches as JSONL. |
 
 ### Install
 
@@ -150,6 +150,36 @@ Or build it with Go 1.25 or newer:
 ```bash
 go install github.com/Athar-HQ/Athar/cli/cmd/athar@latest
 ```
+
+### Scan
+
+Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames, CIDR ranges up to /16, or `host:port`. Flags can go before or after the targets.
+
+```bash
+athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24
+```
+
+It connects to every host and port, fingerprints each open port (TLS certificate, `GET /`, favicon, banner) and prints one JSON line per service that matches a rule. With `-v` it also lists every open port on stderr:
+
+```text
+$ athar scan -r rules/ -p 80,443,18080 -v 127.0.0.0/30
+open 127.0.0.1:18080 http 200 "NKW — Autonomous Penetration Testing Console"
+{"target":"127.0.0.1:18080","tls":false,"rule":"0ce69e91-baee-4475-81ee-4b8eca1a6c3b","title":"Agentic Offensive Framework - ARTEX family","family":"artex","category":"offensive-tool","extracted":{"brand":"NKW"},"confidence":"high","matched":["selection_route","selection_title"],"probes":["default"],"observed":"2026-11-25T07:44:21Z"}
+athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
+```
+
+| Flag | Effect |
+| --- | --- |
+| `-r` | Rule file or folder; repeat for more. Required. |
+| `-p` | Ports, e.g. `22,80,443,8000-8100`. Without it, a built-in list of common ports plus the ports the rules list under `target.ports` (`athar scan -h` prints the list). |
+| `-iL` | Read targets from a file, one per line; `-` reads stdin. |
+| `-o` | Write the matches to a file instead of stdout. |
+| `-c`, `-per-host`, `-rate` | Parallel checks (50), parallel checks per host (8), new connections per second (200). |
+| `-timeout` | Connect, handshake and read timeout (3s). |
+| `-probes` | Also send the custom probes rules declare. Off by default. |
+| `-v` | Print every open port to stderr. |
+
+Only scan hosts you are allowed to scan. The scanner identifies itself in its HTTP `User-Agent` as `athar`.
 
 ### Verify rules
 
@@ -162,8 +192,8 @@ athar verify rules/
 ```
 
 ```text
-rules/offensive-tool/ai_autonomous_pentest_console.yml        2/2 tests passed
-rules/offensive-tool/ai_autonomous_pentest_console_artex.yml  3/3 tests passed
+rules/offensive-tool/aof_artex.yml        2/2 tests passed
+rules/offensive-tool/aof_artex_artex.yml  3/3 tests passed
 
 2 rules, 0 failed; 5/5 tests passed; 0 errors, 0 warnings
 ```

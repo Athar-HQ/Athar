@@ -48,18 +48,19 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr)
 		fs.PrintDefaults()
 	}
-	if err := fs.Parse(args); err != nil {
+	paths, err := parseFlags(fs, args)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
 		}
 		return exitUsage
 	}
-	if fs.NArg() == 0 {
+	if len(paths) == 0 {
 		fs.Usage()
 		return exitUsage
 	}
 
-	files, err := rule.Files(fs.Args())
+	files, err := rule.Files(paths)
 	if err != nil {
 		fmt.Fprintln(stderr, "athar verify:", err)
 		return exitUsage

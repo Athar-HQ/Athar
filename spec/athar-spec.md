@@ -41,7 +41,7 @@ Fields marked *Sigma* behave exactly as in the [Sigma specification](https://git
 | `status` | yes | *Sigma.* `experimental`, `test`, `stable`, `deprecated`, `unsupported`. |
 | `description` | no | *Sigma.* What it is and why the fingerprint works. |
 | `references`, `author`, `date`, `modified` | no | *Sigma.* |
-| `tags` | no | *Sigma* namespaces, e.g. `attack.t1588.002`, plus `category.*` (section 7). |
+| `tags` | no | *Sigma* namespaces, e.g. `attack.t1588.002`, plus `category.*` (section 7) and plain tags such as `aof`. |
 | `target` | yes | Protocol stack and hints (section 3). |
 | `probes` | no | Extra requests beyond the baseline (section 4). Omitted means baseline only, which keeps the rule fully convertible. |
 | `detection` | yes | *Sigma* selections and `condition`, over the field taxonomy (section 6). One new reserved key: `probe`. |
@@ -193,7 +193,7 @@ detection:
     http.body|contains: '/function/tasks'
   condition: selection_title and selection_route
 identifies:
-  family: ai-autonomous-pentest-console
+  family: artex
   category: offensive-tool
 extract:
   brand:
@@ -213,8 +213,8 @@ What a scanner emits for one matched service:
 {
   "target": "176.31.234.8:80",
   "rule": "0ce69e91-baee-4475-81ee-4b8eca1a6c3b",
-  "title": "AI Autonomous Penetration Testing Console (ARTEX family)",
-  "family": "ai-autonomous-pentest-console",
+  "title": "Agentic Offensive Framework - ARTEX family",
+  "family": "artex",
   "category": "offensive-tool",
   "extracted": { "brand": "NKW" },
   "confidence": "high",
