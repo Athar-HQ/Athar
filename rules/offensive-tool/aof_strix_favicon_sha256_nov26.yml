@@ -7,7 +7,10 @@ related:
     type: similar
 status: experimental
 description: |
-  Strix viewer icon, logo.png (SHA-256), for Censys and Modat.
+  Results viewer of Strix, an open-source AI penetration testing tool that
+  runs autonomous agents against applications. Matched by the SHA-256 of the
+  viewer's icon, logo.png, for engines that store that hash (Censys, Modat).
+  Computed from the file in the repository.
 references:
   - https://github.com/usestrix/strix
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/

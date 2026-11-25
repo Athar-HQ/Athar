@@ -5,8 +5,13 @@ related:
     type: similar
 status: experimental
 description: |
-  CyberStrikeAI wordmark markup in the page body. Releases after v1.8.1 drop
-  it; the other CyberStrikeAI rules still match them.
+  The two-part CyberStrikeAI wordmark in the page body: "CyberStrike"
+  followed by a separate span with the class brand-wordmark__ai for "AI".
+  The markup is specific to the console's frontend and survives a changed
+  page title. It is in the classic web interface (web/templates/index.html)
+  of every release up to v1.8.1. The project replaced that interface on
+  2026-11-23 with a React app whose HTML has no wordmark, so releases after
+  v1.8.1 will not match; the title, favicon and certificate rules still do.
 references:
   - https://github.com/AIPentest/CyberStrikeAI
 author: Gameel Ali (@MalGamy12)

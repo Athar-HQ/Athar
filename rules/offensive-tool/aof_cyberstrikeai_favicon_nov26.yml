@@ -5,7 +5,9 @@ related:
     type: similar
 status: experimental
 description: |
-  CyberStrikeAI favicon (MurmurHash3).
+  The favicon CyberStrikeAI ships in web/static/favicon.ico, by its
+  MurmurHash3 (Shodan/FOFA style). Finds consoles whatever their title says.
+  Censys has no MurmurHash3 field; the SHA-256 favicon rule covers it.
 references:
   - https://github.com/AIPentest/CyberStrikeAI
 author: Gameel Ali (@MalGamy12)

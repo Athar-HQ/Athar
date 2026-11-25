@@ -7,7 +7,10 @@ related:
     type: similar
 status: experimental
 description: |
-  PentAGI favicons (SHA-256), for Censys and Modat.
+  The same favicons as the PentAGI favicon rule, by their SHA-256, for engines
+  that store that hash instead of MurmurHash3 (Censys, Modat). The hashes are
+  computed from frontend/public/favicon/favicon-96x96.png, favicon.svg and
+  favicon.ico in the project repository.
 references:
   - https://github.com/vxcontrol/pentagi
 author: Gameel Ali (@MalGamy12)
