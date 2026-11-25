@@ -93,14 +93,39 @@ func httpExchange(conn net.Conn, hostHeader, method, path string, headers map[st
 
 	var body io.Reader = resp.Body
 	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
-		if zr, err := gzip.NewReader(resp.Body); err == nil {
-			body = zr
-		}
+		body = gunzip(resp.Body)
 	}
 	// A body cut short by a timeout or reset still counts; keep what arrived.
 	b, _ := io.ReadAll(io.LimitReader(body, MaxBody))
 
 	return &httpResponse{status: resp.StatusCode, headerRaw: raw.Bytes(), header: resp.Header, body: b}, nil
+}
+
+// gunzip decodes a gzip body. A body without a valid gzip header is returned
+// as received: gzip.NewReader reads ahead, so the bytes it took are replayed.
+func gunzip(r io.Reader) io.Reader {
+	rec := &replayReader{r: r, on: true}
+	zr, err := gzip.NewReader(rec)
+	if err != nil {
+		return io.MultiReader(bytes.NewReader(rec.buf.Bytes()), r)
+	}
+	rec.on, rec.buf = false, bytes.Buffer{}
+	return zr
+}
+
+// replayReader keeps a copy of what is read through it while on.
+type replayReader struct {
+	r   io.Reader
+	buf bytes.Buffer
+	on  bool
+}
+
+func (c *replayReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if c.on {
+		c.buf.Write(p[:n])
+	}
+	return n, err
 }
 
 // checkRequest refuses a request whose parts would end the request line or a
