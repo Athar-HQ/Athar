@@ -3,6 +3,7 @@ package probe
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net"
@@ -590,5 +591,43 @@ func TestLongHeaderLine(t *testing.T) {
 	}
 	if raw := string(resp.headerRaw); !strings.HasSuffix(raw, "X-After: yes\r\nContent-Length: 2\r\n\r\n") {
 		t.Errorf("http.headers_raw ends with %q", raw[max(0, len(raw)-40):])
+	}
+}
+
+// A gzip body is decoded. A body that says gzip but isn't is kept whole,
+// though gzip.NewReader reads ahead; a truncated one keeps what decodes.
+func TestGzipBody(t *testing.T) {
+	page := "<html><head><title>Fake Gzip Panel</title></head><body>" + strings.Repeat("x", 6000) + "</body></html>"
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	zw.Write([]byte(page))
+	zw.Close()
+	for _, tt := range []struct {
+		name string
+		sent []byte
+		want string
+	}{
+		{"gzip", gz.Bytes(), page},
+		{"plain", []byte(page), page},
+		{"truncated", gz.Bytes()[:gz.Len()-8], page}, // no CRC and size
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Encoding", "gzip")
+				w.Write(tt.sent)
+			}))
+			defer srv.Close()
+			host, port := hostPort(t, srv.URL)
+			svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			if body, _ := svc.Fields["http.body"].(string); body != tt.want {
+				t.Errorf("http.body = %d bytes starting %q, want %d bytes", len(body), body[:min(len(body), 40)], len(tt.want))
+			}
+			if title := svc.Fields["http.title"]; title != "Fake Gzip Panel" {
+				t.Errorf("http.title = %#v", title)
+			}
+		})
 	}
 }
