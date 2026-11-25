@@ -1,0 +1,56 @@
+title: Agentic Offensive Framework - PentAGI favicon
+id: 4e88da89-a27f-4f67-a273-c5d5b49f18a1
+related:
+  - id: 22406af1-42ab-45b8-b540-9868e65d5c5e   # Agentic Offensive Framework - PentAGI
+    type: similar
+status: experimental
+description: |
+  The favicons PentAGI ships in frontend/public/favicon, by their MurmurHash3
+  (Shodan/FOFA style): favicon.ico (-1596753120) and favicon.svg (535491455).
+  The page links both, and engines differ on which one they hash. Finds
+  consoles whatever their title says. Censys has no MurmurHash3 field; the
+  SHA-256 favicon rule covers it.
+references:
+  - https://github.com/vxcontrol/pentagi
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [8443]
+detection:
+  selection_icon:
+    http.favicon.mmh3:
+      - -1596753120
+      - 535491455
+  condition: selection_icon
+identifies:
+  product: PentAGI
+  family: pentagi
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # The hashes are computed from the icons in the project repository.
+  - name: favicon.ico with another title
+    expect: match
+    response:
+      http.title: 'Login'
+      http.favicon.mmh3: -1596753120
+  - name: favicon.svg
+    expect: match
+    response:
+      http.favicon.mmh3: 535491455
+  - name: Other favicon
+    expect: no_match
+    response:
+      http.title: 'PentAGI'
+      http.favicon.mmh3: 1234567890
+native:
+  fofa: 'icon_hash="-1596753120"'

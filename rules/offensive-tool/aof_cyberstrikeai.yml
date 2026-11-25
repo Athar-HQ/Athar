@@ -4,10 +4,9 @@ status: experimental
 description: |
   Web console of CyberStrikeAI, an open-source AI-driven penetration testing
   platform written in Go that orchestrates more than 100 offensive tools.
-  Recognised by any of three signals from the project's own frontend: the
-  page title "CyberStrikeAI", the favicon shipped in the repository
-  (web/static/favicon.ico, mmh3 -1349384020), or the two-part wordmark in the
-  page body ("CyberStrike" plus a separate "AI" span).
+  Matched by the page title the project's frontend sets ("CyberStrikeAI").
+  The favicon and the body wordmark are separate rules, so that each signal
+  converts to every engine that can search it.
 references:
   - https://github.com/AIPentest/CyberStrikeAI
 author: Gameel Ali (@MalGamy12)
@@ -23,44 +22,28 @@ target:
 detection:
   selection_title:
     http.title: 'CyberStrikeAI'
-  selection_icon:
-    http.favicon.mmh3: -1349384020
-  selection_wordmark:
-    http.body|contains: 'CyberStrike</span><span class="brand-wordmark__ai">AI'
-  condition: 1 of selection_*
+  condition: selection_title
 identifies:
   product: CyberStrikeAI
   family: cyberstrikeai
   category: offensive-tool
-confidence: high
+confidence: medium
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
-  - Demo or documentation sites of the project that serve its frontend
+  - Demo or documentation sites that use the product name as their title
 tests:
-  # The favicon hash is computed from web/static/favicon.ico in the project
-  # repository; the title and wordmark are minimal samples.
+  # Minimal samples built from the title in the project's frontend.
   - name: Console title
     expect: match
     response:
       http.title: 'CyberStrikeAI'
-  - name: Project favicon with another title
-    expect: match
-    response:
-      http.title: 'Dashboard'
-      http.favicon.mmh3: -1349384020
-  - name: Wordmark in the page body
-    expect: match
-    response:
-      http.body: '<a class="brand"><span class="brand-wordmark">CyberStrike</span><span class="brand-wordmark__ai">AI</span></a>'
   - name: Similarly named project
     expect: no_match
     response:
       http.title: 'CyberStrike'
-      http.body: '<h1>CyberStrike</h1>'
   - name: Article about the tool
     expect: no_match
     response:
       http.title: 'CyberStrikeAI: an AI attack kit goes open source'
-      http.body: '<p>CyberStrikeAI combines more than 100 tools.</p>'
 native:
-  fofa: 'title=="CyberStrikeAI" || icon_hash="-1349384020" || body="CyberStrike</span><span class=\"brand-wordmark__ai\">AI"'
+  fofa: 'title=="CyberStrikeAI"'

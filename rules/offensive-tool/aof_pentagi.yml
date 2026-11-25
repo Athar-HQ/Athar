@@ -3,13 +3,9 @@ id: 22406af1-42ab-45b8-b540-9868e65d5c5e
 status: experimental
 description: |
   Web console of PentAGI, an open-source system of autonomous AI agents for
-  penetration testing. Recognised by any of three signals from the project's
-  own code: the page title "PentAGI", the favicons shipped in the repository
-  (favicon.ico mmh3 -1596753120, favicon.svg mmh3 535491455), or the
-  self-signed certificate that scripts/entrypoint.sh creates when no
-  certificate is supplied (O=PentAGI, CN=localhost, issued by "PentAGI CA").
-  The rule uses the issuer name because engines index it; the subject
-  organisation has no engine field. The console
+  penetration testing. Matched by the page title the project's frontend sets
+  ("PentAGI"). The favicon and the default certificate are separate rules, so
+  that each signal converts to every engine that can search it. The console
   listens on 8443 and binds to 127.0.0.1 by default, so an exposed instance
   was opened up on purpose.
 references:
@@ -28,53 +24,28 @@ target:
 detection:
   selection_title:
     http.title: 'PentAGI'
-  selection_icon:
-    http.favicon.mmh3:
-      - -1596753120
-      - 535491455
-  selection_ca:
-    tls.cert.issuer.cn: 'PentAGI CA'
-  condition: 1 of selection_*
+  condition: selection_title
 identifies:
   product: PentAGI
   family: pentagi
   category: offensive-tool
-confidence: high
+confidence: medium
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
+  - Demo or documentation sites that use the product name as their title
 tests:
-  # Favicon hashes and certificate names are taken from the project repository
-  # (frontend/public/favicon, scripts/entrypoint.sh); responses are samples.
+  # Minimal samples built from the title in frontend/index.html.
   - name: Console title
     expect: match
     response:
       http.title: 'PentAGI'
-  - name: Project favicon (ico) with another title
-    expect: match
-    response:
-      http.title: 'Login'
-      http.favicon.mmh3: -1596753120
-  - name: Project favicon (svg)
-    expect: match
-    response:
-      http.favicon.mmh3: 535491455
-  - name: Default self-signed certificate behind a proxy page
-    expect: match
-    response:
-      http.title: '502 Bad Gateway'
-      tls.cert.subject.o: 'PentAGI'
-      tls.cert.subject.cn: 'localhost'
-      tls.cert.issuer.cn: 'PentAGI CA'
   - name: Article about the project
     expect: no_match
     response:
       http.title: 'PentAGI: autonomous AI agents for penetration testing'
-      tls.cert.issuer.cn: 'R11'
-  - name: Other CA with a similar name
+  - name: Similar word
     expect: no_match
     response:
       http.title: 'Pentagon Industries'
-      tls.cert.issuer.cn: 'PentAGI Consulting CA'
 native:
-  fofa: 'title=="PentAGI" || icon_hash="-1596753120"'
-  censys: 'Organization:PentAGI'
+  fofa: 'title=="PentAGI"'

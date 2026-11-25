@@ -1,0 +1,56 @@
+title: Agentic Offensive Framework - PentAGI default certificate
+id: 8a3101b1-79ac-4e85-b2b4-fe38ed3b9316
+related:
+  - id: 22406af1-42ab-45b8-b540-9868e65d5c5e   # Agentic Offensive Framework - PentAGI
+    type: similar
+status: experimental
+description: |
+  The self-signed certificate that PentAGI's scripts/entrypoint.sh creates
+  when no certificate is supplied: O=PentAGI, CN=localhost, issued by a local
+  CA named "PentAGI CA". The rule uses the issuer name because engines index
+  it; the subject organisation has no engine field. Finds consoles behind a
+  proxy or with a changed title, as long as the default certificate is kept.
+references:
+  - https://github.com/vxcontrol/pentagi
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: required
+  ports: [8443]
+detection:
+  selection_ca:
+    tls.cert.issuer.cn: 'PentAGI CA'
+  condition: selection_ca
+identifies:
+  product: PentAGI
+  family: pentagi
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Certificate names are taken from scripts/entrypoint.sh in the project repository.
+  - name: Default certificate behind a proxy page
+    expect: match
+    response:
+      http.title: '502 Bad Gateway'
+      tls.cert.subject.o: 'PentAGI'
+      tls.cert.subject.cn: 'localhost'
+      tls.cert.issuer.cn: 'PentAGI CA'
+  - name: Public CA certificate
+    expect: no_match
+    response:
+      http.title: 'PentAGI'
+      tls.cert.issuer.cn: 'R11'
+  - name: Other CA with a similar name
+    expect: no_match
+    response:
+      tls.cert.issuer.cn: 'PentAGI Consulting CA'
+native:
+  censys: 'Organization:PentAGI'
