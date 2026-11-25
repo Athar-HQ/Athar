@@ -1,7 +1,7 @@
 title: Agentic Offensive Framework - PentAGI default certificate
 id: 8a3101b1-79ac-4e85-b2b4-fe38ed3b9316
 related:
-  - id: 22406af1-42ab-45b8-b540-9868e65d5c5e   # Agentic Offensive Framework - PentAGI
+  - id: 4e88da89-a27f-4f67-a273-c5d5b49f18a1   # Agentic Offensive Framework - PentAGI favicon
     type: similar
 status: experimental
 description: |
@@ -53,3 +53,10 @@ tests:
     expect: no_match
     response:
       tls.cert.issuer.cn: 'PentAGI Consulting CA'
+native:
+  # 2026-11-25: 231 results; titles PentAGI, Anxinsec, Specter.
+  shodan: 'ssl.cert.issuer.cn:"PentAGI CA"'
+  # 2026-11-25: 1,419 results.
+  fofa: 'cert.issuer.cn=="PentAGI CA"'
+  # 2026-11-25: 3 results (2 "Login — PentAGI", 1 "PentAGI").
+  urlscan: 'page.tlsIssuer:"PentAGI CA"'
