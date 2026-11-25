@@ -6,7 +6,9 @@ description: |
   penetration testing. Matched by the page title: the served HTML says
   "PentAGI", and once the frontend loads it renames the tab to
   "<page> — PentAGI" (APP_NAME in frontend/src/lib/route-titles/render-title.tsx),
-  e.g. "Login — PentAGI", which is what scanners that render the page see.
+  e.g. "Login — PentAGI". Only engines that render the page see the
+  renamed title (urlscan.io); FOFA, Shodan and ZoomEye store the served
+  HTML and match the first selection.
   The favicon and the default certificate are separate rules, so
   that each signal converts to every engine that can search it. The console
   listens on 8443 and binds to 127.0.0.1 by default, so an exposed instance
@@ -57,4 +59,6 @@ tests:
     response:
       http.title: 'Pentagon Industries'
 native:
-  fofa: 'title=="PentAGI" || title=" — PentAGI"'
+  fofa: 'title=="PentAGI"'
+  # 2026-11-25: 22 results; 13 titled "Login — PentAGI", 6 "PentAGI".
+  urlscan: 'page.title:"PentAGI"'

@@ -6,14 +6,17 @@ description: |
   testing framework in which model-driven agent workers coordinate through a
   shared blackboard. Unit 42 reports that the cluster CL-STA-1238, which it
   assesses as China-nexus, used the fork against at least 19 organisations
-  in August and September 2026. Matched by the fork's console titles: the
-  brand "衍迹 · " ("Evolutionary Traces"), as in "衍迹 · 自主探索工作台" and
-  "衍迹 · 意图驱动推理工作台", or the workbench name " · 自主探索工作台"
-  ("Autonomous Exploration Workbench") under another brand, as in
-  "长亭AI渗透平台 · 自主探索工作台". All were seen on hosts that serve the
-  fork's auto-generated certificate. Upstream Cairn is titled "Cairn",
-  listens on port 8000 without TLS and shows none of these signals. The
-  fork's TLS certificate is covered by separate rules.
+  in August and September 2026. The fork titles its console
+  "<brand> · <workbench>". The default brand is "衍迹" (Cairn's Chinese
+  name, used in upstream docs/specs/server-protocol.md), as in
+  "衍迹 · 自主探索工作台" and "衍迹 · 意图驱动推理工作台"; operators also set
+  their own brand in front of the workbench name " · 自主探索工作台"
+  ("Autonomous Exploration Workbench"), e.g. "长亭AI渗透平台", "奇元素",
+  "Cairn Platform". The rebranded hosts send the same X-Cairn-Server-Time-Ms
+  header as the "衍迹" ones, and two of them serve the fork's auto-generated
+  certificate. Upstream Cairn is titled "Cairn", listens on port 8000
+  without TLS, and has neither title nor header. The fork's TLS certificate
+  is covered by separate rules.
 references:
   - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/
@@ -42,8 +45,12 @@ identifies:
 confidence: medium
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
+  - >-
+    Fork deployments under another brand, including a vendor's name, such as
+    "长亭AI渗透平台" (Chaitin; no Chaitin product of that name was found).
+    A match identifies the fork, not who runs it or the Unit 42 cluster.
 tests:
-  # Minimal samples built from the titles seen on hosts with the fork's certificate.
+  # Minimal samples built from titles seen on FOFA and urlscan.io (see native).
   - name: Console title
     expect: match
     response:
@@ -61,4 +68,9 @@ tests:
     response:
       http.title: '自主探索工作台'
 native:
-  modat: 'http.title=~"^衍迹 · " or http.title=~" · 自主探索工作台$"'
+  modat: 'same_service(protocol="http" transport="tcp" http.title="衍迹 · 自主探索工作台")'
+  # 2026-11-25: 86 results; brands 衍迹, 长亭AI渗透平台, 奇元素, Cairn Platform,
+  # AI自动化渗透系统, all with the X-Cairn-Server-Time-Ms header.
+  fofa: 'title="自主探索工作台"'
+  # 2026-11-25: 1 host, titled "衍迹 · 意图驱动推理工作台".
+  urlscan: 'page.tlsIssuer:"Cairn auto-generated TLS certificate"'
