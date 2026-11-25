@@ -1,0 +1,54 @@
+title: Agentic Offensive Framework - LLM-driven console
+id: 899dbe5b-73dd-442f-a20c-ef16c0c50020
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
+    type: similar
+status: experimental
+description: |
+  Web console that describes itself as an "LLM-driven autonomous penetration
+  testing system console" (LLM 驱动的自主渗透测试系统控制台) in a meta tag of the
+  landing page. The wording is close to the ARTEX family title suffix
+  (自主渗透测试控制台) but adds 系统 ("system"), so the family rule does not match it.
+  Linked to the family as similar: the link is inferred from the wording and not
+  yet confirmed from a captured response.
+references:
+  - https://en.fofa.info/result?qbase64=IkxMTSDpqbHliqjnmoToh6rkuLvmuJfpgI%2FmtYvor5Xns7vnu5%2FmjqfliLblj7Ai
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_meta:
+    http.body|contains: 'LLM 驱动的自主渗透测试系统控制台'
+  condition: selection_meta
+identifies:
+  family: artex
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Articles or product pages that quote the phrase
+tests:
+  # Minimal samples built from the published meta tag, not captured responses.
+  - name: Phrase in a meta tag
+    expect: match
+    response:
+      http.body: '<meta name="description" content="LLM 驱动的自主渗透测试系统控制台"/><link rel="icon" href="/favicon.ico">'
+  - name: ARTEX family page without the phrase
+    expect: no_match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+      http.body: '<title>ARTEX — 自主渗透测试控制台</title>'
+  - name: Chinese pentest services page
+    expect: no_match
+    response:
+      http.title: '渗透测试服务 | 示例安全公司'
+      http.body: '<meta name="description" content="我们提供自主渗透测试服务"/>'
+native:
+  fofa: '"LLM 驱动的自主渗透测试系统控制台"'
