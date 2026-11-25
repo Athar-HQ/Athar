@@ -25,7 +25,7 @@ target:
   tls: auto
 detection:
   selection_main:
-    http.headers.server|startswith: 'StrixViewer/'
+    http.headers.server|startswith: 'StrixViewer'
   condition: selection_main
 identifies:
   product: Strix
