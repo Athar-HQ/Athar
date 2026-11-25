@@ -14,6 +14,11 @@
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
 
+<p align="center">
+  <a href="https://www.figma.com/deck/tFRGgSho2sEiq8mjW9pif8"><img src="docs/images/athar-deck.jpg" alt="Title slide of the Athar deck: Portable fingerprints, by Florian Roth and Gameel Ali" width="600"></a>
+  <br><sub>Slides: <a href="https://www.figma.com/deck/tFRGgSho2sEiq8mjW9pif8">Athar on Figma</a></sub>
+</p>
+
 ## Why
 
 Every infrastructure hunt gets published three or four times, once per search engine, as hand-written query strings. Those strings drift apart, break when an engine changes its syntax (Censys [deprecated Legacy Search](https://censys.com/blog/legacy-search-deprecation/) in September 2026), and can't be tested.
