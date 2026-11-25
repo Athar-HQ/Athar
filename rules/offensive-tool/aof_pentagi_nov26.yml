@@ -39,7 +39,8 @@ falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
   - Demo or documentation sites that use the product name as their title
 tests:
-  # Minimal samples built from the title in frontend/index.html.
+  # Minimal samples built from the titles in frontend/index.html and
+  # frontend/src/lib/route-titles/render-title.tsx.
   - name: Console title
     expect: match
     response:

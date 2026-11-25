@@ -60,5 +60,9 @@ tests:
     expect: no_match
     response:
       http.title: '自主探索工作台'
+  - name: Brand without the separator
+    expect: no_match
+    response:
+      http.title: '衍迹科技'
 native:
   modat: 'http.title=~"^衍迹 · " or http.title=~" · 自主探索工作台$"'
