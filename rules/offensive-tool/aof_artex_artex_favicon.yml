@@ -23,6 +23,7 @@ tags:
 target:
   protocol: http
   tls: auto
+  ports: [8787, 8443, 443, 80]   # most consoles listen on 8787 (Modat, 2026-11-25)
 detection:
   selection_icon:
     http.favicon.mmh3: -576220750
