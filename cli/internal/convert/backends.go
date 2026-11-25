@@ -242,7 +242,16 @@ func fofaLike(engine string, fields map[string]fieldSpec, t term, exactOp string
 		if t.op == "re" {
 			return "", 0, fmt.Sprintf("%s: %s has no regex", describe(t), engine), false
 		}
-		return spec.name + not + "=" + quote(t.value), Approximate,
+		q := spec.name + not + "=" + quote(t.value)
+		if t.field == "http.headers_raw" {
+			// header= is a substring search in the raw block, which is what
+			// http.headers_raw|contains means.
+			if t.op == "contains" {
+				return q, Exact, note, true
+			}
+			return q, Approximate, joinNote(note, fmt.Sprintf("%s searches the header block for %q as a substring", engine, t.value)), true
+		}
+		return q, Approximate,
 			joinNote(note, fmt.Sprintf("%s searches the whole header block for %q, not one header", engine, t.value)), true
 	}
 	f := Exact

@@ -150,8 +150,26 @@ pair:
 condition: sel and not pair
 `)
 	check(t, r, map[string]want{
-		"fofa": {`title="Console" && (body!="x" || header!="y")`, Approximate},
+		"fofa": {`title="Console" && (body!="x" || header!="y")`, Exact},
 	})
+
+	// header= on FOFA and ZoomEye searches the raw block, so headers_raw
+	// converts exactly; one named header is only approximate.
+	r = ruleFrom(t, `
+sel:
+  http.title|contains: Console
+proxy:
+  http.headers_raw|contains: nginx
+condition: sel and not proxy
+`)
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console" && header!="nginx"`, Exact},
+		"zoomeye": {`title="Console" && http.header!="nginx"`, Exact},
+	})
+	r = ruleFrom(t, "sel:\n  http.headers.x-powered-by|contains: Express\ncondition: sel\n")
+	if res, _ := Convert(r, "fofa"); res.Fidelity != Approximate || !strings.Contains(strings.Join(res.Notes, " "), "not one header") {
+		t.Errorf("got %+v", res)
+	}
 }
 
 func TestDroppedParts(t *testing.T) {

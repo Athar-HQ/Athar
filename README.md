@@ -115,6 +115,7 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 ```text
 .
 ├── README.md               this file
+├── AGENTS.md               instructions for AI agents (CLAUDE.md points to it)
 ├── spec/
 │   └── athar-spec.md       the rule format (normative)
 ├── rules/                  the rule collection, one folder per category
@@ -301,6 +302,8 @@ Exit codes: `0` everything passed, `1` rule errors or failed tests, `2` usage or
 ## Contributing rules
 
 Rules live in [rules/](rules/), one folder per category. Every rule needs at least one positive and one negative test, a reference to the public source of the hunt, and no engine syntax outside the `native` section. [rules/README.md](rules/README.md) has the conventions and a template.
+
+You don't have to write the YAML by hand. Most hunts start as a FOFA, Shodan, Censys, ZoomEye, Modat or urlscan.io query; give it to an AI coding agent in this repository together with a host it found, and ask for an Athar rule. [AGENTS.md](AGENTS.md) tells the agent how to map each engine's syntax to Athar fields, write the tests, and check the result with `athar verify` and `athar convert`.
 
 ## Authors
 

@@ -117,7 +117,7 @@ The taxonomy is what makes a rule portable. Fields describe one service (IP and 
 | `http.body.mmh3` | int | MurmurHash3 of the body, Shodan `http.html_hash` style. |
 | `http.body.sha256` | hex | SHA-256 of the raw body. |
 | `http.headers.<name>` | string | One header by lowercase name, e.g. `http.headers.server`. Repeated headers form a list. |
-| `http.headers_raw` | string | The full header block as received, for engines that only search raw headers. |
+| `http.headers_raw` | string | The full header block as received, status line included, for engines that only search raw headers. |
 | `http.favicon.mmh3` | int | Shodan/FOFA algorithm: mmh3 over base64 with a newline every 76 characters. |
 | `http.favicon.md5` | hex | MD5 of the icon bytes (OWASP favicon database, several engines). |
 | `http.favicon.sha256` | hex | SHA-256 of the icon bytes (Censys Platform). |

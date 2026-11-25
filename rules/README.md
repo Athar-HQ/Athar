@@ -1,6 +1,6 @@
 # Rules
 
-Each file is one Athar rule describing one network service. The format is defined in [spec/athar-spec.md](../spec/athar-spec.md).
+Each file is one Athar rule describing one network service. The format is defined in [spec/athar-spec.md](../spec/athar-spec.md). To turn a search-engine query into a rule, or to let an AI agent do it, see [AGENTS.md](../AGENTS.md).
 
 ## Layout
 
