@@ -17,6 +17,7 @@ rules/
 │   ├── aof_artex_basic_auth.yml      ARTEX behind Basic auth
 │   ├── aof_artex_frontend_files.yml  SHA-256 of the family's frontend stylesheets
 │   ├── aof_artex_llm_console.yml     LLM-driven console phrase
+│   ├── aof_artex_rebrands.yml        family without ARTEX's title or favicon
 │   └── aof_artex_stylesheet.yml      paths of the family's frontend stylesheets
 ├── phishing-kit/
 └── …

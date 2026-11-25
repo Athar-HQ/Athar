@@ -93,7 +93,9 @@ func opts() Options {
 	return Options{Ports: []int{80}, Concurrency: 4, PerHost: 2, Rate: 0, Timeout: 2 * time.Second, UserAgent: "athar-test"}
 }
 
-func TestFamilyMatchExtractsBrand(t *testing.T) {
+// A rebrand matches the family and the rebrands variant; the variant
+// replaces the family record and keeps the brand it extracts.
+func TestRebrandMatchExtractsBrand(t *testing.T) {
 	srv := httptest.NewServer(page("NKW — Autonomous Penetration Testing Console"))
 	defer srv.Close()
 
@@ -102,7 +104,7 @@ func TestFamilyMatchExtractsBrand(t *testing.T) {
 		t.Fatalf("got %d records: %+v", len(recs), recs)
 	}
 	r := recs[0]
-	if r.Rule != "0ce69e91-baee-4475-81ee-4b8eca1a6c3b" || r.Extracted["brand"] != "NKW" || r.Family != "artex" {
+	if r.Rule != "7b24901b-6476-48a0-9d08-a28544384844" || r.Extracted["brand"] != "NKW" || r.Family != "artex" {
 		t.Errorf("record = %+v", r)
 	}
 	if r.Target != strings.TrimPrefix(srv.URL, "http://") || r.TLS || r.IP != "" {

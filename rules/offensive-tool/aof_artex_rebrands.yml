@@ -1,0 +1,93 @@
+title: Agentic Offensive Framework - ARTEX rebrands
+id: 7b24901b-6476-48a0-9d08-a28544384844
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b   # Agentic Offensive Framework - ARTEX family
+    type: variant-of
+  - id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53   # Agentic Offensive Framework - ARTEX
+    type: similar
+status: experimental
+description: |
+  Rebranded deployments of the family (derivatives), such as NKW, AntiFox,
+  ARGOS, HekerAI, ExploitFinder and RedOps: the family title without the
+  original ARTEX favicon. The published hunt finds them by excluding that
+  favicon. This rule also excludes titles that start with ARTEX, so it
+  matches exactly what the family rule matches and the ARTEX rule does not:
+  every family console is either ARTEX or a rebrand. A rebrand that kept the
+  ARTEX favicon counts as ARTEX. The brand comes from the title, as in the
+  family rule.
+references:
+  - https://x.com/MalGamy12/status/2124782039555547288
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [8787, 8443, 443, 80]   # most consoles listen on 8787 (Modat, 2026-11-25)
+detection:
+  selection_title:
+    http.title|contains:
+      - '自主渗透测试控制台'
+      - '자율 침투 테스트 콘솔'
+      - 'Autonomous Penetration Testing Console'
+  filter_artex_icon:
+    http.favicon.mmh3: -576220750
+  filter_artex_brand:
+    http.title|startswith: 'ARTEX'
+  condition: selection_title and not 1 of filter_*
+identifies:
+  family: artex
+  category: offensive-tool
+extract:
+  brand:
+    field: http.title
+    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console))'
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Unrelated products whose title uses the same descriptive phrase
+tests:
+  # Minimal samples built from the published brands and favicon hash, not
+  # captured responses. The other favicon hash is a sample.
+  - name: NKW with its own favicon
+    expect: match
+    extracted: { brand: NKW }
+    response:
+      http.title: 'NKW — Autonomous Penetration Testing Console'
+      http.favicon.mmh3: 1234567890
+  - name: HekerAI without a favicon
+    expect: match
+    extracted: { brand: HekerAI }
+    response:
+      http.title: 'HekerAI — Autonomous Penetration Testing Console'
+  - name: AntiFox, Korean title
+    expect: match
+    extracted: { brand: AntiFox }
+    response:
+      http.title: 'AntiFox: 자율 침투 테스트 콘솔'
+      http.favicon.mmh3: 1234567890
+  - name: ARTEX with the original favicon
+    expect: no_match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+      http.favicon.mmh3: -576220750
+  - name: ARTEX title with another favicon
+    expect: no_match
+    response:
+      http.title: 'ARTEX-PRO — 自主渗透测试控制台'
+      http.favicon.mmh3: 1234567890
+  - name: Rebrand that kept the ARTEX favicon
+    expect: no_match
+    response:
+      http.title: 'NKW — Autonomous Penetration Testing Console'
+      http.favicon.mmh3: -576220750
+  - name: Pentest vendor page
+    expect: no_match
+    response:
+      http.title: 'Penetration Testing Services | Example Corp'
+native:
+  fofa: '("Autonomous penetration testing" && body="/function/tasks") && icon_hash!="-576220750"'

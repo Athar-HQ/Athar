@@ -139,7 +139,7 @@ func TestScanCommand(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit %d\n%s", code, errOut)
 	}
-	wantLine := target + "  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  brand=NKW\n"
+	wantLine := target + "  Agentic Offensive Framework - ARTEX rebrands  [offensive-tool] [high]  brand=NKW\n"
 	if out != wantLine {
 		t.Errorf("text output:\n got %q\nwant %q", out, wantLine)
 	}

@@ -277,9 +277,10 @@ rules/offensive-tool/aof_artex_artex_favicon.yml   3/3 tests passed
 rules/offensive-tool/aof_artex_basic_auth.yml      2/2 tests passed
 rules/offensive-tool/aof_artex_frontend_files.yml  6/6 tests passed
 rules/offensive-tool/aof_artex_llm_console.yml     3/3 tests passed
+rules/offensive-tool/aof_artex_rebrands.yml        7/7 tests passed
 rules/offensive-tool/aof_artex_stylesheet.yml      4/4 tests passed
 
-8 rules, 0 failed; 34/34 tests passed; 0 errors, 0 warnings
+9 rules, 0 failed; 41/41 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:
