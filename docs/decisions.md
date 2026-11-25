@@ -26,6 +26,10 @@ Sigma's `level` says how urgent an alert is. For a service fingerprint the answe
 
 The first draft had a `validation` section for search-engine hit counts (engine, date, results). No tool read it, and the numbers went out of date soon after the rule was written. Hit counts go into the pull request description instead, and `references` points to the published hunt. Removed on 2026-11-25.
 
+### urlscan.io as a convert target
+
+urlscan.io is not a port scanner. It records what a browser showed for URLs that people or feeds submitted, after redirects, and indexes the page's title, Server header, status, TLS issuer and response hashes. It still earns a backend: it reaches pages behind hostnames that IP-based crawlers never request, such as the `sslip.io` names in the ARTEX results, and the ARTEX family query found 1,111 scans there (25 November 2026, last 365 days). Most rules convert to a superset there, and the notes say so.
+
 ### CLI in Go
 
 The reference CLI is written in Go. Rust and Python were the alternatives.
@@ -97,5 +101,5 @@ Consumers that don't support host rules would ignore them. The scanner would get
 - [x] Build the evaluator and `athar verify`, and run it in CI
 - [x] Build `athar scan` for TCP, TLS and HTTP on hosts, CIDR ranges and ports
 - [ ] Add JARM, JA3S and SSH host key fields to `athar scan`
-- [x] Build `athar convert` for FOFA, Shodan, Censys, ZoomEye and Modat
+- [x] Build `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat and urlscan.io
 - [ ] Seed 20–30 rules with tests from published hunts (ARTEX family, common C2 panels)

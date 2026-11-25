@@ -12,7 +12,8 @@ rules/
 ├── offensive-tool/
 │   ├── aof_artex.yml              family rule
 │   ├── aof_artex_artex.yml        variant rule
-│   └── aof_artex_basic_auth.yml   ARTEX behind Basic auth
+│   ├── aof_artex_basic_auth.yml   ARTEX behind Basic auth
+│   └── aof_artex_stylesheet.yml   the family's frontend stylesheet
 ├── phishing-kit/
 └── …
 ```

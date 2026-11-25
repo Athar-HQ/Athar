@@ -1,0 +1,60 @@
+title: Agentic Offensive Framework - ARTEX stylesheet
+id: ec6bb4f5-737d-4a20-ad55-7054aa89cb41
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b   # Agentic Offensive Framework - ARTEX family
+    type: similar
+status: experimental
+description: |
+  Main stylesheet of the console's Next.js frontend,
+  /_next/static/chunks/4384baud_6ozc.css. The landing page names it in a
+  preload link near the top of the HTML, so the rule does not depend on the
+  title and also finds rebrands that changed it (VaptX, ARTIFEX and
+  "安全控制台" on urlscan.io). Chunk names come from the build, so the rule
+  only finds consoles running this build; a rebuilt frontend gets new names.
+  Linked as similar rather than variant-of because it does not repeat the
+  family title.
+references:
+  - https://urlscan.io/search/#hash%3Aff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [8787, 8443, 443, 80]   # most consoles listen on 8787 (Modat, 2026-11-25)
+detection:
+  selection_stylesheet:
+    http.body|contains: '/_next/static/chunks/4384baud_6ozc.css'
+  condition: selection_stylesheet
+identifies:
+  family: artex
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Excerpts of the landing page as urlscan.io captured it on 2026-11-25.
+  - name: ARTEX console
+    expect: match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+      http.body: '<script src="/_next/static/chunks/12j-n_j2swqsy.js" async=""></script><link rel="preload" href="/_next/static/chunks/4384baud_6ozc.css" as="style"/>'
+  - name: Rebrand with its own title
+    expect: match
+    response:
+      http.title: 'VaptX'
+      http.body: '<link rel="preload" href="/_next/static/chunks/4384baud_6ozc.css" as="style"/>'
+  - name: Other Next.js application
+    expect: no_match
+    response:
+      http.title: 'Dashboard'
+      http.body: '<link rel="preload" href="/_next/static/chunks/0d3f9a1c7b2e.css" as="style"/>'
+native:
+  # The SHA-256 of the stylesheet itself. urlscan.io hashes every response a
+  # page loads; the scanner only reads the landing page, so the rule matches
+  # the stylesheet's path instead.
+  urlscan: 'hash:ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5'

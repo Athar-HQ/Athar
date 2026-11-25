@@ -87,6 +87,7 @@ func TestSpecExamples(t *testing.T) {
 		"censys":  {`host.services: (endpoints.http.html_title: "Autonomous Penetration Testing Console" and endpoints.http.body: "/function/tasks")`, Approximate},
 		"zoomeye": {`title="Autonomous Penetration Testing Console" && http.body="/function/tasks"`, Exact},
 		"modat":   {`http.title~"Autonomous Penetration Testing Console" and http.body~"/function/tasks"`, Approximate},
+		"urlscan": {`page.title.keyword:/.*autonomous penetration testing console.*/`, Superset},
 	})
 	check(t, ruleFrom(t, specVariant), map[string]want{
 		"fofa":    {`title="Autonomous Penetration Testing Console" && body="/function/tasks" && (title="ARTEX" || icon_hash="-576220750")`, Approximate},
@@ -94,12 +95,14 @@ func TestSpecExamples(t *testing.T) {
 		"censys":  {`host.services: (endpoints.http.html_title: "Autonomous Penetration Testing Console" and endpoints.http.body: "/function/tasks")`, Superset},
 		"zoomeye": {`title="Autonomous Penetration Testing Console" && http.body="/function/tasks" && (title="ARTEX" || iconhash="-576220750")`, Approximate},
 		"modat":   {`http.title~"Autonomous Penetration Testing Console" and http.body~"/function/tasks" and (http.title=~"^ARTEX" or http.files.mmh3=-576220750)`, Approximate},
+		"urlscan": {`page.title.keyword:/.*autonomous penetration testing console.*/`, Superset},
 	})
 	check(t, ruleFrom(t, specBasicAuth), map[string]want{
 		"modat":   {`http.headers: (key = "Www-Authenticate" and value = "Basic realm=\"ARTEX\", charset=\"UTF-8\"")`, Exact},
 		"fofa":    {`header="Basic realm=\"ARTEX\", charset=\"UTF-8\""`, Approximate},
 		"zoomeye": {`http.header="Basic realm=\"ARTEX\", charset=\"UTF-8\""`, Approximate},
 		"censys":  {"", Unsupported},
+		"urlscan": {"", Unsupported},
 	})
 }
 
@@ -119,6 +122,7 @@ condition: sel and not filter
 		"modat":   {`http.title~"Console" and not http.files.mmh3=123`, Exact},
 		"censys":  {`host.services: (endpoints.http.html_title: "Console")`, Superset},
 		"zoomeye": {`title="Console" && iconhash!="123"`, Exact},
+		"urlscan": {`page.title.keyword:/.*console.*/`, Superset},
 	})
 
 	// not (a or b) becomes not a and not b.
@@ -227,8 +231,9 @@ func TestUnknownEngine(t *testing.T) {
 // http.title:"a","b" finds a or b (checked on shodan.io, 2026-11-25).
 func TestShodanValueLists(t *testing.T) {
 	check(t, ruleFrom(t, localizedFamily), map[string]want{
-		"shodan": {`http.title:"自主渗透测试控制台","자율 침투 테스트 콘솔","Autonomous Penetration Testing Console"`, Approximate},
-		"fofa":   {`title="自主渗透测试控制台" || title="자율 침투 테스트 콘솔" || title="Autonomous Penetration Testing Console"`, Exact},
+		"shodan":  {`http.title:"自主渗透测试控制台","자율 침투 테스트 콘솔","Autonomous Penetration Testing Console"`, Approximate},
+		"fofa":    {`title="自主渗透测试控制台" || title="자율 침투 테스트 콘솔" || title="Autonomous Penetration Testing Console"`, Exact},
+		"urlscan": {`page.title.keyword:/.*自主渗透测试控制台.*/ OR page.title.keyword:/.*자율 침투 테스트 콘솔.*/ OR page.title.keyword:/.*autonomous penetration testing console.*/`, Exact},
 	})
 	// Different filters still can't be ORed on Shodan.
 	r := ruleFrom(t, "a:\n  http.title|contains: x\nb:\n  http.favicon.mmh3: 1\nport:\n  service.port: 443\ncondition: (a or b) and port\n")
@@ -236,6 +241,52 @@ func TestShodanValueLists(t *testing.T) {
 	// A negated value is not listed.
 	r = ruleFrom(t, "a:\n  http.title|contains: x\nb:\n  http.title|contains: y\nport:\n  service.port: 443\ncondition: port and (a or not b)\n")
 	check(t, r, map[string]want{"shodan": {"port:443", Superset}})
+}
+
+// urlscan searches lowercase values, anchors its regexes, and reads
+// a OR NOT b as a AND NOT b, so a negation inside OR gets its own group.
+func TestUrlscan(t *testing.T) {
+	r := ruleFrom(t, `
+sel:
+  http.status_code: 200
+brand:
+  http.title|startswith: 'ARTEX'
+login:
+  http.title: 'Login / Admin'
+condition: sel and (brand or not login)
+`)
+	check(t, r, map[string]want{
+		"urlscan": {`page.status:200 AND (page.title.keyword:/artex.*/ OR (NOT page.title.keyword:"login / admin"))`, Exact},
+	})
+
+	cases := []struct {
+		detection string
+		want      want
+	}{
+		// Sigma wildcards become regex wildcards; escaped ones stay literal.
+		{`http.title: 'AR*X C?nsole \*'`, want{`page.title.keyword:/ar.*x c.nsole \*/`, Exact}},
+		{`http.title|endswith: '.io'`, want{`page.title.keyword:/.*\.io/`, Exact}},
+		// Everything is indexed in lowercase, so cased only approximates.
+		{`http.title|contains|cased: ARTEX`, want{`page.title.keyword:/.*artex.*/`, Approximate}},
+		// hash covers every response of the page load.
+		{`http.favicon.sha256: ABCDEF01`, want{`hash:abcdef01`, Approximate}},
+		{`http.headers.server|contains: 'nginx'`, want{`page.server:"nginx"`, Approximate}},
+		{`tls.cert.issuer.cn|startswith: 'GTS CA'`, want{`page.tlsIssuer:gts\ ca*`, Exact}},
+		{`tls.cert.issuer.cn|contains: 'GTS'`, want{"", Unsupported}},
+		{`http.title|re: '^AR(TEX|GOS)'`, want{"", Unsupported}},
+		{`http.body|contains: '/function/tasks'`, want{"", Unsupported}},
+		{`http.headers.www-authenticate|contains: 'ARTEX'`, want{"", Unsupported}},
+		{`service.port: 8787`, want{"", Unsupported}},
+	}
+	for _, c := range cases {
+		check(t, ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n"), map[string]want{"urlscan": c.want})
+	}
+
+	// Every query says what urlscan's records are.
+	res, _ := Convert(ruleFrom(t, specFamily), "urlscan")
+	if !strings.Contains(strings.Join(res.Notes, " "), "after redirects") {
+		t.Errorf("missing the page-load note: %v", res.Notes)
+	}
 }
 
 // Every rule in the repository converts for every engine without error.

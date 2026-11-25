@@ -40,7 +40,7 @@ Usage:
 Commands:
   scan      check hosts, ranges and ports for services that match the rules
   verify    check rule syntax and run every rule's tests
-  convert   turn rules into FOFA, Shodan, Censys, ZoomEye and Modat queries
+  convert   turn rules into FOFA, Shodan, Censys, ZoomEye, Modat and urlscan queries
   match     evaluate rules against stored data (not implemented yet)
   version   print the version
 

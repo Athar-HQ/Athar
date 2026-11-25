@@ -7,7 +7,7 @@
 **Athar** is a service fingerprinting project built around a draft standard for portable YAML rules. Each rule describes one network service using observable signals such as HTTP headers, TLS certificates, or response banners.
 
 - **Rule standard.** Define service fingerprints in YAML with Sigma-style detection logic and test cases.
-- **Query converter.** Translate the same rules into queries for FOFA, Shodan, Censys, ZoomEye and Modat Magnify to find candidate services in indexed scan data.
+- **Query converter.** Translate the same rules into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io to find candidate services in indexed scan data.
 - **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
 > **Status (draft v0.1).** The Go CLI supports `athar scan` for live scanning, `athar convert` for search-engine queries and `athar verify` for syntax checks and rule tests. Matching against stored data is planned.
@@ -75,7 +75,7 @@ flowchart LR
   S --> SO["Matched services<br/>live"]
 
   R --> C(["athar convert"])
-  C --> CO["Search-engine queries<br/>FOFA · Shodan · Censys · ZoomEye · Modat"]
+  C --> CO["Search-engine queries<br/>FOFA · Shodan · Censys · ZoomEye · Modat · urlscan"]
 
   R --> M(["athar match"])
   D --> M
@@ -140,7 +140,7 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 | --- | --- | --- |
 | `athar scan` | available | Checks hosts, CIDR ranges and ports for services that match the rules; writes the matches as JSONL. |
 | `athar verify` | available | Checks rules against the spec and runs every rule's tests. |
-| `athar convert` | available | Turns rules into FOFA, Shodan, Censys, ZoomEye or Modat Magnify queries, with fidelity and notes. |
+| `athar convert` | available | Turns rules into FOFA, Shodan, Censys, ZoomEye, Modat Magnify or urlscan.io queries, with fidelity and notes. |
 | `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
 
 ### Install
@@ -201,7 +201,7 @@ Only scan hosts you are allowed to scan. The scanner identifies itself in its HT
 
 ### Convert
 
-`athar convert` turns rules into queries for FOFA, Shodan, Censys, ZoomEye and Modat Magnify. Give it rule files or folders; `-t` picks the engines.
+`athar convert` turns rules into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io. Give it rule files or folders; `-t` picks the engines.
 
 ```bash
 athar convert rules/offensive-tool/aof_artex.yml rules/offensive-tool/aof_artex_artex.yml
@@ -218,6 +218,8 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 | `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. Shodan can OR several values of one filter (`http.title:"a","b"`) but not different filters, so the ARTEX rule's `title starts with ARTEX or ARTEX favicon` is dropped there. |
 | `unsupported` | Nothing meaningful is left, and no query is printed. |
 
+urlscan.io is a different kind of source. It records pages that a browser loaded for URLs people submitted, not every service on the internet, and it has no field for the body, banner, port or any header but `Server`. Title rules convert exactly; most others become a superset.
+
 **One converted query on the platforms.** On 25 November 2026, before the family rule learned the Chinese and Korean titles, it required the English title and the `/function/tasks` route. Its converted queries, run on each platform:
 
 | Platform | Result |
@@ -227,6 +229,7 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 | Modat Magnify | 1,433 services. Modat's own product label `Artex` is on about 1,390 of them. Most run on port 8787. |
 | Shodan | No results. The route sits in an inline script near the end of a 12 KB page, which Shodan's `http.html` index does not reach. The title condition alone finds 292 hosts. |
 | FOFA | Not tested yet: searching `body` needs a registered FOFA account. |
+| urlscan.io | 157 scans in the last 365 days, for the title alone: urlscan doesn't index the body, so the route condition is dropped (superset). The current family query, with all three titles, finds 1,111. |
 
 The localized titles matter: on Shodan the Chinese title alone finds 2,847 hosts, the English one 292, and the family rule's current query `http.title:"自主渗透测试控制台","자율 침투 테스트 콘솔","Autonomous Penetration Testing Console"` covers all three languages.
 
@@ -252,7 +255,7 @@ The searches as the platforms showed them:
 
 | Flag | Effect |
 | --- | --- |
-| `-t` | Engines, comma-separated: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`. Default: all. |
+| `-t` | Engines, comma-separated: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`. Default: all. |
 | `-json` | One JSON object per rule and engine: rule id, path, title, engine, query, fidelity and notes. |
 | `-no-color` | No colours, as for `scan`. |
 
@@ -272,8 +275,9 @@ rules/offensive-tool/aof_artex_antifox.yml        4/4 tests passed
 rules/offensive-tool/aof_artex_artex.yml          5/5 tests passed
 rules/offensive-tool/aof_artex_artex_favicon.yml  3/3 tests passed
 rules/offensive-tool/aof_artex_basic_auth.yml     2/2 tests passed
+rules/offensive-tool/aof_artex_stylesheet.yml     3/3 tests passed
 
-5 rules, 0 failed; 21/21 tests passed; 0 errors, 0 warnings
+6 rules, 0 failed; 24/24 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:

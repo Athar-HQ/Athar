@@ -24,18 +24,21 @@ var backends = map[string]backend{
 	"censys":  censys{},
 	"zoomeye": zoomeye{},
 	"modat":   modat{},
+	"urlscan": urlscan{},
 }
 
 // kind says how an engine searches a field.
 type kind int
 
 const (
-	substring  kind = iota // substring search: contains is exact
-	words                  // tokenised or whole-word search: contains is approximate
-	exactOnly              // hashes and numbers: equality only
-	rawHeaders             // the value is searched anywhere in the raw header block
-	oneHeader              // Modat: one header by name and value
-	fullText               // Shodan: a quoted phrase in the full banner text
+	substring     kind = iota // substring search: contains is exact
+	words                     // tokenised or whole-word search: contains is approximate
+	exactOnly                 // hashes and numbers: equality only
+	rawHeaders                // the value is searched anywhere in the raw header block
+	oneHeader                 // Modat: one header by name and value
+	fullText                  // Shodan: a quoted phrase in the full banner text
+	prefixKeyword             // urlscan: whole value or prefix, indexed in lowercase
+	regexKeyword              // urlscan: whole value, prefix or anchored regex, indexed in lowercase
 )
 
 type fieldSpec struct {
@@ -43,13 +46,15 @@ type fieldSpec struct {
 	kind       kind
 	regex      bool   // the engine supports regex on this field
 	unverified bool   // mapping marked † in spec Appendix A
+	loose      bool   // the engine field covers more than the taxonomy field, so even equality is approximate
 	note       string // known limitation, shown with every query that uses the field
 }
 
 // Engines index only part of large bodies (spec section 10, body truncation).
 const (
-	shodanBodyNote = "shodan does not index all of a large body; a body condition can miss hosts the scanner finds"
-	censysBodyNote = "censys searches only the first 6 KB of some bodies; a body condition can miss hosts the scanner finds"
+	shodanBodyNote  = "shodan does not index all of a large body; a body condition can miss hosts the scanner finds"
+	censysBodyNote  = "censys searches only the first 6 KB of some bodies; a body condition can miss hosts the scanner finds"
+	urlscanHashNote = "urlscan's hash matches any response the page loaded, not only this one"
 )
 
 var (
@@ -126,6 +131,17 @@ var (
 		"tls.ja3s":            {name: "tls.ja3s", kind: exactOnly},
 		"service.banner":      {name: "banner", kind: words},
 		"service.port":        {name: "port", kind: exactOnly},
+	}
+	// urlscan fields describe the page a browser ended up on. Fields that are
+	// missing here have no counterpart: urlscan indexes no body, banner, port,
+	// certificate subject or header other than Server.
+	urlscanFields = map[string]fieldSpec{
+		"http.title":          {name: "page.title.keyword", kind: regexKeyword},
+		"http.headers.server": {name: "page.server", kind: words},
+		"http.status_code":    {name: "page.status", kind: exactOnly},
+		"http.body.sha256":    {name: "hash", kind: exactOnly, loose: true, note: urlscanHashNote},
+		"http.favicon.sha256": {name: "hash", kind: exactOnly, loose: true, note: urlscanHashNote},
+		"tls.cert.issuer.cn":  {name: "page.tlsIssuer", kind: prefixKeyword},
 	}
 )
 
@@ -553,4 +569,138 @@ func anchor(t term) string {
 		return lit + "$"
 	}
 	return lit
+}
+
+// ---- urlscan.io ----
+
+// urlscan indexes pages a browser loaded for submitted URLs, not services
+// found by scanning. Its query syntax is the Elasticsearch query string, and
+// every value is indexed in lowercase.
+type urlscan struct{}
+
+func (urlscan) andOp() string        { return " AND " }
+func (urlscan) orOp() string         { return " OR " }
+func (urlscan) canOr() bool          { return true }
+func (urlscan) wrap(q string) string { return q }
+func (urlscan) groupNegation()       {}
+
+func (urlscan) notes() []string {
+	return []string{"urlscan indexes pages a browser loaded from submitted URLs, after redirects, not first responses from IP:port"}
+}
+
+var urlscanBare = regexp.MustCompile(`^[a-z0-9]+$`)
+
+func (urlscan) term(t term) (string, Fidelity, string, bool) {
+	switch {
+	case t.field == "":
+		return "", 0, describe(t) + ": urlscan has no full-text search of banners, headers and bodies", false
+	case t.field == "http.body":
+		return "", 0, describe(t) + ": urlscan doesn't index the HTML body; text.content holds only the visible text", false
+	case t.field == "http.headers_raw" || strings.HasPrefix(t.field, "http.headers.") && t.field != "http.headers.server":
+		return "", 0, describe(t) + ": urlscan indexes no response header except Server", false
+	}
+	spec, note, ok := lookup("urlscan", urlscanFields, substring, t)
+	if !ok {
+		return "", 0, note, false
+	}
+	not := ""
+	if t.negated {
+		not = "NOT "
+	}
+	f := Exact
+	if spec.loose {
+		f = Approximate
+	}
+	if t.cased {
+		f = Approximate
+		note = joinNote(note, "urlscan indexes values in lowercase, so the search ignores case")
+	}
+	v := strings.ToLower(t.value)
+
+	switch spec.kind {
+	case exactOnly:
+		if t.op != "eq" || t.wild {
+			return "", 0, fmt.Sprintf("%s: urlscan only supports equality on %s", describe(t), spec.name), false
+		}
+		if !urlscanBare.MatchString(v) {
+			v = quote(v)
+		}
+		return not + spec.name + ":" + v, f, note, true
+
+	case words:
+		// Text fields: a quoted phrase matches a sequence of words.
+		if t.wild || t.op == "re" {
+			return "", 0, fmt.Sprintf("%s: urlscan has no regex or wildcards on %s", describe(t), spec.name), false
+		}
+		return not + spec.name + ":" + quote(t.value), Approximate,
+			joinNote(note, fmt.Sprintf("urlscan matches words on %s", spec.name)), true
+
+	case prefixKeyword:
+		if !t.wild {
+			switch t.op {
+			case "eq":
+				return not + spec.name + ":" + quote(v), f, note, true
+			case "startswith":
+				return not + spec.name + ":" + luceneEscape(v) + "*", f, note, true
+			}
+		}
+		return "", 0, fmt.Sprintf("%s: urlscan only searches whole values and prefixes on %s", describe(t), spec.name), false
+
+	case regexKeyword:
+		if t.op == "re" {
+			return "", 0, describe(t) + ": urlscan's regex dialect (Lucene, anchored, lowercase values) differs from RE2", false
+		}
+		if t.op == "eq" && !t.wild {
+			return not + spec.name + ":" + quote(v), f, note, true
+		}
+		// Lucene regexes are anchored at both ends.
+		re := luceneRegex(t)
+		switch t.op {
+		case "contains":
+			re = ".*" + re + ".*"
+		case "startswith":
+			re += ".*"
+		case "endswith":
+			re = ".*" + re
+		}
+		return not + spec.name + ":/" + re + "/", f, note, true
+	}
+	return "", 0, describe(t) + ": not supported on urlscan", false
+}
+
+// luceneRegex turns a value into a Lucene regex on lowercase text: literal
+// characters escaped, Sigma's * and ? as .* and .
+func luceneRegex(t term) string {
+	if !t.wild {
+		return regexLiteral(strings.ToLower(t.value))
+	}
+	var b strings.Builder
+	raw := []rune(strings.ToLower(t.raw))
+	for i := 0; i < len(raw); i++ {
+		switch c := raw[i]; {
+		case c == '\\' && i+1 < len(raw) && strings.ContainsRune(`*?\`, raw[i+1]):
+			b.WriteString(regexLiteral(string(raw[i+1])))
+			i++
+		case c == '*':
+			b.WriteString(".*")
+		case c == '?':
+			b.WriteString(".")
+		default:
+			b.WriteString(regexLiteral(string(c)))
+		}
+	}
+	return b.String()
+}
+
+// luceneEscape escapes the query-string reserved characters and spaces in a
+// bare term, for prefix searches such as page.tlsIssuer:gts\ ca*.
+func luceneEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune(`+-=&|><!(){}[]^"~*?:\/ `, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

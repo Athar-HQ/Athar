@@ -62,8 +62,9 @@ rules/offensive-tool/aof_artex_antifox.yml        4/4 tests passed
 rules/offensive-tool/aof_artex_artex.yml          5/5 tests passed
 rules/offensive-tool/aof_artex_artex_favicon.yml  3/3 tests passed
 rules/offensive-tool/aof_artex_basic_auth.yml     2/2 tests passed
+rules/offensive-tool/aof_artex_stylesheet.yml     3/3 tests passed
 
-5 rules, 0 failed; 21/21 tests passed; 0 errors, 0 warnings
+6 rules, 0 failed; 24/24 tests passed; 0 errors, 0 warnings
 
 $ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
 athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
@@ -128,7 +129,7 @@ flowchart LR
 
 - **Probe planner** expands targets and ports and works out which parts of the baseline probe the rules need and which custom probes to send, like Nuclei's template clustering, so each open port gets each request once.
 - **Prober** does the TCP connect check, sends the baseline probe and any opt-in probes, then computes the hashes: favicon mmh3, MD5 and SHA-256, body mmh3 and SHA-256. JARM and JA3S are planned.
-- **Field adapters** map engine exports (FOFA, Shodan, Censys, ZoomEye, Modat) into taxonomy fields.
+- **Field adapters** map engine exports (FOFA, Shodan, Censys, ZoomEye, Modat, urlscan) into taxonomy fields.
 - **Converter** builds one boolean expression from the condition and selections, pushes negations down to single conditions, lets each engine backend translate them, and replaces what an engine can't express with TRUE so the query can only over-match (the superset rule). Each result is labelled `exact`, `approximate`, `superset` or `unsupported`, with notes.
 - **Evaluator** is a Sigma condition engine plus extraction, over taxonomy fields.
 
@@ -148,7 +149,7 @@ cli/
     ├── scan/             scan runner: probe planning, rate and per-host limits, rule evaluation, precedence
     ├── output/           identity records as readable lines or JSONL
     ├── color/            ANSI colours, only on terminals and without NO_COLOR
-    └── convert/          rule to query: expression tree, superset rule, one backend per engine (fofa, shodan, censys, zoomeye, modat)
+    └── convert/          rule to query: expression tree, superset rule, one backend per engine (fofa, shodan, censys, zoomeye, modat, urlscan)
 ```
 
 Packages stay under `internal/` until the API settles. The evaluator is the first candidate to become public, so other tools can embed Athar rules.
@@ -157,5 +158,5 @@ Packages stay under `internal/` until the API settles. The evaluator is the firs
 
 1. ~~`rule`, `condition`, `eval` and `athar verify`~~ (done): the evaluator defines what rules mean, and CI needs it first.
 2. ~~`probe`, `scan`, `output` and `athar scan` for TCP, TLS and HTTP~~ (done). Next for scan: JARM, JA3S, SSH host key and key exchange.
-3. ~~`convert` and `athar convert` for FOFA, Shodan, Censys, ZoomEye and Modat~~ (done). Next: Censys header search, once its syntax is verified.
+3. ~~`convert` and `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat and urlscan.io~~ (done). Next: Censys header search, once its syntax is verified.
 4. `fields` adapters and `athar match`.

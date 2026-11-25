@@ -34,7 +34,7 @@ func (f Fidelity) String() string {
 func (f Fidelity) MarshalText() ([]byte, error) { return []byte(f.String()), nil }
 
 // Engines lists the supported engines in output order.
-var Engines = []string{"fofa", "shodan", "censys", "zoomeye", "modat"}
+var Engines = []string{"fofa", "shodan", "censys", "zoomeye", "modat", "urlscan"}
 
 // Result is one rule converted for one engine.
 type Result struct {
@@ -68,8 +68,21 @@ func Convert(r *rule.Rule, engine string) (Result, error) {
 		return res, nil
 	}
 	res.Query = b.wrap(c.render(out, false))
+	if n, ok := b.(engineNoter); ok {
+		res.Notes = append(res.Notes, n.notes()...)
+	}
 	return res, nil
 }
+
+// engineNoter is implemented by engines whose data differs from the
+// scanner's in a way that applies to every query.
+type engineNoter interface{ notes() []string }
+
+// negGrouper is implemented by engines with Lucene's boolean syntax, where a
+// NOT next to OR excludes from the whole group: a OR NOT b finds a and not b.
+// A negation inside an OR is put in its own group, a OR (NOT b), which keeps
+// its meaning.
+type negGrouper interface{ groupNegation() }
 
 // ---- expression tree ----
 
@@ -93,8 +106,12 @@ type term struct {
 }
 
 // lit is a term an engine could express, already rendered. key and val are
-// set by engines that can OR several values of one field (see keyer).
-type lit struct{ s, key, val string }
+// set by engines that can OR several values of one field (see keyer); neg
+// is set when the term is negated.
+type lit struct {
+	s, key, val string
+	neg         bool
+}
 
 // keyer is implemented by engines without a general OR that can still list
 // several values for one field, as Shodan does with http.title:"a","b".
@@ -304,7 +321,7 @@ func (c *converter) lower(e expr) expr {
 			c.notes = append(c.notes, note)
 		}
 		c.worse(f)
-		l := lit{s: s}
+		l := lit{s: s, neg: x.negated}
 		if k, ok := c.b.(keyer); ok {
 			l.key, l.val = k.key(x)
 		}
@@ -405,9 +422,13 @@ func (c *converter) render(e expr, nested bool) string {
 		}
 		return s
 	case orExpr:
+		_, group := c.b.(negGrouper)
 		parts := make([]string, len(x))
 		for i, ch := range x {
 			parts[i] = c.render(ch, true)
+			if l, ok := ch.(lit); ok && l.neg && group {
+				parts[i] = "(" + parts[i] + ")"
+			}
 		}
 		s := strings.Join(parts, c.b.orOp())
 		if nested {
