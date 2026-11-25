@@ -14,9 +14,10 @@
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
 
+Our [slide deck](https://www.figma.com/deck/tFRGgSho2sEiq8mjW9pif8) explains the project visually: the problem, what a rule looks like, the CLI, and a real hunt for the ARTEX family.
+
 <p align="center">
   <a href="https://www.figma.com/deck/tFRGgSho2sEiq8mjW9pif8"><img src="docs/images/athar-deck.jpg" alt="Title slide of the Athar deck: Portable fingerprints, by Florian Roth and Gameel Ali" width="600"></a>
-  <br><sub>Slides: <a href="https://www.figma.com/deck/tFRGgSho2sEiq8mjW9pif8">Athar on Figma</a></sub>
 </p>
 
 ## Why
