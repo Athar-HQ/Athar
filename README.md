@@ -74,29 +74,14 @@ This is a shortened version of the real rule, [rules/offensive-tool/aof_artex_no
 
 The rules are the only thing the commands share. Each command takes the rules plus its own input, and none of them needs another command to run first.
 
-```mermaid
-flowchart LR
-  R["Rules<br/>(YAML)"]
-  T["Hosts, CIDR ranges<br/>and ports"]
-  D["Stored data<br/>engine exports,<br/>recorded responses"]
-
-  R --> S(["athar scan"])
-  T --> S
-  S --> SO["Matched services<br/>live"]
-
-  R --> C(["athar convert"])
-  C --> CO["Nuclei templates<br/>Search-engine queries<br/>FOFA · Shodan · Censys · ZoomEye · Modat · urlscan"]
-
-  R --> M(["athar match"])
-  D --> M
-  M --> MO["Matched records<br/>no packets sent"]
-```
-
-- **`athar scan`** checks live services. Give it rules, hosts or CIDR ranges, and the ports to check (`-p`, as in Nmap). It connects to each port, sends the baseline request, evaluates every rule on the response, and reports each match with product, family, extracted values such as brand or version, and confidence.
-- **`athar convert`** turns rules into Nuclei templates, so they run in Nuclei, and into search-engine queries, to find candidates on the internet without scanning yourself. Each result is labelled `exact`, `approximate`, `superset` or `unsupported`, because engines tokenize text, lack operators or index only part of a body.
-- **`athar match`** (planned) applies rules to data you already have, such as results exported from a search engine. It runs the exact rule logic, which removes the over-matches of approximate queries without sending a packet.
+| Command | Takes | Gives | Use it to |
+| --- | --- | --- | --- |
+| `athar convert` | Rules, and the targets to convert to (`-t`) | Nuclei templates, and queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io, each labelled `exact`, `approximate`, `superset` or `unsupported` | Run the rules in Nuclei, or find candidates on the internet without scanning yourself |
+| `athar scan` | Rules, hosts or CIDR ranges, and ports (`-p`, as in Nmap) | One line or JSON record per matching service: product, family, extracted brand or version, confidence and the rule's author | Check live services |
+| `athar match` (planned) | Rules, and data you already have: search-engine exports, recorded responses | The records that match, without sending a packet | Remove the over-matches of approximate queries |
 
 ```bash
+athar convert -t nuclei -o templates/ rules/
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24
 ```
 
