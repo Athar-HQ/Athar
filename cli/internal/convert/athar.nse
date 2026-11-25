@@ -876,25 +876,53 @@ local function chunk_feed(st, data)
   end
 end
 
--- Decodes a gzip body, keeping what decodes of a truncated one. Returns nil
--- for data that is not gzip. (zlib.decompress never returns on truncated
--- input, so the stream interface is used.)
+-- Where the deflate data of a gzip member starts, or nil where Go's
+-- gzip.NewReader rejects the header (RFC 1952: magic, method, optional
+-- extra field, name, comment and header CRC).
+local function gzip_data_start(data)
+  if #data < 10 or sub(data, 1, 3) ~= "\x1f\x8b\x08" then return nil end
+  local flags, pos = byte(data, 4), 11
+  if flags & 4 ~= 0 then
+    if #data < pos + 1 then return nil end
+    pos = pos + 2 + (byte(data, pos) | (byte(data, pos + 1) << 8))
+    if pos - 1 > #data then return nil end
+  end
+  for _, flag in ipairs({8, 16}) do -- name, comment: zero-terminated, under 512 bytes
+    if flags & flag ~= 0 then
+      local z = find(data, "\0", pos, true)
+      if not z or z - pos >= 512 then return nil end
+      pos = z + 1
+    end
+  end
+  if flags & 2 ~= 0 then
+    if #data < pos + 1 then return nil end
+    if zlib.crc32(0, sub(data, 1, pos - 1)) & 0xffff ~= (byte(data, pos) | (byte(data, pos + 1) << 8)) then
+      return nil
+    end
+    pos = pos + 2
+  end
+  return pos
+end
+
+-- Decodes a gzip body as athar scan does: without a valid gzip header it is
+-- kept as sent (nil); otherwise it is what decodes, which is all of a
+-- truncated body that arrived and nothing of corrupt data. The header is
+-- parsed here and the deflate data inflated raw, so zlib's own header checks
+-- don't apply. zlib.decompress never returns on truncated input, so the
+-- stream interface is used.
 local function gunzip(data)
-  local ok, stream = pcall(zlib.inflate, data, 31)
-  if not ok then return nil end
-  local parts, n, failed = {}, 0, false
+  local start = gzip_data_start(data)
+  if not start then return nil end
+  local ok, stream = pcall(zlib.inflate, sub(data, start), -15)
+  if not ok then return "" end
+  local parts, n = {}, 0
   while n < MAX_BODY do
     local ok2, piece = pcall(stream.read, stream, 65536)
-    if not ok2 then
-      failed = true
-      break
-    end
-    if not piece or piece == "" then break end
+    if not ok2 or not piece or piece == "" then break end
     parts[#parts + 1] = piece
     n = n + #piece
   end
   pcall(stream.close, stream)
-  if failed and n == 0 then return nil end
   return concat(parts)
 end
 

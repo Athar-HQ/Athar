@@ -3,6 +3,7 @@ package convert
 import (
 	"bufio"
 	"bytes"
+	"compress/flate"
 	"compress/gzip"
 	"context"
 	"crypto/ecdsa"
@@ -11,8 +12,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/binary"
 	"encoding/xml"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"math/big"
 	"net"
@@ -87,13 +90,14 @@ func TestNSEMatchesScan(t *testing.T) {
 		ports = append(ports, p)
 	}
 	// Where athar scan matches, so that agreement is not just both missing.
-	plain := []string{"entities and headers", "chunked gzip", "HTTP/1.0 until close", "bare LF", "no body", "escaped favicon path", "custom probe"}
+	plain := []string{"entities and headers", "chunked gzip", "HTTP/1.0 until close", "bare LF", "no body", "escaped favicon path", "custom probe",
+		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC"}
 	expect := map[string][]string{
 		"diff lists":               {"entities and headers", "TLS"},
 		"diff fold":                {"chunked gzip"},
 		"diff wildcard and regex":  {"entities and headers"},
 		"diff keyword and numbers": {"entities and headers", "chunked gzip", "bare LF"},
-		"diff absent title":        {"no body", "rejected header", "banner"},
+		"diff absent title":        {"no body", "rejected header", "banner", "gzip corrupt"},
 		"diff custom probe":        {"custom probe"},
 		"diff TLS required":        {"TLS"},
 		"diff TLS none":            plain,
@@ -126,15 +130,30 @@ func TestNSEMatchesScan(t *testing.T) {
 					}
 					if wok && !reflect.DeepEqual(w.extracted, g.extracted) {
 						for k := range union(w.extracted, g.extracted) {
-							if w.extracted[k] != g.extracted[k] {
-								t.Errorf("%s, %s, %s:\nathar scan %q\nathar.nse  %q", name, r.Title, k, w.extracted[k], g.extracted[k])
+							a, b := w.extracted[k], g.extracted[k]
+							if a == b || (name == "gzip truncated" && truncatedAlike(k, a, b)) {
+								continue
 							}
+							t.Errorf("%s, %s, %s:\nathar scan %q\nathar.nse  %q", name, r.Title, k, a, b)
 						}
 					}
 				}
 			}
 		})
 	}
+}
+
+// truncatedAlike accepts the one difference between Go's flate and zlib:
+// at the end of a truncated stream, zlib can emit a few more bytes, because
+// Go reads ahead before it decodes the last symbols.
+func truncatedAlike(field, a, b string) bool {
+	switch field {
+	case "body":
+		return strings.HasPrefix(b, a) && len(b)-len(a) <= 8
+	case "body_mmh3", "body_sha256":
+		return true
+	}
+	return false
 }
 
 func union(a, b map[string]string) map[string]bool {
@@ -537,6 +556,31 @@ func diffServers(t *testing.T) map[string]int {
 	}
 	cert := &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 
+	// gzip bodies: athar scan keeps what decodes once the header is valid.
+	var lines strings.Builder
+	for i := range 300 {
+		fmt.Fprintf(&lines, "<p>line %d %x</p>\n", i, i*7919)
+	}
+	cut := gzipped("<title>cut</title>" + lines.String())
+	cut = cut[:len(cut)/2]
+	var named bytes.Buffer
+	nw := gzip.NewWriter(&named)
+	nw.Header = gzip.Header{Name: "page.html", Comment: "athar test", Extra: []byte("xx")}
+	nw.Write([]byte("<title>named</title>"))
+	nw.Close()
+	hcrc := []byte{0x1f, 0x8b, 8, 2, 0, 0, 0, 0, 0, 0xff}
+	hcrc = binary.LittleEndian.AppendUint16(hcrc, uint16(crc32.ChecksumIEEE(hcrc)))
+	var deflated bytes.Buffer
+	fw, _ := flate.NewWriter(&deflated, flate.DefaultCompression)
+	fw.Write([]byte("<title>hcrc</title>"))
+	fw.Close()
+	hcrc = append(hcrc, deflated.Bytes()...)
+	hcrc = binary.LittleEndian.AppendUint32(hcrc, crc32.ChecksumIEEE([]byte("<title>hcrc</title>")))
+	hcrc = binary.LittleEndian.AppendUint32(hcrc, uint32(len("<title>hcrc</title>")))
+	gzipPage := func(body string) map[string]string {
+		return map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n", body)}
+	}
+
 	return map[string]int{
 		"entities and headers": rawServer(t, map[string]string{
 			"/": httpResponse("HTTP/1.1 200 OK\r\nServer:  Acme   Web/1.2 \r\nX-Multi: a\r\nx-multi: b\r\nX-Fold: first\r\n   second\r\n"+
@@ -570,7 +614,11 @@ func diffServers(t *testing.T) map[string]int {
 			"/":            httpResponse("HTTP/1.1 200 OK\r\n", "<title>TLS</title>"),
 			"/favicon.ico": httpResponse("HTTP/1.1 200 OK\r\n", "ICO2"),
 		}, cert, ""),
-		"banner": rawServer(t, nil, nil, "SSH-2.0-OpenSSH_9.6 Ubuntu\r\n"),
+		"banner":             rawServer(t, nil, nil, "SSH-2.0-OpenSSH_9.6 Ubuntu\r\n"),
+		"gzip corrupt":       rawServer(t, gzipPage("\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\xff\xfe not deflate"), nil, ""),
+		"gzip truncated":     rawServer(t, gzipPage(cut), nil, ""),
+		"gzip header fields": rawServer(t, gzipPage(named.String()), nil, ""),
+		"gzip header CRC":    rawServer(t, gzipPage(string(hcrc)), nil, ""),
 	}
 }
 
