@@ -152,7 +152,7 @@ Detection is Sigma's grammar, unchanged except for the `probe` key. A map is AND
 
 **Same service.** All selections must hold on the same service (one IP and port). A scanner does this implicitly. Backends must enforce it where an engine indexes whole hosts.
 
-**Matching.** String matching is case-insensitive by default, as in Sigma. A bare value is an exact match. This differs from FOFA, where `title="x"` is a substring match; backends handle such differences, authors don't.
+**Matching.** String matching is case-insensitive by default, as in Sigma. A bare value is an exact match. This differs from FOFA, where `title="x"` is a substring match; backends handle such differences, authors don't. As in Sigma, `*` and `?` in a value are wildcards (`\*`, `\?` and `\\` are literals), and a `re` expression is used as written, so it is case-sensitive unless it starts with `(?i)`.
 
 | Modifier | Source | Meaning |
 | --- | --- | --- |

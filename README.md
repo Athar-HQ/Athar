@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo.png" alt="Athar logo" width="320">
+</p>
+
 # Athar
 
 **Athar** (أثر, Arabic for *trace* or *footprint*) is an open rule format that describes what a network service looks like on the wire, plus a tool that uses those rules to find and identify such services on the internet.
@@ -9,7 +13,7 @@ One YAML rule describes the observable properties of one service: HTTP title, bo
 
 The first use case is the infrastructure of **agentic offensive frameworks (AOFs)**: AI-driven penetration testing consoles that are deployed under changing brand names. The format is not limited to them; C2 panels, phishing kits, appliances and ordinary server software fit the same way.
 
-> **Status:** draft v0.1. The rule format can still change, and the CLI is not written yet.
+> **Status:** draft v0.1. The rule format can still change. The CLI can verify rules; conversion and scanning are not written yet.
 
 ## Why
 
@@ -72,7 +76,7 @@ flowchart LR
 
 The **scanner defines what a rule means**. Steps 2 and 3 use the same evaluator, so an engine query can be loose without making the results wrong.
 
-The CLI commands are planned; see [cli/](cli/).
+Only `athar verify` exists so far; the other commands are planned. See [cli/](cli/).
 
 ## Principles
 
@@ -98,21 +102,26 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 ├── rules/                  the rule collection, one folder per category
 │   ├── README.md           naming, required tests, rule template
 │   └── offensive-tool/
-├── cli/                    the athar command-line tool (Go, planned)
+├── cli/                    the athar command-line tool (Go)
 │   └── README.md
+├── .github/workflows/      CI: Go tests and athar verify on every rule
 └── docs/
     ├── prior-art.md        existing formats and what Athar takes from each
     └── decisions.md        decided, open and deferred design questions
 ```
 
-## CLI (planned)
+## CLI
 
-| Command | What it does |
-| --- | --- |
-| `athar verify` | Checks rule syntax and runs every rule's tests. CI runs it on each pull request. |
-| `athar convert` | Turns rules into FOFA, Shodan, Censys or ZoomEye queries, with fidelity and warnings. |
-| `athar match` | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
-| `athar scan` | Probes live services and writes identity records as JSONL. |
+| Command | Status | What it does |
+| --- | --- | --- |
+| `athar verify` | works | Checks rule syntax and runs every rule's tests. CI runs it on each pull request. |
+| `athar convert` | planned | Turns rules into FOFA, Shodan, Censys or ZoomEye queries, with fidelity and warnings. |
+| `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
+| `athar scan` | planned | Probes live services and writes identity records as JSONL. |
+
+```bash
+go install github.com/Athar-HQ/Athar/cli/cmd/athar@latest
+```
 
 The CLI will be written in Go. [docs/decisions.md](docs/decisions.md#cli-in-go) gives the reasons.
 

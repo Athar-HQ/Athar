@@ -35,7 +35,7 @@ Create a category folder when its first rule arrives.
 - [ ] `confidence` reflects how specific the fingerprint is, `level` how notable a match is.
 - [ ] A `validation` entry with the engine, date and hit count, if you ran the query.
 - [ ] Variants link to their family with `related` type `variant-of` and repeat the family's selections.
-- [ ] `athar verify` passes (once the CLI exists).
+- [ ] `athar verify -strict rules/` passes. CI runs the same check on every pull request.
 
 Test responses may be minimal samples built from published indicators while a rule is `experimental`. Say so in a comment. Captured responses are better.
 
