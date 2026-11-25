@@ -1,0 +1,67 @@
+title: Agentic Offensive Framework - AntiFox
+id: 7f66a665-386f-490a-b4c2-8e93741c1d29
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
+    type: variant-of
+status: experimental
+description: |
+  The AntiFox-branded deployment of the ARTEX family, often exposed on port 443.
+  Recognised by the family title plus either the AntiFox brand at the start of
+  the title or a TLS certificate for an antifox.<ip>.nip.io name. The hunt also
+  reports *.sslip.io certificates on AntiFox hosts; sslip.io and nip.io are
+  public wildcard DNS services used by many unrelated sites, so only the
+  antifox-prefixed name is used.
+references:
+  - https://x.com/SansLimit3/status/2118049610996564345
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [443]
+detection:
+  selection_title:
+    http.title|contains:
+      - '自主渗透测试控制台'
+      - '자율 침투 테스트 콘솔'
+      - 'Autonomous Penetration Testing Console'
+  selection_brand:
+    http.title|startswith: 'AntiFox'
+  selection_cert:
+    tls.cert.san|re: '(?i)^antifox\..+\.nip\.io$'
+  condition: selection_title and (selection_brand or selection_cert)
+identifies:
+  product: AntiFox
+  family: artex
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published title and certificate pattern, not captured responses.
+  - name: AntiFox title
+    expect: match
+    response:
+      http.title: 'AntiFox — 自主渗透测试控制台'
+  - name: Rebranded title with an antifox nip.io certificate
+    expect: match
+    response:
+      http.title: 'Console — 自主渗透测试控制台'
+      tls.cert.san: ['antifox.192.0.2.10.nip.io']
+  - name: Other brand on a generic sslip.io certificate
+    expect: no_match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+      tls.cert.san: ['192-0-2-10.sslip.io']
+  - name: antifox nip.io certificate on an unrelated page
+    expect: no_match
+    response:
+      http.title: 'Welcome to nginx!'
+      tls.cert.san: ['antifox.192.0.2.10.nip.io']
+native:
+  fofa: 'title="自主渗透测试控制台" && title="AntiFox"'
