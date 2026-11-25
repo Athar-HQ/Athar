@@ -58,7 +58,7 @@ tests:
 
 The same rule drives every command: `athar scan` checks it against live services, `athar convert` turns it into a query for each search engine.
 
-This is a shortened version of the real rule, [rules/offensive-tool/aof_artex.yml](rules/offensive-tool/aof_artex.yml), which also matches the Chinese and Korean titles, reads the brand name out of the title with `extract`, and lists the ports these consoles use.
+This is a shortened version of the real rule, [rules/offensive-tool/aof_artex_nov26.yml](rules/offensive-tool/aof_artex_nov26.yml), which also matches the Chinese and Korean titles, reads the brand name out of the title with `extract`, and lists the ports these consoles use.
 
 ## How it works
 
@@ -205,7 +205,7 @@ Only scan hosts you are allowed to scan. The scanner identifies itself in its HT
 `athar convert` turns rules into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io. Give it rule files or folders; `-t` picks the engines.
 
 ```bash
-athar convert rules/offensive-tool/aof_artex.yml rules/offensive-tool/aof_artex_artex.yml
+athar convert rules/offensive-tool/aof_artex_nov26.yml rules/offensive-tool/aof_artex_artex_nov26.yml
 ```
 
 ![athar convert output for the ARTEX family and ARTEX rules: one query per engine for the Chinese, Korean and English titles, each labelled exact, approximate or superset, with notes on what was lost](docs/images/athar-convert.png)
@@ -267,15 +267,15 @@ athar verify rules/
 ```
 
 ```text
-rules/offensive-tool/aof_artex.yml                 7/7 tests passed
-rules/offensive-tool/aof_artex_antifox.yml         4/4 tests passed
-rules/offensive-tool/aof_artex_artex.yml           5/5 tests passed
-rules/offensive-tool/aof_artex_artex_favicon.yml   3/3 tests passed
-rules/offensive-tool/aof_artex_basic_auth.yml      2/2 tests passed
-rules/offensive-tool/aof_artex_frontend_files.yml  6/6 tests passed
-rules/offensive-tool/aof_artex_llm_console.yml     3/3 tests passed
-rules/offensive-tool/aof_artex_rebrands.yml        7/7 tests passed
-rules/offensive-tool/aof_artex_stylesheet.yml      4/4 tests passed
+rules/offensive-tool/aof_artex_nov26.yml                 7/7 tests passed
+rules/offensive-tool/aof_artex_antifox_nov26.yml         4/4 tests passed
+rules/offensive-tool/aof_artex_artex_nov26.yml           5/5 tests passed
+rules/offensive-tool/aof_artex_artex_favicon_nov26.yml   3/3 tests passed
+rules/offensive-tool/aof_artex_basic_auth_nov26.yml      2/2 tests passed
+rules/offensive-tool/aof_artex_frontend_files_nov26.yml  6/6 tests passed
+rules/offensive-tool/aof_artex_llm_console_nov26.yml     3/3 tests passed
+rules/offensive-tool/aof_artex_rebrands_nov26.yml        7/7 tests passed
+rules/offensive-tool/aof_artex_stylesheet_nov26.yml      4/4 tests passed
 
 9 rules, 0 failed; 41/41 tests passed; 0 errors, 0 warnings
 ```

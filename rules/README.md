@@ -10,15 +10,15 @@ One folder per category, using the controlled category list from the spec:
 rules/
 ├── c2/
 ├── offensive-tool/
-│   ├── aof_artex.yml                 family rule
-│   ├── aof_artex_antifox.yml         AntiFox variant
-│   ├── aof_artex_artex.yml           ARTEX variant
-│   ├── aof_artex_artex_favicon.yml   ARTEX favicon
-│   ├── aof_artex_basic_auth.yml      ARTEX behind Basic auth
-│   ├── aof_artex_frontend_files.yml  SHA-256 of the family's frontend stylesheets
-│   ├── aof_artex_llm_console.yml     LLM-driven console phrase
-│   ├── aof_artex_rebrands.yml        family without ARTEX's title or favicon
-│   └── aof_artex_stylesheet.yml      paths of the family's frontend stylesheets
+│   ├── aof_artex_nov26.yml                  family rule
+│   ├── aof_artex_antifox_nov26.yml          AntiFox variant
+│   ├── aof_artex_artex_nov26.yml            ARTEX variant
+│   ├── aof_artex_artex_favicon_nov26.yml    ARTEX favicon
+│   ├── aof_artex_basic_auth_nov26.yml       ARTEX behind Basic auth
+│   ├── aof_artex_frontend_files_nov26.yml   SHA-256 of the family's frontend stylesheets
+│   ├── aof_artex_llm_console_nov26.yml      LLM-driven console phrase
+│   ├── aof_artex_rebrands_nov26.yml         family without ARTEX's title or favicon
+│   └── aof_artex_stylesheet_nov26.yml       paths of the family's frontend stylesheets
 ├── phishing-kit/
 └── …
 ```
@@ -28,8 +28,9 @@ Create a category folder when its first rule arrives.
 ## File names
 
 - Lowercase, words separated by underscores, extension `.yml`.
-- Name the file after the product or family it identifies: `aof_artex.yml` for the ARTEX family of agentic offensive frameworks (AOF).
-- A variant adds its name to the family's file name: `aof_artex_artex.yml` for its ARTEX brand. Family and variants then sort next to each other.
+- Name the file after the product or family it identifies: `aof_artex_nov26.yml` for the ARTEX family of agentic offensive frameworks (AOF).
+- A variant adds its name to the family's file name: `aof_artex_artex_nov26.yml` for its ARTEX brand. Family and variants then sort next to each other.
+- End the name with the month and year of the rule's `date`, as `_<mon><yy>`: `_nov26` for a rule first written in November 2026. The suffix stays when the rule is modified later, so a file name always tells when the rule was written.
 
 ## Checklist before a pull request
 
