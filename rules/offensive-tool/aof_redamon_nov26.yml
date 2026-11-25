@@ -1,0 +1,45 @@
+title: Agentic Offensive Framework - RedAmon
+id: ce6d9777-bf15-4864-a7e4-4628692bf699
+status: experimental
+description: |
+  Web console of RedAmon, an open-source, self-hosted AI penetration testing
+  framework that maps an attack surface into a graph and exploits it with
+  autonomous agents. Matched by the page title "RedAmon", which the Next.js
+  root layout (webapp/src/app/layout.tsx) sets for every page; the only page
+  that overrides it (invite) uses the same title. The favicon is covered by
+  separate rules.
+references:
+  - https://github.com/samugit83/redamon
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_title:
+    http.title: 'RedAmon'
+  condition: selection_title
+identifies:
+  product: RedAmon
+  family: redamon
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the title in webapp/src/app/layout.tsx.
+  - name: Console title
+    expect: match
+    response:
+      http.title: 'RedAmon'
+  - name: Title with more words
+    expect: no_match
+    response:
+      http.title: 'RedAmon Plugins Documentation'
+native:
+  fofa: 'title=="RedAmon"'
