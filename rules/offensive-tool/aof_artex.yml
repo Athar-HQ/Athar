@@ -38,7 +38,7 @@ extract:
   brand:
     field: http.title
     regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console))'
-confidence: medium
+confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
   - Unrelated products whose title uses the same descriptive phrase
