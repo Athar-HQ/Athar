@@ -6,10 +6,11 @@ related:
 status: experimental
 description: |
   The favicons PentAGI ships in frontend/public/favicon, by their MurmurHash3
-  (Shodan/FOFA style): favicon.ico (-1596753120) and favicon.svg (535491455).
-  The page links both, and engines differ on which one they hash. Finds
-  consoles whatever their title says. Censys has no MurmurHash3 field; the
-  SHA-256 favicon rule covers it.
+  (Shodan/FOFA style): favicon-96x96.png (1567951828), favicon.svg
+  (535491455) and favicon.ico (-1596753120). The page links all three, in
+  that order; athar scan hashes the first, and engines differ on which one
+  they hash. Finds consoles whatever their title says. Censys has no
+  MurmurHash3 field; the SHA-256 favicon rule covers it.
 references:
   - https://github.com/vxcontrol/pentagi
 author: Gameel Ali (@MalGamy12)
@@ -26,8 +27,9 @@ target:
 detection:
   selection_icon:
     http.favicon.mmh3:
-      - -1596753120
-      - 535491455
+      - 1567951828    # favicon-96x96.png, the first icon the page links
+      - 535491455     # favicon.svg
+      - -1596753120   # favicon.ico
   condition: selection_icon
 identifies:
   product: PentAGI
@@ -47,6 +49,11 @@ tests:
     expect: match
     response:
       http.favicon.mmh3: 535491455
+  - name: favicon-96x96.png, the icon athar scan fetches
+    expect: match
+    response:
+      http.title: 'PentAGI'
+      http.favicon.mmh3: 1567951828
   - name: Other favicon
     expect: no_match
     response:

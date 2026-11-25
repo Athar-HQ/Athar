@@ -7,11 +7,12 @@ related:
     type: similar
 status: experimental
 description: |
-  Cairn's auto-generated TLS certificate by its subject organisation,
-  "Cairn Platform". athar convert has no engine field for the subject
-  organisation yet, so this rule is for the scanner and for stored data; the
-  original Shodan and Modat queries are kept under native. The common name
-  rule covers the same certificate on every engine.
+  The auto-generated TLS certificate of the customized Cairn fork that
+  CL-STA-1238 used (see the Cairn rule), by its subject organisation, "Cairn
+  Platform". athar convert has no mapping for the subject organisation yet,
+  so this rule is for the scanner and for stored data; the original Shodan
+  and Modat queries are kept under native. The common name rule covers the
+  same certificate on every engine that indexes certificates.
 references:
   - https://definitely-not-c2.com/Autonomous_AI_Hunting/
   - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
@@ -25,7 +26,7 @@ tags:
 target:
   protocol: http
   tls: required
-  ports: [8081]
+  ports: [8081]   # the actor's console (Shodan history)
 detection:
   selection_org:
     tls.cert.subject.o: 'Cairn Platform'
