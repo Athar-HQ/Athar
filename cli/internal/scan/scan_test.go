@@ -229,3 +229,46 @@ func TestCancel(t *testing.T) {
 		t.Errorf("stats after cancel = %+v", st)
 	}
 }
+
+// A port that accepts connections but drops every request, like a proxy with
+// no backend, is reported as open with no response.
+func TestLogSilentPort(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				c.Read(make([]byte, 1024))
+				c.Close()
+			}()
+		}
+	}()
+	silent := ln.Addr().String()
+
+	srv := httptest.NewServer(page("Login"))
+	defer srv.Close()
+	web := strings.TrimPrefix(srv.URL, "http://")
+
+	var log bytes.Buffer
+	o := opts()
+	o.Log = &log
+	s := New(repoRules(t), o)
+	for _, target := range []string{silent, web} {
+		tg, err := probe.ParseTarget(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.Run(context.Background(), []probe.Target{tg}, output.NewWriter(&bytes.Buffer{}))
+	}
+	want := "open " + silent + " no response (tried TLS, HTTP)\nopen " + web + " http 200 \"Login\"\n"
+	if log.String() != want {
+		t.Errorf("log:\n got %q\nwant %q", log.String(), want)
+	}
+}

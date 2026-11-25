@@ -159,13 +159,25 @@ Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames,
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24
 ```
 
-It connects to every host and port, fingerprints each open port (TLS certificate, `GET /`, favicon, banner) and prints one JSON line per service that matches a rule. With `-v` it also lists every open port on stderr:
+It connects to every host and port, fingerprints each open port (TLS certificate, `GET /`, favicon, banner) and prints one JSON line per service that matches a rule. With `-v` it also lists every open port on stderr, with what it answered.
+
+Two real scans from 25 November 2026. Infrastructure like this moves fast, so these hosts may answer differently by the time you read this.
+
+**A match.** An ARGOS-branded console behind a Caddy proxy with a Let's Encrypt certificate for the IP. The family rule identifies it and extracts the brand. The ARTEX variant rule does not match, because neither the title prefix nor the favicon is ARTEX's.
 
 ```text
-$ athar scan -r rules/ -p 80,443,18080 -v 127.0.0.0/30
-open 127.0.0.1:18080 http 200 "NKW — Autonomous Penetration Testing Console"
-{"target":"127.0.0.1:18080","tls":false,"rule":"0ce69e91-baee-4475-81ee-4b8eca1a6c3b","title":"Agentic Offensive Framework - ARTEX family","family":"artex","category":"offensive-tool","extracted":{"brand":"NKW"},"confidence":"high","matched":["selection_route","selection_title"],"probes":["default"],"observed":"2026-11-25T07:44:21Z"}
-athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
+$ athar scan -r rules/ -v -timeout 10s 144.202.110.94:443
+open 144.202.110.94:443 tls http 200 "ARGOS — Autonomous Penetration Testing Console"
+{"target":"144.202.110.94:443","tls":true,"rule":"0ce69e91-baee-4475-81ee-4b8eca1a6c3b","title":"Agentic Offensive Framework - ARTEX family","family":"artex","category":"offensive-tool","extracted":{"brand":"ARGOS"},"confidence":"high","matched":["selection_route","selection_title"],"probes":["default"],"observed":"2026-11-25T08:11:37Z"}
+athar scan: 1 host, 1 check, 1 open, 1 match in 4.8s
+```
+
+**No match.** The port accepts connections but resets every TLS handshake and HTTP request, so there is nothing to fingerprint. A source-IP filter or a proxy whose backend is gone looks like this.
+
+```text
+$ athar scan -r rules/ -v -timeout 10s 130.12.171.248:9443
+open 130.12.171.248:9443 no response (tried TLS, HTTP)
+athar scan: 1 host, 1 check, 1 open, 0 matches in 2s
 ```
 
 | Flag | Effect |
@@ -177,7 +189,7 @@ athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
 | `-c`, `-per-host`, `-rate` | Parallel checks (50), parallel checks per host (8), new connections per second (200). |
 | `-timeout` | Connect, handshake and read timeout (3s). |
 | `-probes` | Also send the custom probes rules declare. Off by default. |
-| `-v` | Print every open port to stderr. |
+| `-v` | Print every open port to stderr, with what it answered. A port that accepts connections but answers nothing shows as `open 192.0.2.7:9443 no response (tried TLS, HTTP)`. |
 
 Only scan hosts you are allowed to scan. The scanner identifies itself in its HTTP `User-Agent` as `athar`.
 

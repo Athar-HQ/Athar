@@ -317,7 +317,30 @@ func (s *Scanner) logOpen(svc *probe.Service) {
 	} else if b, ok := svc.Fields["service.banner"].(string); ok {
 		parts = append(parts, "banner "+strconv.Quote(truncate(b, 60)))
 	}
+	if len(parts) == 2 {
+		// The port accepted the connection but answered nothing the scanner
+		// tried. Say so, rather than leaving the line looking incomplete.
+		if tried := s.tried(); tried != "" {
+			parts = append(parts, "no response (tried "+tried+")")
+		}
+	}
 	fmt.Fprintln(s.opts.Log, strings.Join(parts, " "))
+}
+
+// tried lists the parts of the baseline probe the scanner sends, in order.
+func (s *Scanner) tried() string {
+	n := s.prober.Needs
+	var t []string
+	if n.Banner {
+		t = append(t, "banner")
+	}
+	if n.TLS {
+		t = append(t, "TLS")
+	}
+	if n.HTTP {
+		t = append(t, "HTTP")
+	}
+	return strings.Join(t, ", ")
 }
 
 func truncate(s string, n int) string {
