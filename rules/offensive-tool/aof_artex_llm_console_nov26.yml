@@ -9,12 +9,16 @@ description: |
   testing system console" (LLM 驱动的自主渗透测试系统控制台) in a meta tag of the
   landing page. The wording is close to the ARTEX family title suffix
   (自主渗透测试控制台) but adds 系统 ("system"), so the family rule does not match it.
-  Linked to the family as similar: the link is inferred from the wording and not
-  yet confirmed from a captured response.
+  The tag belongs to the family's console: in a live check on 2026-11-25, all
+  14 family consoles served it as their meta description. One of them was the
+  OPX rebrand, whose title the family rule misses. Linked to the family as
+  similar rather than variant-of because the rule does not need the family
+  title.
 references:
   - https://en.fofa.info/result?qbase64=IkxMTSDpqbHliqjnmoToh6rkuLvmuJfpgI%2FmtYvor5Xns7vnu5%2FmjqfliLblj7Ai
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
