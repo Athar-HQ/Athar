@@ -1,0 +1,45 @@
+title: Agentic Offensive Framework - DeepAudit favicon (SHA-256)
+id: c79f00f2-5cd6-4a86-a887-3acb2a99876d
+related:
+  - id: b1968c15-6753-4749-8530-be52d3601827   # Agentic Offensive Framework - DeepAudit
+    type: similar
+  - id: 71ab1b1a-8772-4abd-8cc5-36dfe804ff73   # Agentic Offensive Framework - DeepAudit favicon
+    type: similar
+status: experimental
+description: |
+  The same icon as the DeepAudit favicon rule, by its SHA-256, for engines that
+  store that hash instead of MurmurHash3 (Censys, Modat). Computed from
+  frontend/public/logo_deepaudit.png in the project repository.
+references:
+  - https://github.com/lintsinghua/DeepAudit
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [3000]
+detection:
+  selection_icon:
+    http.favicon.sha256: 63e81620181b1795051f40ef1c8bcd8e5e3f4df5fb1e22d60a31e251e352ad29
+  condition: selection_icon
+identifies:
+  product: DeepAudit
+  family: deepaudit
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  - name: Linked icon
+    expect: match
+    response:
+      http.favicon.sha256: 63e81620181b1795051f40ef1c8bcd8e5e3f4df5fb1e22d60a31e251e352ad29
+  - name: Other icon
+    expect: no_match
+    response:
+      http.favicon.sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

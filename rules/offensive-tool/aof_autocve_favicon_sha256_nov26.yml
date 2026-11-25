@@ -1,0 +1,44 @@
+title: Agentic Offensive Framework - AutoCVE favicon (SHA-256)
+id: 206da0e5-28a6-4097-a575-d254d77469c3
+related:
+  - id: c5255fbb-590e-4389-a623-430763efd345   # Agentic Offensive Framework - AutoCVE
+    type: similar
+  - id: 8e5abde7-dd20-401a-b3f2-6f21d6c6a126   # Agentic Offensive Framework - AutoCVE favicon
+    type: similar
+status: experimental
+description: |
+  The same icon as the AutoCVE favicon rule, by its SHA-256, for engines that
+  store that hash instead of MurmurHash3 (Censys, Modat). Computed from
+  frontend/public/autocve_icon.svg in the project repository.
+references:
+  - https://github.com/larlarua/AutoCVE
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_icon:
+    http.favicon.sha256: a805c431c4208b9bae3a273bc99320ede36aacec4b9f06b57c6a30779bee62b2
+  condition: selection_icon
+identifies:
+  product: AutoCVE
+  family: autocve
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  - name: Linked icon
+    expect: match
+    response:
+      http.favicon.sha256: a805c431c4208b9bae3a273bc99320ede36aacec4b9f06b57c6a30779bee62b2
+  - name: Other icon
+    expect: no_match
+    response:
+      http.favicon.sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

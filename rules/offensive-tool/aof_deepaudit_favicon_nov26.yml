@@ -1,0 +1,49 @@
+title: Agentic Offensive Framework - DeepAudit favicon
+id: 71ab1b1a-8772-4abd-8cc5-36dfe804ff73
+related:
+  - id: b1968c15-6753-4749-8530-be52d3601827   # Agentic Offensive Framework - DeepAudit
+    type: similar
+status: experimental
+description: |
+  The icon DeepAudit's page links, frontend/public/logo_deepaudit.png, by its
+  MurmurHash3 (Shodan/FOFA style), computed from the file in the repository.
+  Finds interfaces whatever their title says. Censys has no MurmurHash3 field;
+  the SHA-256 favicon rule covers it.
+references:
+  - https://github.com/lintsinghua/DeepAudit
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [3000]
+detection:
+  selection_icon:
+    http.favicon.mmh3: -757437337
+  condition: selection_icon
+identifies:
+  product: DeepAudit
+  family: deepaudit
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # The hash is computed from frontend/public/logo_deepaudit.png in the project repository.
+  - name: Linked icon with another title
+    expect: match
+    response:
+      http.title: 'Dashboard'
+      http.favicon.mmh3: -757437337
+  - name: Other icon
+    expect: no_match
+    response:
+      http.title: 'DeepAudit'
+      http.favicon.mmh3: 1234567890
+native:
+  fofa: 'icon_hash="-757437337"'

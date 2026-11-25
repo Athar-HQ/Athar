@@ -1,0 +1,48 @@
+title: Agentic Offensive Framework - AutoCVE favicon
+id: 8e5abde7-dd20-401a-b3f2-6f21d6c6a126
+related:
+  - id: c5255fbb-590e-4389-a623-430763efd345   # Agentic Offensive Framework - AutoCVE
+    type: similar
+status: experimental
+description: |
+  The icon AutoCVE's page links, frontend/public/autocve_icon.svg, by its
+  MurmurHash3 (Shodan/FOFA style), computed from the file in the repository.
+  Finds interfaces whatever their title says. Censys has no MurmurHash3 field;
+  the SHA-256 favicon rule covers it.
+references:
+  - https://github.com/larlarua/AutoCVE
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_icon:
+    http.favicon.mmh3: 1166126950
+  condition: selection_icon
+identifies:
+  product: AutoCVE
+  family: autocve
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # The hash is computed from frontend/public/autocve_icon.svg in the project repository.
+  - name: Linked icon with another title
+    expect: match
+    response:
+      http.title: 'Dashboard'
+      http.favicon.mmh3: 1166126950
+  - name: DeepAudit icon (the project AutoCVE is based on)
+    expect: no_match
+    response:
+      http.title: 'DeepAudit'
+      http.favicon.mmh3: -757437337
+native:
+  fofa: 'icon_hash="1166126950"'
