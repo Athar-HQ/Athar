@@ -46,7 +46,6 @@ var (
 	categories  = set("c2", "offensive-tool", "phishing-kit", "malware-panel", "remote-access",
 		"ai-infrastructure", "network-appliance", "ics", "iot", "cms", "web-server", "database")
 	relatedTypes = set("derived", "obsolete", "merged", "renamed", "similar", "variant-of")
-	safeMethods  = set("GET", "HEAD", "OPTIONS")
 )
 
 var uuidV4 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -116,8 +115,8 @@ func Check(r *Rule) []Problem {
 		if pr.Protocol == "" {
 			p = append(p, errorf("probe %q: missing protocol", id))
 		}
-		if pr.Request != nil && pr.Request.Method != "" && !safeMethods[strings.ToUpper(pr.Request.Method)] {
-			p = append(p, errorf("probe %q: method %q is not a safe method (GET, HEAD, OPTIONS)", id, pr.Request.Method))
+		for _, why := range pr.Unsafe() {
+			p = append(p, errorf("probe %q: %s", id, why))
 		}
 	}
 

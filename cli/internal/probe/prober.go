@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/netip"
@@ -188,6 +187,9 @@ func (p *Prober) http(ctx context.Context, svc *Service, conn net.Conn) {
 
 // custom sends one rule-declared probe and returns the fields it produced.
 func (p *Prober) custom(ctx context.Context, svc *Service, pr rule.Probe) eval.Fields {
+	if len(pr.Unsafe()) > 0 {
+		return nil // athar verify rejects these probes; never send them
+	}
 	conn, err := p.connect(ctx, svc)
 	if err != nil {
 		return nil
@@ -208,9 +210,6 @@ func (p *Prober) custom(ctx context.Context, svc *Service, pr rule.Probe) eval.F
 			}
 			headers = r.Headers
 		}
-		if method != "GET" && method != "HEAD" && method != "OPTIONS" {
-			return nil // never send unsafe methods
-		}
 		resp, err := httpExchange(conn, hostHeader(svc), method, path, headers, p.UserAgent)
 		if err != nil {
 			return nil
@@ -227,7 +226,7 @@ func (p *Prober) custom(ctx context.Context, svc *Service, pr rule.Probe) eval.F
 			}
 		}
 		if pr.Send != "" {
-			payload, err := Unescape(pr.Send)
+			payload, err := rule.Unescape(pr.Send)
 			if err != nil {
 				return nil
 			}
@@ -399,47 +398,6 @@ func setList(f eval.Fields, key string, values []string) {
 		}
 		f[key] = list
 	}
-}
-
-// Unescape decodes the escapes used in probe payloads, as in
-// nmap-service-probes: \xHH, \0, \r, \n, \t and \\.
-func Unescape(s string) ([]byte, error) {
-	var out []byte
-	for i := 0; i < len(s); i++ {
-		if s[i] != '\\' {
-			out = append(out, s[i])
-			continue
-		}
-		if i+1 >= len(s) {
-			return nil, fmt.Errorf("payload ends with a backslash")
-		}
-		i++
-		switch s[i] {
-		case 'x':
-			if i+2 >= len(s) {
-				return nil, fmt.Errorf("incomplete \\x escape")
-			}
-			b, err := hex.DecodeString(s[i+1 : i+3])
-			if err != nil {
-				return nil, fmt.Errorf("invalid \\x escape %q", s[i-1:i+3])
-			}
-			out = append(out, b[0])
-			i += 2
-		case '0':
-			out = append(out, 0)
-		case 'r':
-			out = append(out, '\r')
-		case 'n':
-			out = append(out, '\n')
-		case 't':
-			out = append(out, '\t')
-		case '\\':
-			out = append(out, '\\')
-		default:
-			return nil, fmt.Errorf("unknown escape \\%c", s[i])
-		}
-	}
-	return out, nil
 }
 
 func sortedKeys(m map[string]string) []string {

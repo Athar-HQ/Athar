@@ -109,3 +109,72 @@ func TestCheckSet(t *testing.T) {
 		t.Errorf("c.yml: %v", got["c.yml"])
 	}
 }
+
+func TestUnescape(t *testing.T) {
+	got, err := Unescape(`\x00\x01PING\r\n\\`)
+	if err != nil || string(got) != "\x00\x01PING\r\n\\" {
+		t.Errorf("got %q, %v", got, err)
+	}
+	for _, bad := range []string{`\x0`, `\xzz`, `\q`, `abc\`} {
+		if _, err := Unescape(bad); err == nil {
+			t.Errorf("Unescape(%q): want error", bad)
+		}
+	}
+}
+
+// A probe from a third-party rule must not be able to send another method,
+// a second request, credentials or a body (spec section 4).
+func TestProbeUnsafe(t *testing.T) {
+	get := func(path string, headers map[string]string) Probe {
+		return Probe{Protocol: "http", Request: &HTTPRequest{Method: "GET", Path: path, Headers: headers}}
+	}
+	for name, tt := range map[string]struct {
+		p    Probe
+		want string // "" means safe
+	}{
+		"default request":       {Probe{Protocol: "http"}, ""},
+		"api with accept":       {get("/api/version", map[string]string{"Accept": "application/json"}), ""},
+		"head lowercase":        {Probe{Protocol: "http", Request: &HTTPRequest{Method: "head", Path: "/"}}, ""},
+		"tcp ping":              {Probe{Protocol: "tcp", Send: `\x00\x00\x00\x01PING`}, ""},
+		"tcp safe http":         {Probe{Protocol: "tcp", Send: `GET / HTTP/1.0\r\n\r\n`}, ""},
+		"post":                  {Probe{Protocol: "http", Request: &HTTPRequest{Method: "POST", Path: "/"}}, "safe method"},
+		"crlf in path":          {get("/ HTTP/1.1\r\nHost: x\r\n\r\nDELETE /admin", nil), "path"},
+		"space in path":         {get("/a b", nil), "path"},
+		"absolute url":          {get("http://169.254.169.254/latest/meta-data/", nil), "path"},
+		"no leading slash":      {get("api/version", nil), "path"},
+		"crlf in header value":  {get("/", map[string]string{"X-A": "1\r\n\r\nDELETE /x HTTP/1.1"}), "line break"},
+		"crlf in header name":   {get("/", map[string]string{"X-A: 1\r\nX-B": "2"}), "token"},
+		"authorization":         {get("/", map[string]string{"Authorization": "Basic YWRtaW46YWRtaW4="}), "credentials"},
+		"cookie":                {get("/", map[string]string{"cookie": "session=1"}), "credentials"},
+		"content-length":        {get("/", map[string]string{"Content-Length": "5"}), "body"},
+		"method override":       {get("/", map[string]string{"X-HTTP-Method-Override": "DELETE"}), "method override"},
+		"tcp post":              {Probe{Protocol: "tcp", Send: `POST /api/delete HTTP/1.1\r\nHost: x\r\n\r\n`}, "HTTP POST"},
+		"tcp escaped delete":    {Probe{Protocol: "tcp", Send: `\x44ELETE /x HTTP/1.1\r\n\r\n`}, "HTTP DELETE"},
+		"tcp pipelined put":     {Probe{Protocol: "tcp", Send: `GET / HTTP/1.1\r\nHost: x\r\n\r\nput /x http/1.1\r\n\r\n`}, "HTTP PUT"},
+		"tcp get with password": {Probe{Protocol: "tcp", Send: `GET / HTTP/1.1\r\nAuthorization: Basic eDp4\r\n\r\n`}, "Authorization"},
+	} {
+		why := tt.p.Unsafe()
+		switch {
+		case tt.want == "" && len(why) > 0:
+			t.Errorf("%s: want safe, got %v", name, why)
+		case tt.want != "" && !strings.Contains(strings.Join(why, "; "), tt.want):
+			t.Errorf("%s: want a reason containing %q, got %v", name, tt.want, why)
+		}
+	}
+
+	// verify reports the reasons as errors.
+	src := strings.Replace(validRule, "confidence: high", "confidence: high\nprobes:\n  p:\n    protocol: http\n    request:\n      path: \"/ HTTP/1.1\\r\\n\\r\\nDELETE /admin\"", 1)
+	r, err := Parse([]byte(src), "x.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, p := range Check(r) {
+		if p.Severity == Error && strings.Contains(p.Msg, `probe "p": path`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Check: no error for a path with a line break: %v", Check(r))
+	}
+}

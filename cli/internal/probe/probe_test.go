@@ -1,8 +1,10 @@
 package probe
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -154,18 +157,6 @@ func TestTitleAndFavicon(t *testing.T) {
 		path, inline := faviconSource(tt.ref, "10.0.0.1", 8080)
 		if path != tt.path || string(inline) != tt.inline {
 			t.Errorf("faviconSource(%q) = %q, %q; want %q, %q", tt.ref, path, inline, tt.path, tt.inline)
-		}
-	}
-}
-
-func TestUnescape(t *testing.T) {
-	got, err := Unescape(`\x00\x01PING\r\n\\`)
-	if err != nil || string(got) != "\x00\x01PING\r\n\\" {
-		t.Errorf("got %q, %v", got, err)
-	}
-	for _, bad := range []string{`\x0`, `\xzz`, `\q`, `abc\`} {
-		if _, err := Unescape(bad); err == nil {
-			t.Errorf("Unescape(%q): want error", bad)
 		}
 	}
 }
@@ -373,5 +364,147 @@ func TestCustomProbes(t *testing.T) {
 	svc = p.Probe(context.Background(), echoHost, echoPort)
 	if svc == nil || svc.Custom[ProbeKey(ping)]["service.banner"] != "PONG" {
 		t.Errorf("tcp probe result: %+v", svc)
+	}
+}
+
+// recorder is an HTTP/1.1 server on a raw listener that answers every request
+// it can parse, pipelined ones included, and records method and target.
+func recorder(t *testing.T) (string, int, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	host, port := listen(t, func(c net.Conn) {
+		c.SetDeadline(time.Now().Add(2 * time.Second))
+		br := bufio.NewReader(c)
+		for {
+			req, err := http.ReadRequest(br)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			seen = append(seen, req.Method+" "+req.RequestURI)
+			mu.Unlock()
+			io.Copy(io.Discard, req.Body)
+			c.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"))
+		}
+	})
+	return host, port, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+}
+
+// Probes from third-party rules must not smuggle in a second request,
+// another method or credentials, even if they skipped athar verify.
+func TestUnsafeProbesAreNotSent(t *testing.T) {
+	get := func(path string, headers map[string]string) rule.Probe {
+		return rule.Probe{Protocol: "http", Request: &rule.HTTPRequest{Path: path, Headers: headers}}
+	}
+	for name, pr := range map[string]rule.Probe{
+		"crlf in path":    get("/ HTTP/1.1\r\nHost: x\r\n\r\nDELETE /admin/users/1", nil),
+		"crlf in header":  get("/", map[string]string{"X-A": "1\r\n\r\nDELETE /admin/users/2 HTTP/1.1\r\nHost: x"}),
+		"absolute url":    get("http://127.0.0.1/other", nil),
+		"authorization":   get("/", map[string]string{"Authorization": "Basic YWRtaW46YWRtaW4="}),
+		"method override": get("/", map[string]string{"X-HTTP-Method-Override": "DELETE"}),
+		"tcp post":        {Protocol: "tcp", Send: `POST /api/delete HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n`},
+	} {
+		host, port, seen := recorder(t)
+		svc := &Service{Host: host, IP: host, Port: port}
+		if f := testProber(Needs{}).custom(context.Background(), svc, pr); f != nil {
+			t.Errorf("%s: probe was sent and got %v", name, f)
+		}
+		time.Sleep(50 * time.Millisecond)
+		if got := seen(); len(got) > 0 {
+			t.Errorf("%s: server received %q", name, got)
+		}
+	}
+
+	// A safe probe still goes out, as one request.
+	host, port, seen := recorder(t)
+	svc := &Service{Host: host, IP: host, Port: port}
+	if f := testProber(Needs{}).custom(context.Background(), svc, get("/api/version", map[string]string{"Accept": "application/json"})); f == nil {
+		t.Error("safe probe got no response")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := seen(); len(got) != 1 || got[0] != "GET /api/version" {
+		t.Errorf("server received %q, want one GET /api/version", got)
+	}
+}
+
+func TestCheckRequest(t *testing.T) {
+	for _, tt := range []struct {
+		method, path string
+		headers      map[string]string
+		ok           bool
+	}{
+		{"GET", "/favicon.ico", nil, true},
+		{"GET", "/a?b=c", map[string]string{"Accept": "text/html; q=0.9\t"}, true},
+		{"GET", "/ HTTP/1.1\r\n\r\nDELETE /x", nil, false},
+		{"GET", "/a b", nil, false},
+		{"DELETE /x HTTP/1.1\r\n\r\nGET", "/", nil, false},
+		{"GET", "/", map[string]string{"X-A": "1\r\nX-B: 2"}, false},
+		{"GET", "/", map[string]string{"X-A\r\nX-B": "2"}, false},
+		{"GET", "/", map[string]string{"X-A: 1\r\nX": "2"}, false},
+	} {
+		if err := checkRequest(tt.method, tt.path, tt.headers); (err == nil) != tt.ok {
+			t.Errorf("checkRequest(%q, %q, %q) = %v, want ok=%v", tt.method, tt.path, tt.headers, err, tt.ok)
+		}
+	}
+}
+
+// A header line that never ends must not be read past the header limit: the
+// read stops at maxHeader instead of running until the deadline.
+func TestEndlessHeaderLine(t *testing.T) {
+	host, port := listen(t, func(c net.Conn) {
+		bufio.NewReader(c).ReadString('\n')
+		c.Write([]byte("HTTP/1.1 200 OK\r\nX-Junk: "))
+		chunk := bytes.Repeat([]byte("a"), 64<<10)
+		for range 64 { // 4 MiB, no newline
+			if _, err := c.Write(chunk); err != nil {
+				return
+			}
+		}
+		time.Sleep(5 * time.Second)
+	})
+	conn, err := net.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(4 * time.Second))
+	start := time.Now()
+	_, err = httpExchange(conn, host, "GET", "/", nil, "athar-test")
+	if err == nil || !strings.Contains(err.Error(), "header block larger than") {
+		t.Fatalf("err = %v, want the header limit", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("took %v; the read should stop at the limit, not at the deadline", d)
+	}
+}
+
+// A header line longer than the read buffer is still one line: its end must
+// not be taken for the blank line that ends the header block.
+func TestLongHeaderLine(t *testing.T) {
+	long := strings.Repeat("a", 4096-len("X-Long: ")) // the line fills the 4 KiB buffer; "\r\n" comes alone
+	host, port := listen(t, func(c net.Conn) {
+		bufio.NewReader(c).ReadString('\n')
+		c.Write([]byte("HTTP/1.1 200 OK\r\nX-Long: " + long + "\r\nX-After: yes\r\nContent-Length: 2\r\n\r\nok"))
+	})
+	conn, err := net.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+	resp, err := httpExchange(conn, host, "GET", "/", nil, "athar-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.header.Get("X-Long") != long || resp.header.Get("X-After") != "yes" || string(resp.body) != "ok" {
+		t.Errorf("X-Long %d bytes, X-After %q, body %q", len(resp.header.Get("X-Long")), resp.header.Get("X-After"), resp.body)
+	}
+	if raw := string(resp.headerRaw); !strings.HasSuffix(raw, "X-After: yes\r\nContent-Length: 2\r\n\r\n") {
+		t.Errorf("http.headers_raw ends with %q", raw[max(0, len(raw)-40):])
 	}
 }

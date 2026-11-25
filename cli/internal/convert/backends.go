@@ -186,6 +186,19 @@ func noWildcards(engine string, t term) (string, bool) {
 	return "", true
 }
 
+// widened reports a negated exact, prefix or suffix match that an engine
+// can only search as a substring or as words. The looser search finds more
+// services, so its negation excludes more: services the rule matches would
+// be missing from the query. Backends drop such terms instead, which keeps
+// the query a superset (spec section 10).
+func widened(t term) bool {
+	return t.negated && (t.op == "eq" || t.op == "startswith" || t.op == "endswith")
+}
+
+func widenedNote(t term, how string) string {
+	return fmt.Sprintf("not %s: %s, which would also exclude services the rule matches", describe(t), how)
+}
+
 func joinNote(a, b string) string {
 	switch {
 	case a == "":
@@ -242,6 +255,9 @@ func fofaLike(engine string, fields map[string]fieldSpec, t term, exactOp string
 		if t.op == "re" {
 			return "", 0, fmt.Sprintf("%s: %s has no regex", describe(t), engine), false
 		}
+		if t.negated && (t.field != "http.headers_raw" || t.op != "contains") {
+			return "", 0, widenedNote(t, fmt.Sprintf("%s can only exclude %q anywhere in the header block", engine, t.value)), false
+		}
 		q := spec.name + not + "=" + quote(t.value)
 		if t.field == "http.headers_raw" {
 			// header= is a substring search in the raw block, which is what
@@ -254,18 +270,17 @@ func fofaLike(engine string, fields map[string]fieldSpec, t term, exactOp string
 		return q, Approximate,
 			joinNote(note, fmt.Sprintf("%s searches the whole header block for %q, not one header", engine, t.value)), true
 	}
+	if widened(t) {
+		return "", 0, widenedNote(t, fmt.Sprintf("%s's != excludes every value that contains %q", engine, t.value)), false
+	}
 	f := Exact
 	op := "="
 	switch t.op {
 	case "contains":
 	case "eq":
-		if t.negated {
-			op, f = "", Approximate // != excludes every value that contains it
-		} else {
-			op = exactOp
-			if engine == "zoomeye" && !t.cased {
-				f = Approximate // ZoomEye's == is case-sensitive
-			}
+		op = exactOp
+		if engine == "zoomeye" && !t.cased {
+			f = Approximate // ZoomEye's == is case-sensitive
 		}
 	case "startswith", "endswith":
 		f = Approximate
@@ -344,6 +359,9 @@ func (shodan) term(t term) (string, Fidelity, string, bool) {
 		return neg + spec.name + ":" + v, Exact, note, true
 	}
 	// Text filters match tokens, so every text operator is approximate.
+	if widened(t) {
+		return "", 0, widenedNote(t, fmt.Sprintf("shodan's -%s excludes %q anywhere in the text", spec.name, t.value)), false
+	}
 	return neg + spec.name + ":" + quote(t.value), Approximate, note, true
 }
 
@@ -640,6 +658,9 @@ func (urlscan) term(t term) (string, Fidelity, string, bool) {
 		// Text fields: a quoted phrase matches a sequence of words.
 		if t.wild || t.op == "re" {
 			return "", 0, fmt.Sprintf("%s: urlscan has no regex or wildcards on %s", describe(t), spec.name), false
+		}
+		if widened(t) {
+			return "", 0, widenedNote(t, fmt.Sprintf("NOT %s excludes %q anywhere in the value", spec.name, t.value)), false
 		}
 		return not + spec.name + ":" + quote(t.value), Approximate,
 			joinNote(note, fmt.Sprintf("urlscan matches words on %s", spec.name)), true

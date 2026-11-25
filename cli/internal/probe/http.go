@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -37,6 +38,9 @@ type httpResponse struct {
 // httpExchange sends one request on conn and reads the response. The
 // connection is used for this request only (Connection: close).
 func httpExchange(conn net.Conn, hostHeader, method, path string, headers map[string]string, ua string) (*httpResponse, error) {
+	if err := checkRequest(method, path, headers); err != nil {
+		return nil, err
+	}
 	var req bytes.Buffer
 	fmt.Fprintf(&req, "%s %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nAccept: */*\r\nConnection: close\r\n", method, path, hostHeader, ua)
 	names := make([]string, 0, len(headers))
@@ -56,20 +60,27 @@ func httpExchange(conn net.Conn, hostHeader, method, path string, headers map[st
 	}
 
 	// Keep the header block exactly as received, then let net/http parse it.
+	// Lines are read in pieces of at most the buffer size, so a line without
+	// an end can't grow past maxHeader.
 	br := bufio.NewReader(conn)
 	var raw bytes.Buffer
+	start := 0 // where the current line starts in raw
 	for {
-		line, err := br.ReadBytes('\n')
-		raw.Write(line)
-		if err != nil {
-			return nil, fmt.Errorf("reading headers: %w", err)
-		}
+		piece, err := br.ReadSlice('\n')
+		raw.Write(piece)
 		if raw.Len() > maxHeader {
 			return nil, fmt.Errorf("header block larger than %d bytes", maxHeader)
 		}
-		if len(bytes.TrimRight(line, "\r\n")) == 0 {
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue // the line goes on
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading headers: %w", err)
+		}
+		if len(bytes.TrimRight(raw.Bytes()[start:], "\r\n")) == 0 {
 			break
 		}
+		start = raw.Len()
 	}
 	if !bytes.HasPrefix(raw.Bytes(), []byte("HTTP/")) {
 		return nil, fmt.Errorf("not an HTTP response")
@@ -90,6 +101,24 @@ func httpExchange(conn net.Conn, hostHeader, method, path string, headers map[st
 	b, _ := io.ReadAll(io.LimitReader(body, MaxBody))
 
 	return &httpResponse{status: resp.StatusCode, headerRaw: raw.Bytes(), header: resp.Header, body: b}, nil
+}
+
+// checkRequest refuses a request whose parts would end the request line or a
+// header early, which would add headers or a second request. Custom probes
+// are checked against the full rules (rule.Probe.Unsafe) before they get
+// here; this guards every request the prober sends.
+func checkRequest(method, path string, headers map[string]string) error {
+	for _, s := range []string{method, path} {
+		if strings.ContainsFunc(s, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+			return fmt.Errorf("refusing to send request line part %q", s)
+		}
+	}
+	for k, v := range headers {
+		if strings.ContainsAny(k, "\r\n\x00: \t") || strings.ContainsAny(v, "\r\n\x00") {
+			return fmt.Errorf("refusing to send header %q", k)
+		}
+	}
+	return nil
 }
 
 // fields stores the response in taxonomy fields.

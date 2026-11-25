@@ -350,3 +350,50 @@ func TestRepositoryRules(t *testing.T) {
 		}
 	}
 }
+
+// Under not, a looser engine operator excludes more than the rule does, so
+// the query would miss services the rule matches. A negated exact, prefix or
+// suffix match that an engine can only search as a substring or as words is
+// dropped instead, and the query stays a superset (spec section 10).
+func TestNegatedLooserOperators(t *testing.T) {
+	r := ruleFrom(t, `
+sel:
+  http.title|contains: Console
+filter_prefix:
+  http.title|startswith: ARTEX
+filter_exact:
+  http.title: Admin Console
+filter_header:
+  http.headers.x-powered-by|contains: Express
+filter_server:
+  http.headers.server|contains: nginx
+condition: sel and not 1 of filter_*
+`)
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console" && server!="nginx"`, Superset},
+		"zoomeye": {`title="Console" && http.header.server!="nginx"`, Superset},
+		"shodan":  {`http.title:"Console"`, Superset},
+		"modat":   {`http.title~"Console" and not http.title="Admin Console" and not http.headers: (key = "X-Powered-By" and value ~ "Express") and not http.title=~"^ARTEX" and not http.headers: (key = "Server" and value ~ "nginx")`, Exact},
+	})
+	for _, engine := range []string{"fofa", "zoomeye", "shodan"} {
+		res, _ := Convert(r, engine)
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, `not http.title|startswith "ARTEX"`) || !strings.Contains(notes, "would also exclude services the rule matches") {
+			t.Errorf("%s: notes don't explain the dropped filter: %v", engine, res.Notes)
+		}
+	}
+
+	// A negated exact match on one header: FOFA's server and urlscan's
+	// page.server are searched as substring or words.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.headers.server: nginx\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"urlscan": {`page.title.keyword:/.*console.*/`, Superset},
+	})
+
+	// A negated substring search still converts.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|contains: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":   {`title="Console" && title!="ARTEX"`, Exact},
+		"shodan": {`http.title:"Console" -http.title:"ARTEX"`, Approximate},
+	})
+}
