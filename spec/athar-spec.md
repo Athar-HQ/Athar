@@ -65,7 +65,7 @@ Fields marked *Sigma* behave exactly as in the [Sigma specification](https://git
 | `protocol` | yes | Application protocol: `http`, `ssh`, `ftp`, `smtp`, … Use `tcp` for rules that only look at a raw banner. |
 | `transport` | no | `tcp` (default) or `udp`. |
 | `tls` | no | `auto` (default): try TLS, fall back to plaintext. `required`: only match over TLS. `none`: only match plaintext. |
-| `ports` | no | Typical ports. A hint for scanners and backends, never a match condition. To require a port, use `service.port` in a selection. |
+| `ports` | no | Typical ports. A hint for scanners and backends, never a match condition: when the operator gives no port list, a scanner adds these ports to the ones it checks. To require a port, use `service.port` in a selection. |
 
 ## 4. Probes
 

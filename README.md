@@ -61,21 +61,39 @@ The full rule, with negative test, validation counts and the original FOFA query
 
 ## How it works
 
+The rules are the only thing the commands share. Each command takes the rules plus its own input, and none of them needs another command to run first.
+
 ```mermaid
 flowchart LR
-  R["Rule<br/>(YAML)"] -->|athar convert| Q["Engine query<br/>FOFA · Shodan · Censys · ZoomEye"]
-  Q --> X["Engine results"]
-  X -->|athar match| C["Candidates<br/>indexed data, may be stale"]
-  C -->|athar scan| I["Identity records<br/>live, confirmed"]
+  R["Rules<br/>(YAML)"]
+  T["Hosts, CIDR ranges<br/>and ports"]
+  D["Stored data<br/>engine exports,<br/>recorded responses"]
+
+  R --> S(["athar scan"])
+  T --> S
+  S --> SO["Matched services<br/>live"]
+
+  R --> C(["athar convert"])
+  C --> CO["Search-engine queries<br/>FOFA · Shodan · Censys · ZoomEye"]
+
+  R --> M(["athar match"])
+  D --> M
+  M --> MO["Matched records<br/>no packets sent"]
 ```
 
-1. **Discover (passive).** `athar convert` turns a rule into one engine's query. Every conversion is labelled `exact`, `approximate`, `superset` or `unsupported`, because engines tokenize text, lack operators or index only part of a body.
-2. **Filter (indexed data).** `athar match` runs the exact rule logic on the engine's exported records. That removes the over-matches of approximate queries without sending a packet.
-3. **Confirm (active).** `athar scan` probes the remaining services and evaluates the same rule on the live response. The result is an identity record: product, family, extracted values such as brand or version, and confidence.
+- **`athar scan`** checks live services. Give it rules, hosts or CIDR ranges, and the ports to check (`-p`, as in Nmap). It connects to each port, sends the baseline request, evaluates every rule on the response, and reports each match with product, family, extracted values such as brand or version, and confidence.
+- **`athar convert`** turns rules into search-engine queries, to find candidates on the internet without scanning yourself. Each query is labelled `exact`, `approximate`, `superset` or `unsupported`, because engines tokenize text, lack operators or index only part of a body.
+- **`athar match`** applies rules to data you already have, such as results exported from a search engine. It runs the exact rule logic, which removes the over-matches of approximate queries without sending a packet.
 
-The **scanner defines what a rule means**. Steps 2 and 3 use the same evaluator, so an engine query can be loose without making the results wrong.
+```bash
+athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24
+```
 
-Only `athar verify` exists so far; the other commands are planned. See [cli/](cli/).
+For internet-wide hunting the commands can be combined: run a converted query in the engine, filter the export with `athar match`, then pass the remaining hosts to `athar scan` to confirm they are still live. That is one way to use them together, not a required order.
+
+The **scanner defines what a rule means**. `match` and `scan` use the same evaluator as `verify`, so an engine query can be loose without making the results wrong.
+
+Only `athar verify` exists so far; `scan`, `convert` and `match` are planned. See [cli/](cli/).
 
 ## Principles
 
@@ -122,7 +140,7 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 | `athar verify` | available | Checks rules against the spec and runs every rule's tests. |
 | `athar convert` | planned | Turns rules into FOFA, Shodan, Censys or ZoomEye queries, with fidelity and warnings. |
 | `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
-| `athar scan` | planned | Probes live services and writes identity records as JSONL. |
+| `athar scan` | planned | Checks hosts, CIDR ranges and ports for services that match the rules; writes the matches as JSONL. |
 
 ### Install
 

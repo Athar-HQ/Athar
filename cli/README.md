@@ -2,7 +2,7 @@
 
 The reference implementation of the Athar rule format: one Go binary that verifies, converts and evaluates rules, and scans live services.
 
-> **Status:** `athar verify` works. `convert`, `match` and `scan` are planned; their flags below are the target design and may change.
+> **Status:** `athar verify` works. `scan`, `convert` and `match` are planned; their flags below are the target design and may change.
 
 [docs/decisions.md](../docs/decisions.md#cli-in-go) explains why the CLI is written in Go.
 
@@ -44,12 +44,14 @@ Tags with a suffix, such as `v0.2.0-rc.1`, become pre-releases. The binary repor
 
 ## Commands
 
+Every command takes rules plus its own input. None of them depends on another command having run first.
+
 | Command | Input | Output | Sends packets |
 | --- | --- | --- | --- |
 | `athar verify` | Rule files or folders | Schema errors, lint findings, test results; non-zero exit on failure | No |
+| `athar scan` | Rules + hosts, CIDR ranges or `host:port` + ports | Matched services (JSONL) | Yes |
 | `athar convert` | Rules + target engine | One query per rule, with fidelity and warnings | No |
-| `athar match` | Rules + stored data (engine exports, recorded responses) | Identity records (JSONL) | No |
-| `athar scan` | Rules + targets (`ip:port`, `ip`, CIDR, file or stdin) | Identity records (JSONL) | Yes |
+| `athar match` | Rules + stored data (engine exports, recorded responses) | Matched records (JSONL) | No |
 
 Example session (`verify` output is real; the rest is illustrative):
 
@@ -60,51 +62,58 @@ rules/offensive-tool/ai_autonomous_pentest_console_artex.yml  3/3 tests passed
 
 2 rules, 0 failed; 5/5 tests passed; 0 errors, 0 warnings
 
+$ athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 > matches.jsonl
+
 $ athar convert -t fofa rules/offensive-tool/ai_autonomous_pentest_console.yml
 # AI Autonomous Penetration Testing Console (ARTEX family)  [exact]
 title="Autonomous Penetration Testing Console" && body="/function/tasks"
 
 $ athar match -r rules/ --format fofa fofa-export.json > candidates.jsonl
-
-$ athar scan -r rules/ -i candidates.jsonl > confirmed.jsonl
 ```
 
-## Scanning defaults
+## Scanning
 
-`athar scan` is not a port scanner. It takes services that are already known (from engine results, `athar match`, or a port scanner such as naabu or masscan) and fingerprints them.
+`athar scan` works like a small Nmap whose service detection is the Athar rules:
 
-- Baseline probe only. Custom probes run only with `--probes`.
+```bash
+athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 192.0.2.10 example.org
+```
+
+1. **Targets.** IP addresses, hostnames and CIDR ranges as arguments, or one per line with `-iL <file>` (`-` for stdin). A `host:port` target is checked on that port only, so the output of `athar match` or another tool can be fed in directly.
+2. **Ports.** `-p` takes a list and ranges, as in Nmap: `-p 22,80,443,8000-8100`. Without `-p`, scan checks a built-in list of common service ports plus every port the loaded rules name in `target.ports`.
+3. **Open ports.** A TCP connect to each host and port. This needs no root privileges; ports that refuse or time out are skipped.
+4. **Fingerprint.** On each open port, scan runs the baseline probe (TLS handshake when possible, `GET /` and the favicon for HTTP, the banner for raw TCP), plus any custom probes the rules declare if `-probes` is set. Each probe is sent once per port, however many rules use it.
+5. **Match.** Every rule is evaluated on the responses. Each matching service is written as one JSON line: target, rule, product or family, extracted values, confidence, matched selections. When a variant and its family both match, the variant wins.
+
+Defaults that keep scanning polite and safe:
+
+- Baseline probe only. Custom probes run only with `-probes`.
 - Safe HTTP methods only (GET, HEAD, OPTIONS). Anything else needs an explicit operator flag.
-- Rate limit and per-host concurrency limit on by default.
-- Each probe is sent once per target, however many rules use it.
+- Rate limit and per-host concurrency limit on by default, adjustable with flags.
+
+UDP scanning and raw SYN scanning are out of scope for the first version.
 
 ## Architecture
 
+Each command is its own path through the code. Three of them end in the same evaluator.
+
 ```mermaid
-flowchart TB
-  subgraph S1["1 · Discover (passive)"]
-    direction LR
-    R["Rule repository<br/>YAML rules + tests"] --> B["Backends<br/>rule to engine query<br/>fidelity + warnings"] --> E["Search engines<br/>FOFA · Shodan · Censys · ZoomEye"]
-  end
-  subgraph S2["2 · Filter (indexed data)"]
-    direction LR
-    F["Field adapters<br/>engine record into taxonomy fields"] --> V1["Evaluator<br/>exact rule logic on indexed data"] --> C["Candidate services<br/>may be stale"]
-  end
-  subgraph S3["3 · Confirm (active)"]
-    direction LR
-    P["Probe planner<br/>merge probes across rules"] --> PR["Prober<br/>baseline + opt-in safe probes, hashes"] --> V2["Evaluator<br/>same code, on live responses"] --> I["Identity records<br/>product, brand, version, confidence"]
-  end
-  E --> F
-  C --> P
-  classDef eval fill:#e3efff,stroke:#2f6fdb,stroke-width:2px
-  class V1,V2 eval
+flowchart LR
+  V(["athar verify"]) -->|test responses| EV
+  S(["athar scan"]) --> PL["Probe planner"] --> PR["Prober"] -->|live responses| EV
+  M(["athar match"]) --> FA["Field adapters"] -->|engine records| EV
+  C(["athar convert"]) --> BE["Backends"] --> Q["Engine queries"]
+  EV["Evaluator<br/>one implementation"] --> O["Matches or<br/>test results"]
+  classDef eval fill:#e3efff,stroke:#2f6fdb,stroke-width:2px,color:#0b1f44
+  class EV eval
 ```
 
-The two highlighted evaluator boxes are one component. `verify` (tests), `match` (engine records) and `scan` (live responses) all call the same evaluator. That is what keeps approximate conversions honest.
+`verify` (rule tests), `scan` (live responses) and `match` (engine records) all call the same evaluator, so a rule means the same thing everywhere. That is what keeps approximate conversions honest: `convert` only translates, and anything it lets through is judged by the evaluator later.
 
+- **Probe planner** expands targets and ports and groups rules by the probes they need, like Nuclei's template clustering, so each open port gets each request once.
+- **Prober** does the TCP connect check, sends the baseline probe and any opt-in probes, then computes every hash variant: favicon mmh3, MD5 and SHA-256, body hashes, JARM, JA3S.
 - **Field adapters** map engine exports (FOFA, Shodan, Censys, ZoomEye) into taxonomy fields.
-- **Probe planner** groups rules by the probes they need, like Nuclei's template clustering, so each target gets each request once.
-- **Prober** sends the baseline probe and any opt-in probes, then computes every hash variant: favicon mmh3, MD5 and SHA-256, body hashes, JARM, JA3S.
+- **Backends** translate rules into one engine's query language and report the fidelity.
 - **Evaluator** is a Sigma condition engine plus extraction, over taxonomy fields.
 
 ## Layout
@@ -120,7 +129,7 @@ cli/
     ├── eval/             the evaluator: modifiers, keywords, probes, extraction, rule tests
     ├── fields/           field taxonomy (engine export adapters later)
     ├── backend/          planned: one file per engine (fofa, shodan, censys, zoomeye)
-    ├── probe/            planned: probe planner and prober (TCP, TLS, HTTP, hashes, JARM)
+    ├── probe/            planned: targets and ports, probe planner, prober (TCP, TLS, HTTP, hashes, JARM)
     └── output/           planned: identity records as JSONL
 ```
 
@@ -129,6 +138,6 @@ Packages stay under `internal/` until the API settles. The evaluator is the firs
 ## Build order
 
 1. ~~`rule`, `condition`, `eval` and `athar verify`~~ (done): the evaluator defines what rules mean, and CI needs it first.
-2. `backend` and `athar convert` for FOFA, Shodan and Censys.
-3. `fields` adapters and `athar match`.
-4. `probe` and `athar scan` for HTTP and TLS.
+2. `probe`, `output` and `athar scan` for TCP, TLS and HTTP: the command people will use most.
+3. `backend` and `athar convert` for FOFA, Shodan and Censys.
+4. `fields` adapters and `athar match`.

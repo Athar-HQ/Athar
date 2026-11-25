@@ -87,6 +87,6 @@ Consumers that don't support host rules would ignore them. The scanner would get
 - [ ] Freeze the v0.1 field taxonomy and write a JSON Schema
 - [ ] Run the baseline-probe measurement against FOFA, Shodan, Censys and ZoomEye
 - [x] Build the evaluator and `athar verify`, and run it in CI
+- [ ] Build `athar scan` for TCP, TLS and HTTP on hosts, CIDR ranges and ports
 - [ ] Build `athar convert` for FOFA, Shodan and Censys
-- [ ] Build `athar scan` for HTTP and TLS
 - [ ] Seed 20–30 rules with tests from published hunts (ARTEX family, common C2 panels)
