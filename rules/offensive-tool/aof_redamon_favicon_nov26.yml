@@ -1,0 +1,56 @@
+title: Agentic Offensive Framework - RedAmon favicon
+id: 3813e5e0-bd76-4277-a3f6-96fe2c02cbd0
+related:
+  - id: ce6d9777-bf15-4864-a7e4-4628692bf699   # Agentic Offensive Framework - RedAmon
+    type: similar
+status: experimental
+description: |
+  The icons RedAmon ships in webapp/public, by their MurmurHash3 (Shodan/FOFA
+  style): favicon.ico (964522141) and favicon.png (-1953467025). The root
+  layout links favicon.ico as the icon and favicon.png as the Apple touch
+  icon; athar scan hashes favicon.ico, which is also the /favicon.ico most
+  engines fetch. Finds consoles whatever their title says. Censys has no
+  MurmurHash3 field; the SHA-256 favicon rule covers it.
+references:
+  - https://github.com/samugit83/redamon
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_icon:
+    http.favicon.mmh3:
+      - 964522141     # favicon.ico, the icon the page links and athar scan fetches
+      - -1953467025   # favicon.png, the Apple touch icon
+  condition: selection_icon
+identifies:
+  product: RedAmon
+  family: redamon
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # The hashes are computed from the icons in the project repository.
+  - name: favicon.ico with another title
+    expect: match
+    response:
+      http.title: 'Dashboard'
+      http.favicon.mmh3: 964522141
+  - name: favicon.png
+    expect: match
+    response:
+      http.favicon.mmh3: -1953467025
+  - name: Other favicon
+    expect: no_match
+    response:
+      http.title: 'RedAmon'
+      http.favicon.mmh3: 1234567890
+native:
+  fofa: 'icon_hash="964522141"'

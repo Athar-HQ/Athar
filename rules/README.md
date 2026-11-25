@@ -38,6 +38,9 @@ rules/
 │   ├── aof_pentagi_cert_san_nov26.yml              default certificate, DNS name
 │   ├── aof_pentagi_favicon_nov26.yml               favicons, MurmurHash3
 │   ├── aof_pentagi_favicon_sha256_nov26.yml        favicons, SHA-256
+│   ├── aof_redamon_nov26.yml                       RedAmon title
+│   ├── aof_redamon_favicon_nov26.yml               favicons, MurmurHash3
+│   ├── aof_redamon_favicon_sha256_nov26.yml        favicons, SHA-256
 │   ├── aof_strix_nov26.yml                         Strix results viewer title
 │   ├── aof_strix_favicon_nov26.yml                 viewer icon, MurmurHash3
 │   ├── aof_strix_favicon_sha256_nov26.yml          viewer icon, SHA-256
