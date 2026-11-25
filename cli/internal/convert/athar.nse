@@ -626,9 +626,24 @@ local function json_value(s, path)
   return to_string(doc)
 end
 
+-- extracted_text prints the extracted values for Nmap's readable output.
+-- Nmap escapes control characters there, but not the line feed and the tab:
+-- a value from the service could add lines that read like another match.
+-- Both are shown the way Nmap shows the others, as \x0A and \x09. The XML
+-- output keeps the values. Six spaces is Nmap's indent at this depth.
+local function extracted_text(t)
+  local lines = {}
+  for k, v in pairs(t) do
+    lines[#lines + 1] = "\n      " .. k .. ": " ..
+      gsub(v, "[\n\t]", function(c) return string.format("\\x%02X", byte(c)) end)
+  end
+  return concat(lines)
+end
+
 local function run_extract(rule, f)
   if not rule.extract then return nil end
   local out, any = stdnse.output_table(), false
+  getmetatable(out).__tostring = extracted_text
   for _, x in ipairs(rule.extract) do
     local v = f[x.f]
     if v ~= nil then
