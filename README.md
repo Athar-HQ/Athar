@@ -47,7 +47,6 @@ extract:
     field: http.title
     regex: '^(?P<brand>.+?)\s+[—–-]\s+Autonomous Penetration Testing Console'
 confidence: high
-level: medium
 tests:
   - name: NKW branding
     expect: match
@@ -57,7 +56,7 @@ tests:
       http.body: '... /function/tasks ...'
 ```
 
-The full rule, with negative test, validation counts and the original FOFA query, is in [rules/offensive-tool/ai_autonomous_pentest_console.yml](rules/offensive-tool/ai_autonomous_pentest_console.yml).
+The full rule, with its description, negative test and the original FOFA query, is in [rules/offensive-tool/ai_autonomous_pentest_console.yml](rules/offensive-tool/ai_autonomous_pentest_console.yml).
 
 ## How it works
 
@@ -102,7 +101,7 @@ Only `athar verify` exists so far; `scan`, `convert` and `match` are planned. Se
 3. **The scanner defines meaning.** Rule semantics are defined against the raw response. Engine queries are approximations that declare their fidelity.
 4. **Passive first, active to confirm.** Rules that only use the baseline request (what engines index anyway) are fully convertible. Extra probes are opt-in, safe by construction, and make those parts active-only.
 5. **Identify, don't just alert.** A match yields product, vendor, family, version and CPE, as Recog and Nmap do.
-6. **Tested and dated.** Rules carry example responses that run as tests, and hit counts per engine and date, because fingerprints decay.
+6. **Tested.** Every rule carries example responses that run as tests on every pull request, so an edit that breaks a rule cannot merge.
 7. **Licence-clean.** Rules are shared under a permissive licence. Encumbered methods such as JA4S/JA4X are optional fields, never required.
 
 ## Scope

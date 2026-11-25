@@ -18,6 +18,14 @@ The alternative was plain Sigma rules with `logsource: { product: internet-scan,
 
 The unit of matching is one service: one IP address and one port. All selections of a rule hold on the same service, and every identity record describes one service. This keeps the evaluator, the scanner output, the tests and the engine conversion simple. Combinations across ports are [deferred](#multi-service-fingerprints).
 
+### No `level` field
+
+Sigma's `level` says how urgent an alert is. For a service fingerprint the answer depends on who is looking: a C2 panel is urgent for a defender and routine for the red team that runs it. A rule already states what the service is (`identifies.category`) and how sure the match is (`confidence`), and each consumer maps those to its own priority. `level` was in the first draft and was removed on 2026-11-25; `athar verify` now reports it as an unknown key.
+
+### No hit counts in rules
+
+The first draft had a `validation` section for search-engine hit counts (engine, date, results). No tool read it, and the numbers went out of date soon after the rule was written. Hit counts go into the pull request description instead, and `references` points to the published hunt. Removed on 2026-11-25.
+
 ### CLI in Go
 
 The reference CLI is written in Go. Rust and Python were the alternatives.

@@ -40,7 +40,6 @@ func warnf(format string, a ...any) Problem {
 var (
 	statuses    = set("experimental", "test", "stable", "deprecated", "unsupported")
 	confidences = set("low", "medium", "high", "certain")
-	levels      = set("informational", "low", "medium", "high", "critical")
 	transports  = set("tcp", "udp")
 	tlsModes    = set("auto", "required", "none")
 	expects     = set("match", "no_match")
@@ -89,9 +88,6 @@ func Check(r *Rule) []Problem {
 		p = append(p, errorf("missing confidence"))
 	case !confidences[r.Confidence]:
 		p = append(p, errorf("confidence %q is not one of %s", r.Confidence, keys(confidences)))
-	}
-	if r.Level != "" && !levels[r.Level] {
-		p = append(p, errorf("level %q is not one of %s", r.Level, keys(levels)))
 	}
 
 	for _, rel := range r.Related {

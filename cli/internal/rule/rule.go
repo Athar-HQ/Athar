@@ -36,10 +36,8 @@ type Rule struct {
 	Identifies     Identifies         `yaml:"identifies"`
 	Extract        map[string]Extract `yaml:"extract"`
 	Confidence     string             `yaml:"confidence"`
-	Level          string             `yaml:"level"`
 	FalsePositives []string           `yaml:"falsepositives"`
 	Tests          []Test             `yaml:"tests"`
-	Validation     []Validation       `yaml:"validation"`
 	Native         map[string]string  `yaml:"native"`
 
 	// unknownKeys are top-level keys the spec does not define.
@@ -97,20 +95,11 @@ type Test struct {
 	Extracted map[string]string `yaml:"extracted"`
 }
 
-type Validation struct {
-	Engine    string `yaml:"engine"`
-	Date      string `yaml:"date"`
-	Window    string `yaml:"window"`
-	Results   int    `yaml:"results"`
-	UniqueIPs int    `yaml:"unique_ips"`
-}
-
 var knownKeys = map[string]bool{
 	"title": true, "id": true, "related": true, "status": true, "description": true,
 	"references": true, "author": true, "date": true, "modified": true, "tags": true,
 	"target": true, "probes": true, "detection": true, "identifies": true, "extract": true,
-	"confidence": true, "level": true, "falsepositives": true, "tests": true,
-	"validation": true, "native": true,
+	"confidence": true, "falsepositives": true, "tests": true, "native": true,
 }
 
 // Parse decodes one rule from YAML. path is only used in messages.

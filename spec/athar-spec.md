@@ -14,7 +14,7 @@ This document defines the Athar rule format: how a rule describes a network serv
 6. [Detection](#6-detection)
 7. [Identification](#7-identification)
 8. [Families and variants](#8-families-and-variants)
-9. [Tests, validation and provenance](#9-tests-validation-and-provenance)
+9. [Tests and provenance](#9-tests-and-provenance)
 10. [Conversion](#10-conversion)
 11. [Out of scope for v0.1](#11-out-of-scope-for-v01)
 - [Appendix A: Engine field mapping](#appendix-a-engine-field-mapping)
@@ -45,16 +45,12 @@ Fields marked *Sigma* behave exactly as in the [Sigma specification](https://git
 | `target` | yes | Protocol stack and hints (section 3). |
 | `probes` | no | Extra requests beyond the baseline (section 4). Omitted means baseline only, which keeps the rule fully convertible. |
 | `detection` | yes | *Sigma* selections and `condition`, over the field taxonomy (section 6). One new reserved key: `probe`. |
-| `identifies` | yes | What a match means: `product`, `vendor`, `family`, `category`, `cpe` (section 7). |
-| `extract` | no | Named values pulled from the response, e.g. version (section 7). |
-| `confidence` | yes | How specific the fingerprint is: `low`, `medium`, `high`, `certain`. |
-| `level` | no | *Sigma* values, read as how notable a match is. A C2 panel is `high`, nginx is `informational`. |
+| `identifies` | yes | What a match is: `product`, `vendor`, `family`, `category`, `cpe`. The same for every match (section 7). |
+| `extract` | no | Values read from the response after a match, such as a brand or version. Never changes whether the rule matches (section 7). |
+| `confidence` | yes | How likely a match is really this service and not a lookalike: `low`, `medium`, `high`, `certain`. |
 | `falsepositives` | no | *Sigma.* |
-| `tests` | no | Positive and negative example responses that run against the evaluator (section 9). |
-| `validation` | no | Observed hit counts per engine and date (section 9). |
+| `tests` | no | Example responses with the result the rule must give for each. `athar verify` checks them (section 9). |
 | `native` | no | The original engine queries, kept as provenance. Never the source of truth (section 9). |
-
-`confidence` and `level` are separate on purpose. A rule can identify nginx with `certain` confidence at `informational` level, while a loose match on a C2 panel can be `low` confidence at `high` level.
 
 ## 3. Target
 
@@ -180,11 +176,36 @@ detection:
 
 ## 7. Identification
 
-A match produces an identity record, not just a hit. `identifies` holds the static facts; `extract` pulls dynamic ones from the response.
+`detection` decides **whether** a service matches. `identifies` and `extract` describe **what** it is once it has matched:
 
-- **`identifies`**: `product`, `vendor`, `family`, `category`, `cpe`. A family rule may leave `product` empty and fill it through extraction.
-- **`extract`**: named values, each with a `field` and either an RE2 `regex` with named groups or a `jsonpath` for JSON bodies. Same idea as Recog's `param` elements.
-- **`category`** comes from a controlled list: `c2`, `offensive-tool`, `phishing-kit`, `malware-panel`, `remote-access`, `ai-infrastructure`, `network-appliance`, `ics`, `iot`, `cms`, `web-server`, `database`.
+- **`identifies`** holds the facts that are the same for every match: `product`, `vendor`, `family`, `category`, `cpe`. The author writes them into the rule. A family rule may leave `product` empty and fill it through extraction.
+- **`extract`** reads the facts that differ from one match to the next, such as a brand name or a version, out of the response.
+
+They run in that order. The scanner evaluates `detection` first and runs `extract` on the same response only if the rule matched. `extract` never changes the outcome: if its pattern finds nothing, the service still matches and the value is left out of the record. A field that `extract` reads does not have to appear in `detection`.
+
+The family rule shows the split. `detection` matches every brand by the title suffix and the route they share; `extract` then reads which brand this deployment shows from the part of the title before the suffix.
+
+```yaml
+detection:
+  selection_title:
+    http.title|contains: 'Autonomous Penetration Testing Console'
+  selection_route:
+    http.body|contains: '/function/tasks'
+  condition: selection_title and selection_route
+identifies:
+  family: ai-autonomous-pentest-console
+  category: offensive-tool
+extract:
+  brand:
+    field: http.title
+    regex: '^(?P<brand>.+?)\s+[—–-]\s+Autonomous Penetration Testing Console'
+```
+
+For the title `NKW — Autonomous Penetration Testing Console`, the record gets `brand: NKW`. A deployment whose title is only `Autonomous Penetration Testing Console` still matches; its record has no brand.
+
+Each `extract` entry is named after the value it produces and gives the `field` to read plus either an RE2 `regex` or a `jsonpath` for JSON bodies. The value is the regex group named like the entry (`(?P<brand>…)` for `brand`), else the first group, else the whole match. This is the same idea as Recog's `param` elements.
+
+**`category`** comes from a controlled list: `c2`, `offensive-tool`, `phishing-kit`, `malware-panel`, `remote-access`, `ai-infrastructure`, `network-appliance`, `ics`, `iot`, `cms`, `web-server`, `database`.
 
 What a scanner emits for one matched service:
 
@@ -197,7 +218,6 @@ What a scanner emits for one matched service:
   "category": "offensive-tool",
   "extracted": { "brand": "NKW" },
   "confidence": "high",
-  "level": "medium",
   "matched": ["selection_title", "selection_route"],
   "probes": ["default"],
   "observed": "2026-11-24T19:46:00Z"
@@ -220,9 +240,18 @@ related:
     type: variant-of
 ```
 
-## 9. Tests, validation and provenance
+## 9. Tests and provenance
 
-**`tests`** is a list of example responses that CI runs through the evaluator. A rule with failing tests does not merge.
+These two sections are about the rule itself, not about the service it describes. `tests` is checked by a tool; `native` is a note.
+
+**`tests`** are example responses together with the result the rule must give for each. A test contacts nothing: it writes a response down as taxonomy fields, and `athar verify` runs the rule against it exactly as the scanner would run it against a live service. CI runs `athar verify` on every pull request, and a rule with a failing test does not merge.
+
+A rule needs both kinds:
+
+- A **`match`** test is a response the rule must recognise. Without one, nothing shows that the rule matches anything.
+- A **`no_match`** test is a near miss the rule must reject, such as a similar title on an unrelated page. It catches rules that are too loose.
+
+When someone later edits a selection, the tests show at once whether the rule stopped matching the real service or started matching the near miss. On a `match` test, `extracted` also checks the values `extract` produces.
 
 | Key | Required | Meaning |
 | --- | --- | --- |
@@ -232,17 +261,6 @@ related:
 | `extracted` | no | Values `extract` must produce for this response. |
 
 How tests give responses for custom probes is not defined yet.
-
-**`validation`** records observed hit counts, because fingerprints decay. It is informative and not tested.
-
-```yaml
-validation:
-  - engine: fofa
-    date: 2026-11-23
-    window: past year
-    results: 1032
-    unique_ips: 677
-```
 
 **`native`** keeps the original engine queries, keyed by engine name, as provenance. Converters never read it.
 

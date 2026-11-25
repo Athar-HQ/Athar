@@ -32,8 +32,8 @@ Create a category folder when its first rule arrives.
 - [ ] At least one `match` test and one `no_match` test. The negative test should be a near miss (similar title, generic page), not random text.
 - [ ] No engine syntax outside `native`. Detection uses taxonomy fields only.
 - [ ] Baseline probe only, unless the service can't be identified without a custom probe. Custom probes use GET, HEAD or OPTIONS, no credentials, no payloads.
-- [ ] `confidence` reflects how specific the fingerprint is, `level` how notable a match is.
-- [ ] A `validation` entry with the engine, date and hit count, if you ran the query.
+- [ ] `confidence` reflects how likely a match is really this service and not something that looks like it.
+- [ ] If you ran the query on a search engine, the engine, date and hit count are in the pull request description, not in the rule.
 - [ ] Variants link to their family with `related` type `variant-of` and repeat the family's selections.
 - [ ] `athar verify -strict rules/` passes. CI runs the same check on every pull request.
 
@@ -67,7 +67,6 @@ identifies:
   family: <family-slug>
   category: <category>
 confidence: medium
-level: medium
 falsepositives:
   - <when a legitimate service would match>
 tests:
@@ -81,11 +80,6 @@ tests:
     response:
       http.title: '<similar but different title>'
       http.body: '...'
-validation:
-  - engine: <fofa|shodan|censys|zoomeye>
-    date: <YYYY-MM-DD>
-    results: <n>
-    unique_ips: <n>
 native:
   <engine>: '<the query you originally used>'
 ```

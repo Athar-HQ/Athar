@@ -52,7 +52,7 @@ func TestCheckProblems(t *testing.T) {
 		{"category: web-server", "category: webserver", Error, "identifies.category"},
 		{"  product: Example\n", "", Error, "product or a family"},
 		{"  protocol: http\n", "  protocol: http\n  tls: maybe\n", Error, "target.tls"},
-		{"confidence: high", "confidence: high\nlevel: severe", Error, "level"},
+		{"confidence: high", "confidence: high\nlevel: medium", Warning, `unknown top-level key "level"`},
 		{"confidence: high", "confidence: high\nprobes:\n  p:\n    protocol: http\n    request: { method: POST, path: / }", Error, "safe method"},
 		{"confidence: high", "confidence: high\nrelated:\n  - id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53\n    type: child-of", Error, "related type"},
 		{"    expect: no_match", "    expect: match", Warning, "no_match"},
