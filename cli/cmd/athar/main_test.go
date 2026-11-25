@@ -272,6 +272,52 @@ func TestConvertCommand(t *testing.T) {
 	}
 }
 
+func TestConvertNuclei(t *testing.T) {
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "family.yml")
+	if err := os.WriteFile(fixture, []byte(convertFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Alone, -t nuclei prints the template itself, ready for a file.
+	code, out, errOut := runCLI("convert", "-t", "nuclei", fixture)
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	if !strings.HasPrefix(out, "# Converted by athar convert from ") || !strings.Contains(out, "\nid: athar-family\n") {
+		t.Errorf("stdout is not the template:\n%s", out)
+	}
+
+	// With -o, each template goes to <id>.yaml and the line names the file.
+	tdir := filepath.Join(dir, "templates")
+	code, out, errOut = runCLI("convert", "-t", "fofa,nuclei", "-o", tdir, "-no-color", fixture)
+	if code != exitOK {
+		t.Fatalf("-o: exit %d\n%s", code, errOut)
+	}
+	file := filepath.Join(tdir, "athar-family.yaml")
+	if !strings.Contains(out, "  nuclei   exact        "+file+"\n") {
+		t.Errorf("-o output:\n%s", out)
+	}
+	if b, err := os.ReadFile(file); err != nil || !strings.Contains(string(b), "id: athar-family") {
+		t.Errorf("template file: %v\n%s", err, b)
+	}
+
+	// -json carries the template, or the file with -o.
+	code, out, _ = runCLI("convert", "-t", "nuclei", "-json", fixture)
+	var res struct {
+		Engine, Template, Fidelity string
+		TemplateID                 string `json:"template_id"`
+	}
+	if code != exitOK || json.Unmarshal([]byte(out), &res) != nil || res.Engine != "nuclei" ||
+		res.TemplateID != "athar-family" || !strings.Contains(res.Template, "id: athar-family") {
+		t.Errorf("-json: exit %d, %+v\n%s", code, res, out)
+	}
+
+	if code, _, _ := runCLI("convert", "-t", "fofa", "-o", tdir, fixture); code != exitUsage {
+		t.Errorf("-o without nuclei: exit %d, want %d", code, exitUsage)
+	}
+}
+
 // The rule in the README's "A rule" section is the first one people read.
 // It is a shortened version of a real rule, so it must pass verify -strict,
 // and every value it matches on must still be in the real rule it links to.

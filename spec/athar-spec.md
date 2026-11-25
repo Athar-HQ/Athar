@@ -393,6 +393,8 @@ Basic auth, urlscan.io (unsupported): urlscan indexes no header but Server.
 
 At Modat host level, a query goes into `same_service( … )`.
 
+**Scanner templates.** A backend can also write a template for another scanner; `athar convert` writes Nuclei templates. The fidelity labels then compare the template with Athar's scanner on the same service: `exact` means the template matches the same responses. The superset rule applies unchanged. A template keeps the rule's `author` and names its licence.
+
 ## 11. Out of scope for now
 
 - **Multi-service fingerprints**, where only a combination of ports on one host identifies a service. Deferred; see [decisions.md](../docs/decisions.md#multi-service-fingerprints).

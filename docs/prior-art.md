@@ -25,7 +25,7 @@ Pythia is closest on conversion, FingerprintHub on scanning, and Recog on identi
 - **Nmap:** a shared probe library and the hard-match/soft-match idea (variant over family, higher confidence wins).
 - **Wappalyzer:** the idea of relations between fingerprints (`related`, `variant-of`).
 
-And adds what none of them has: conversion to engine queries with declared fidelity, checked by the same evaluator that confirms live hits.
+And adds what none of them has: conversion to engine queries with declared fidelity, checked by the same evaluator that confirms live hits. The same rules also convert to Nuclei templates, so they run in a scanner many hunters already use.
 
 ## Why now
 
