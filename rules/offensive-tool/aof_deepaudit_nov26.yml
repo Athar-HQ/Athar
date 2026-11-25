@@ -1,0 +1,45 @@
+title: Agentic Offensive Framework - DeepAudit
+id: b1968c15-6753-4749-8530-be52d3601827
+status: experimental
+description: |
+  Web interface of DeepAudit, an open-source multi-agent AI system that
+  describes itself as an "AI hacker team" for finding vulnerabilities. Matched
+  by the page title "DeepAudit" from frontend/index.html. The favicon is
+  covered by separate rules.
+references:
+  - https://github.com/lintsinghua/DeepAudit
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [3000]
+detection:
+  selection_title:
+    http.title: 'DeepAudit'
+  condition: selection_title
+identifies:
+  product: DeepAudit
+  family: deepaudit
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Unrelated projects named DeepAudit, such as financial audit tools
+tests:
+  # Minimal samples built from the title in frontend/index.html.
+  - name: Interface title
+    expect: match
+    response:
+      http.title: 'DeepAudit'
+  - name: Title with more words
+    expect: no_match
+    response:
+      http.title: 'DeepAudit Financial Statement Review'
+native:
+  fofa: 'title=="DeepAudit"'
