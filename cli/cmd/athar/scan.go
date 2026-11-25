@@ -33,10 +33,11 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	ports := fs.String("p", "", "ports to check, e.g. 22,80,443,8000-8100 (default: built-in list plus the rules' target.ports)")
 	inputList := fs.String("iL", "", "read targets from a file, one per line (\"-\" for stdin)")
 	outFile := fs.String("o", "", "write matches to this file instead of stdout")
-	concurrency := fs.Int("c", 50, "parallel checks")
+	concurrency := fs.Int("c", 500, "parallel checks")
 	perHost := fs.Int("per-host", 8, "parallel checks per host")
 	rate := fs.Int("rate", 200, "new connections per second (0: no limit)")
-	timeout := fs.Duration("timeout", 3*time.Second, "connect, handshake and read timeout")
+	connectTimeout := fs.Duration("connect-timeout", 1500*time.Millisecond, "TCP connect timeout (at most -timeout)")
+	timeout := fs.Duration("timeout", 3*time.Second, "handshake and read timeout")
 	probes := fs.Bool("probes", false, "also send the custom probes rules declare")
 	verbose := fs.Bool("v", false, "print every open port to stderr")
 	jsonOut := fs.Bool("json", false, "print matches as JSON lines instead of readable lines")
@@ -49,7 +50,7 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "\nExample: athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24")
 		fmt.Fprintln(stderr)
 		fs.PrintDefaults()
-		fmt.Fprintf(stderr, "\nBuilt-in ports: %s\n", joinInts(probe.DefaultPorts))
+		fmt.Fprintf(stderr, "\nBuilt-in ports:\n%s\n", wrapList(probe.MergePorts(probe.DefaultPorts), 78))
 	}
 	positional, err := parseFlags(fs, args)
 	if err != nil {
@@ -70,8 +71,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		return fail("-c and -per-host must be at least 1")
 	case *rate < 0 || *rate > 100000:
 		return fail("-rate must be between 0 and 100000")
-	case *timeout <= 0:
-		return fail("-timeout must be positive")
+	case *timeout <= 0 || *connectTimeout <= 0:
+		return fail("-timeout and -connect-timeout must be positive")
 	}
 
 	// Rules: refuse to scan with invalid rules.
@@ -139,6 +140,7 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		Concurrency: *concurrency,
 		PerHost:     *perHost,
 		Rate:        *rate,
+		Connect:     min(*connectTimeout, *timeout),
 		Timeout:     *timeout,
 		Probes:      *probes,
 		UserAgent:   "Mozilla/5.0 (compatible; athar/" + versionString() + "; +https://github.com/Athar-HQ/Athar)",
@@ -221,10 +223,21 @@ func loadRules(paths []string) ([]*eval.Compiled, error) {
 	return compiled, nil
 }
 
-func joinInts(v []int) string {
-	s := make([]string, len(v))
+// wrapList joins the numbers with commas and breaks lines before width.
+func wrapList(v []int, width int) string {
+	var b strings.Builder
+	line := 0
 	for i, n := range v {
-		s[i] = strconv.Itoa(n)
+		s := strconv.Itoa(n)
+		if i < len(v)-1 {
+			s += ","
+		}
+		if line > 0 && line+len(s) > width {
+			b.WriteByte('\n')
+			line = 0
+		}
+		b.WriteString(s)
+		line += len(s)
 	}
-	return strings.Join(s, ",")
+	return b.String()
 }

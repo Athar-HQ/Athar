@@ -135,7 +135,7 @@ func TestScanCommand(t *testing.T) {
 	target := strings.TrimPrefix(srv.URL, "http://")
 
 	// Readable lines by default, without colors when not on a terminal.
-	code, out, errOut := runCLI("scan", target, "-r", "../../../rules", "-timeout", "2s", "-v")
+	code, out, errOut := runCLI("scan", target, "-r", "../../../rules", "-timeout", "2s", "-connect-timeout", "1s", "-v")
 	if code != exitOK {
 		t.Fatalf("exit %d\n%s", code, errOut)
 	}
@@ -187,6 +187,7 @@ func TestScanUsageErrors(t *testing.T) {
 		{"scan", "-r", "../../../rules"}, // no targets
 		{"scan", "-r", "../../../rules", "-p", "0", "127.0.0.1"},
 		{"scan", "-r", "../../../rules", "-rate", "-1", "127.0.0.1"},
+		{"scan", "-r", "../../../rules", "-connect-timeout", "0", "127.0.0.1"},
 		{"scan", "-r", "../../../rules", "10.0.0.0/8"}, // range too large
 		{"scan", "-r", "../../../rules", "http://example.org"},
 		{"scan", "-r", "/does/not/exist", "127.0.0.1"},
