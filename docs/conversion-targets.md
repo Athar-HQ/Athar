@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | FOFA, Shodan, Censys, ZoomEye, Modat Magnify, urlscan.io | Search queries | Find candidates in indexed scan data. See [spec section 10](../spec/athar-spec.md#10-conversion). |
 | [Nuclei](https://github.com/projectdiscovery/nuclei) | One template per rule (`-t nuclei`) | Runs the rule in Nuclei without Athar's scanner. The condition becomes one DSL matcher. Favicon rules are approximate, because the template fetches `/favicon.ico` while the scanner first follows `<link rel="icon">`. |
+| [Nmap NSE](https://nmap.org/book/nse.html) | One script, `athar.nse`, plus one data file per rule (`-t nse`) | Runs the rules with `nmap --script`. The script probes and matches as Athar's scanner does, regular expressions included, so every rule in the repository converts exactly; a test compares the two on the same responses. Not converted: TLS version, cipher and ALPN, JARM, JA3S, certificate DN and `self_signed`. |
 
 ## Candidates
 
@@ -17,7 +18,6 @@ Each candidate is a scanner or format that people already run. They are ordered 
 | --- | --- | --- | --- | --- |
 | [FingerprintHub](https://github.com/0x727/FingerprintHub) (observer_ward) | Nuclei-like YAML | Probably most of what converts to Nuclei | To be checked against the format | Good, likely cheap next to the Nuclei backend |
 | [Nmap service probes](https://nmap.org/book/vscan-fileformat.html) | `match` lines in `nmap-service-probes` | Title, header and banner rules, as one regex over the raw response; `identifies` and `extract` map to `p/`, `v/` and `cpe:` | Favicon hashes and certificate fields. Header and body conditions together need regex lookaheads. | Medium. Nmap's licence covers software that reads the probes file; check that it allows generating entries before building this. |
-| [Nmap NSE](https://nmap.org/book/nse.html) | A Lua script per rule | Everything the Nuclei backend converts | Nothing in principle, but every rule becomes generated code, and the favicon's mmh3 hash needs a Lua implementation | Low: much more code than a data format |
 | [Rapid7 Recog](https://github.com/rapid7/recog) | XML, one regex per field | Rules with a single field: title, Server header, favicon | Rules that combine fields | Low |
 | [Wappalyzer forks](https://github.com/enthec/webappanalyzer) (httpx `-td`) | JSON per technology | Header, HTML and cookie patterns | AND: a technology's patterns are alternatives, so rules that need two signals become supersets. No certificate fields. | Low |
 | Suricata, Zeek | IDS rules, scripts | HTTP response and certificate fields seen in traffic | Favicon hashes and custom probes. The use differs: spotting these services in network traffic, not scanning for them. | Later |

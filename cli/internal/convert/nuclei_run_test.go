@@ -61,8 +61,23 @@ func TestNucleiTemplatesRun(t *testing.T) {
 // result here.
 func TestNucleiTemplateFeatures(t *testing.T) {
 	bin := nucleiBin(t)
+	rules, icon := featureRules(t)
+	extra := []nucleiCase{
+		{rule: "athar-features-hashes", test: "hashes: same favicon and body", target: serveIconPage(t, icon), expect: true},
+		{rule: "athar-features-hashes", test: "hashes: other favicon", target: serveIconPage(t, []byte("other")), expect: false},
+	}
+	nucleiCheck(t, bin, rules, extra, true)
+}
+
+// featurePage is what serveIconPage serves at /.
+const featurePage = "<html><head><title>Hash test</title></head><body>hashed</body></html>"
+
+// featureRules are rules that use what the repository's rules don't use yet.
+// The last one checks hashes of featurePage and of the returned icon.
+func featureRules(t *testing.T) ([]*rule.Rule, []byte) {
+	t.Helper()
 	icon := []byte("\x00\x00\x01\x00 not really an icon")
-	page := "<html><head><title>Hash test</title></head><body>hashed</body></html>"
+	page := featurePage
 	sum := func(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
 	md := md5.Sum(icon)
 	hashes := fmt.Sprintf(`
@@ -215,23 +230,20 @@ tests:
 `),
 		parse(t, "features_hashes.yml", hashes),
 	}
+	return rules, icon
+}
 
-	serve := func(ico []byte) string {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/favicon.ico" {
-				w.Write(ico)
-				return
-			}
-			fmt.Fprint(w, page)
-		}))
-		t.Cleanup(srv.Close)
-		return srv.URL
-	}
-	extra := []nucleiCase{
-		{rule: "athar-features-hashes", test: "hashes: same favicon and body", target: serve(icon), expect: true},
-		{rule: "athar-features-hashes", test: "hashes: other favicon", target: serve([]byte("other")), expect: false},
-	}
-	nucleiCheck(t, bin, rules, extra, true)
+// serveIconPage serves featurePage at / and ico at /favicon.ico.
+func serveIconPage(t *testing.T, ico []byte) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/favicon.ico" {
+			w.Write(ico)
+			return
+		}
+		fmt.Fprint(w, featurePage)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
 }
 
 func nucleiBin(t *testing.T) string {

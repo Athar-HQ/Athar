@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Athar-HQ/Athar/cli/internal/color"
@@ -19,11 +20,11 @@ func cmdConvert(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	targets := fs.String("t", strings.Join(convert.Engines, ","), "engines or scanners, comma-separated")
 	jsonOut := fs.Bool("json", false, "print one JSON object per rule and engine")
-	outDir := fs.String("o", "", "write each Nuclei template to this folder as <template id>.yaml instead of printing it")
+	outDir := fs.String("o", "", "write templates to this folder instead of printing them: Nuclei as <template id>.yaml,\nnse as athar.nse plus athar-rules/<rule>.lua")
 	noColor := fs.Bool("no-color", false, "no colors (also set by the NO_COLOR environment variable)")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "Usage: athar convert [-t targets] [-json] [-o folder] <rule file or folder>...")
-		fmt.Fprintln(stderr, "\nTurns rules into search-engine queries and Nuclei templates. Each result is labelled with its fidelity:")
+		fmt.Fprintln(stderr, "\nTurns rules into search-engine queries, Nuclei templates and Nmap script data. Each result is labelled with its fidelity:")
 		fmt.Fprintln(stderr, "  exact        same results as the scanner on the engine's data or the same response")
 		fmt.Fprintln(stderr, "  approximate  same intent, looser operator (tokenised text, prefix as substring)")
 		fmt.Fprintln(stderr, "  superset     parts the engine can't express were dropped; can only over-match")
@@ -62,18 +63,27 @@ func cmdConvert(args []string, stdout, stderr io.Writer) int {
 			return fail("unknown target %q (engines: %s; scanners: %s)", e, strings.Join(convert.Engines, ", "), strings.Join(convert.Scanners, ", "))
 		}
 		engines = append(engines, e)
-		templates = templates || e == "nuclei"
-		onlyTemplates = onlyTemplates && e == "nuclei"
+		templates = templates || slices.Contains(convert.Scanners, e)
+		onlyTemplates = onlyTemplates && slices.Contains(convert.Scanners, e)
 	}
 	if len(engines) == 0 {
 		return fail("no targets given with -t")
 	}
 	if *outDir != "" && !templates {
-		return fail("-o only applies to templates; add -t nuclei")
+		return fail("-o only applies to templates; add -t nuclei or -t nse")
 	}
 	if *outDir != "" {
 		if err := os.MkdirAll(*outDir, 0o755); err != nil {
 			return fail("%v", err)
+		}
+		// athar.nse reads the rules' data files from athar-rules next to it.
+		if slices.Contains(engines, "nse") {
+			if err := os.MkdirAll(filepath.Join(*outDir, convert.NSERulesDir), 0o755); err != nil {
+				return fail("%v", err)
+			}
+			if err := os.WriteFile(filepath.Join(*outDir, "athar.nse"), []byte(convert.NSEScript), 0o644); err != nil {
+				return fail("%v", err)
+			}
 		}
 	}
 	written := map[string]string{} // template file -> rule path
@@ -88,24 +98,30 @@ func cmdConvert(args []string, stdout, stderr io.Writer) int {
 	enc.SetEscapeHTML(false)
 	// With only templates and no folder, stdout is the templates themselves,
 	// so one rule can go straight into a file. Fidelity and notes are in
-	// each template's header comment.
+	// each template's header comment. "---" separates YAML documents and is
+	// a comment in Lua.
 	if onlyTemplates && *outDir == "" && !*jsonOut {
-		for i, cr := range compiled {
-			res, err := convert.Convert(cr.Rule, "nuclei")
-			if err != nil {
-				return fail("%s: %v", cr.Rule.Path, err)
-			}
-			if i > 0 {
-				fmt.Fprintln(stdout, "---")
-			}
-			if res.Template == "" {
-				fmt.Fprintf(stdout, "# %s: %s, no template\n", cr.Rule.Path, res.Fidelity)
-				for _, n := range res.Notes {
-					fmt.Fprintf(stdout, "# Note: %s\n", n)
+		first := true
+		for _, cr := range compiled {
+			for _, engine := range engines {
+				res, err := convert.Convert(cr.Rule, engine)
+				if err != nil {
+					return fail("%s: %v", cr.Rule.Path, err)
 				}
-				continue
+				if !first {
+					fmt.Fprintln(stdout, "---")
+				}
+				first = false
+				if res.Template == "" {
+					mark := map[string]string{"nuclei": "#", "nse": "--"}[engine]
+					fmt.Fprintf(stdout, "%s %s: %s, no %s template\n", mark, cr.Rule.Path, res.Fidelity, engine)
+					for _, n := range res.Notes {
+						fmt.Fprintf(stdout, "%s Note: %s\n", mark, n)
+					}
+					continue
+				}
+				fmt.Fprint(stdout, res.Template)
 			}
-			fmt.Fprint(stdout, res.Template)
 		}
 		return exitOK
 	}
@@ -125,6 +141,9 @@ func cmdConvert(args []string, stdout, stderr io.Writer) int {
 			file := ""
 			if res.Template != "" && *outDir != "" {
 				file = filepath.Join(*outDir, res.TemplateID+".yaml")
+				if engine == "nse" {
+					file = filepath.Join(*outDir, convert.NSERulesDir, res.TemplateID+".lua")
+				}
 				if other, dup := written[file]; dup {
 					return fail("%s and %s both give the template %s; rename one of the rule files", other, r.Path, file)
 				}
