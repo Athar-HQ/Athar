@@ -1,0 +1,45 @@
+title: Agentic Offensive Framework - Strix favicon (SHA-256)
+id: 5087162b-5f0b-49eb-8b6c-8ae0e28d2257
+related:
+  - id: 808ca4a3-24b1-4359-9e17-8018263205ca   # Agentic Offensive Framework - Strix
+    type: similar
+  - id: 8b742f79-978c-4675-bfee-a32c549c1142   # Agentic Offensive Framework - Strix favicon
+    type: similar
+status: experimental
+description: |
+  Results viewer of Strix, an open-source AI penetration testing tool that runs autonomous agents against applications. Matched by the viewer icon logo.png by its SHA-256, for engines that store
+  that hash (Censys, Modat). Computed from the file in the repository.
+references:
+  - https://github.com/usestrix/strix
+  - https://definitely-not-c2.com/Autonomous_AI_Hunting/
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_main:
+    http.favicon.sha256: 'a6d5ca4b84523e651c7151d0bcb6bc0c132ecc311566bb48ed2da6c82efcb9eb'
+  condition: selection_main
+identifies:
+  product: Strix
+  family: strix
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from values in the project repository.
+  - name: Viewer icon
+    expect: match
+    response:
+      http.favicon.sha256: 'a6d5ca4b84523e651c7151d0bcb6bc0c132ecc311566bb48ed2da6c82efcb9eb'
+  - name: Other icon
+    expect: no_match
+    response:
+      http.favicon.sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'

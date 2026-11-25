@@ -1,0 +1,52 @@
+title: Agentic Offensive Framework - Cairn certificate organisation
+id: f839a5dc-2e31-49bd-a0b2-12f95d8b70b4
+related:
+  - id: de0b1c3f-b9a8-43c7-9073-36b9f91c5a70   # Agentic Offensive Framework - Cairn
+    type: similar
+  - id: aa196f0e-83f4-408e-891d-e9687052441d   # Agentic Offensive Framework - Cairn auto-generated certificate
+    type: similar
+status: experimental
+description: |
+  Cairn's auto-generated TLS certificate by its subject organisation,
+  "Cairn Platform". athar convert has no engine field for the subject
+  organisation yet, so this rule is for the scanner and for stored data; the
+  original Shodan and Modat queries are kept under native. The common name
+  rule covers the same certificate on every engine.
+references:
+  - https://definitely-not-c2.com/Autonomous_AI_Hunting/
+  - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: required
+  ports: [8081]
+detection:
+  selection_org:
+    tls.cert.subject.o: 'Cairn Platform'
+  condition: selection_org
+identifies:
+  product: Cairn
+  family: cairn
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published certificate organisation.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.o: 'Cairn Platform'
+  - name: Similar organisation
+    expect: no_match
+    response:
+      tls.cert.subject.o: 'Cairn Platforms Ltd'
+native:
+  shodan: 'ssl:"Cairn Platform"'
+  modat: 'same_service(protocol="http" transport="tcp" tls.subject.organization="Cairn Platform")'

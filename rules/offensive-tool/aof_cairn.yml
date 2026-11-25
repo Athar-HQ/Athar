@@ -1,0 +1,47 @@
+title: Agentic Offensive Framework - Cairn
+id: de0b1c3f-b9a8-43c7-9073-36b9f91c5a70
+status: experimental
+description: |
+  Web console of Cairn, an open-source AI penetration testing framework in
+  which model-driven agent workers coordinate through a shared blackboard.
+  Unit 42 reports its use by the China-nexus cluster CL-STA-1238 against at
+  least 19 organisations in August and September 2026. Matched by the console
+  title "衍迹 · 自主探索工作台" ("Evolutionary Traces · Autonomous Exploration
+  Workbench"). The default TLS certificate is covered by separate rules.
+references:
+  - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
+  - https://definitely-not-c2.com/Autonomous_AI_Hunting/
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [8081]
+detection:
+  selection_title:
+    http.title: '衍迹 · 自主探索工作台'
+  condition: selection_title
+identifies:
+  product: Cairn
+  family: cairn
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published title, not captured responses.
+  - name: Console title
+    expect: match
+    response:
+      http.title: '衍迹 · 自主探索工作台'
+  - name: Other workbench title
+    expect: no_match
+    response:
+      http.title: '自主探索工作台'
+native:
+  modat: 'same_service(protocol="http" transport="tcp" http.title="衍迹 · 自主探索工作台")'

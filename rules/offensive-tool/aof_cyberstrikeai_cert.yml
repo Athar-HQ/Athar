@@ -1,0 +1,45 @@
+title: Agentic Offensive Framework - CyberStrikeAI default certificate
+id: 764631b4-728c-4409-a249-9cba47e631c4
+related:
+  - id: 2876eb4d-df28-4cf0-ac9a-7b831e1d5139   # Agentic Offensive Framework - CyberStrikeAI
+    type: similar
+status: experimental
+description: |
+  The self-signed certificate CyberStrikeAI generates when it serves HTTPS without
+  one: subject CN "CyberStrikeAI", DNS name localhost, valid for 365 days
+  (internal/app/main_server_tls.go). Finds consoles whatever their title says.
+references:
+  - https://github.com/AIPentest/CyberStrikeAI
+  - https://definitely-not-c2.com/Autonomous_AI_Hunting/
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: required
+detection:
+  selection_main:
+    tls.cert.subject.cn: 'CyberStrikeAI'
+  condition: selection_main
+identifies:
+  product: CyberStrikeAI
+  family: cyberstrikeai
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from values in the project repository.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'CyberStrikeAI'
+      tls.cert.san: ['localhost']
+  - name: Other certificate
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'cyberstrike.example.com'
