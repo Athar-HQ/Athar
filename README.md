@@ -28,35 +28,66 @@ If you can read a Sigma rule, you can read this one. The metadata and the `detec
 title: Agentic Offensive Framework - ARTEX family
 id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
 status: experimental
+description: |
+  Web console of an agentic offensive framework that is deployed under many
+  brand names. Every brand keeps the same title suffix, in Chinese, Korean or
+  English, so matching the suffix finds the rebrands.
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
 target:
   protocol: http
-  tls: auto
+  ports: [8787, 8443, 443, 80]
 detection:
   selection_title:
-    http.title|contains: 'Autonomous Penetration Testing Console'
-  selection_route:
-    http.body|contains: '/function/tasks'
-  condition: selection_title and selection_route
+    http.title|contains:
+      - '自主渗透测试控制台'
+      - '자율 침투 테스트 콘솔'
+      - 'Autonomous Penetration Testing Console'
+  condition: selection_title
 identifies:
   family: artex
   category: offensive-tool
 extract:
-  brand:
+  brand:  # the text before the suffix
     field: http.title
-    regex: '^(?P<brand>.+?)\s+[—–-]\s+Autonomous Penetration Testing Console'
+    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console))'
 confidence: high
-tests:
-  - name: NKW branding
+tests:  # given this response, the rule must give this result
+  - name: ARTEX, Chinese title, em dash
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
     expect: match
-    extracted: { brand: NKW }
+    extracted:
+      brand: ARTEX  # the value extract must find in this title
+  - name: ARTEX, Korean title, colon
+    response:
+      http.title: 'ARTEX: 자율 침투 테스트 콘솔'
+    expect: match
+    extracted:
+      brand: ARTEX
+  - name: English title
     response:
       http.title: 'NKW — Autonomous Penetration Testing Console'
-      http.body: '... /function/tasks ...'
+    expect: match
+    extracted:
+      brand: NKW
+  - name: English pentest vendor page
+    response:
+      http.title: 'Penetration Testing Services | Example Corp'
+    expect: no_match
 ```
 
-The full rule, with its description, negative test and the original FOFA query, is in [rules/offensive-tool/aof_artex.yml](rules/offensive-tool/aof_artex.yml).
+Read it top to bottom:
+
+- **`target`**: an HTTP service, with or without TLS. The ports are where these consoles usually listen; they tell `athar scan` where to look and never decide a match.
+- **`detection`**: the page title contains the console's suffix in one of three languages. A list of values means "any of them", as in Sigma.
+- **`identifies`** and **`extract`**: a match is a console of the ARTEX family, and the brand is whatever comes before the suffix.
+- **`confidence`**: how likely a match is this software and not something that only looks like it.
+- **`tests`**: sample responses and the result the rule must give for each. `expect` is `match` or `no_match`; for a match, `extracted` lists what `extract` must find, so `brand: NKW` means the brand read from `NKW — Autonomous Penetration Testing Console` has to be `NKW`. `athar verify` runs the tests, and CI rejects a rule whose tests fail.
+
+The same rule drives every command. `athar scan` evaluates it on live responses and prints the brand it finds; `athar convert` turns it into a query for each search engine.
+
+The full rule, with references, false positives, more tests and the original engine queries, is in [rules/offensive-tool/aof_artex.yml](rules/offensive-tool/aof_artex.yml).
 
 ## How it works
 
@@ -163,10 +194,10 @@ It connects to every host and port, fingerprints each open port (TLS certificate
 
 A real scan from 25 November 2026. Infrastructure like this moves fast, so these hosts may answer differently by the time you read this.
 
-![athar scan of 144.202.110.94:443 and 130.12.171.248:9443: the ARTEX variant rule matches an ARTEX console, the family rule matches an ARGOS console and extracts brand=ARGOS](docs/images/athar-scan.png)
+![athar scan of 144.202.110.94:443 and 130.12.171.248:9443: the ARTEX and ARTEX favicon rules match an ARTEX console, the family rule matches an ARGOS console and extracts brand=ARGOS](docs/images/athar-scan.png)
 
-- **130.12.171.248:9443** is an ARTEX console. The ARTEX variant rule matches both its title prefix and its favicon hash, so it replaces the family match.
-- **144.202.110.94:443** is an ARGOS console behind a Caddy proxy with a Let's Encrypt certificate for the IP. The family rule matches and extracts the brand. The ARTEX variant rule does not, because neither the title prefix nor the favicon is ARTEX's.
+- **130.12.171.248:9443** is an ARTEX console. The ARTEX rule matches both its title prefix and its favicon hash, so it replaces the family match. The ARTEX favicon rule, which looks for the favicon alone to catch consoles with a changed title, matches too, with medium confidence.
+- **144.202.110.94:443** is an ARGOS console behind a Caddy proxy with a Let's Encrypt certificate for the IP. The family rule matches and extracts the brand. The ARTEX and ARTEX favicon rules do not, because neither the title prefix nor the favicon is ARTEX's.
 
 An hour earlier the first host accepted connections but reset every request, perhaps because of a source-IP filter or a restart. `-v` showed it as:
 
@@ -178,7 +209,8 @@ For tools, `-json` prints one JSON object per line instead, for example to pipe 
 
 ```text
 $ athar scan -r rules/ -json -timeout 10s 130.12.171.248:9443
-{"target":"130.12.171.248:9443","tls":true,"rule":"0536c409-98ed-4d1d-8e07-7c80b39a4f53","title":"Agentic Offensive Framework - ARTEX","product":"ARTEX","family":"artex","category":"offensive-tool","confidence":"high","matched":["selection_brand","selection_icon","selection_route","selection_title"],"probes":["default"],"observed":"2026-11-25T08:18:27Z"}
+{"target":"130.12.171.248:9443","tls":true,"rule":"0536c409-98ed-4d1d-8e07-7c80b39a4f53","title":"Agentic Offensive Framework - ARTEX","product":"ARTEX","family":"artex","category":"offensive-tool","confidence":"high","matched":["selection_brand","selection_icon","selection_title"],"probes":["default"],"observed":"2026-11-25T09:16:50Z"}
+{"target":"130.12.171.248:9443","tls":true,"rule":"425e5153-ed37-41c1-875f-537808d58078","title":"Agentic Offensive Framework - ARTEX favicon","product":"ARTEX","family":"artex","category":"offensive-tool","confidence":"medium","matched":["selection_icon"],"probes":["default"],"observed":"2026-11-25T09:16:50Z"}
 ```
 
 | Flag | Effect |

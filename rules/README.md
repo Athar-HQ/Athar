@@ -72,15 +72,15 @@ falsepositives:
   - <when a legitimate service would match>
 tests:
   - name: <positive case>
-    expect: match
     response:
       http.title: '<title>'
       http.body: '... <string> ...'
+    expect: match
   - name: <near miss>
-    expect: no_match
     response:
       http.title: '<similar but different title>'
       http.body: '...'
+    expect: no_match
 native:
   <engine>: '<the query you originally used>'
 ```

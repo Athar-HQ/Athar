@@ -7,8 +7,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Athar-HQ/Athar/cli/internal/rule"
 )
 
 func runCLI(args ...string) (int, string, string) {
@@ -266,4 +269,68 @@ func TestConvertCommand(t *testing.T) {
 			t.Errorf("%v: exit %d, want %d", args, code, exitUsage)
 		}
 	}
+}
+
+// The rule in the README's "A rule" section is the first one people read.
+// It must pass verify -strict, and apart from trimmed metadata and tests it
+// must be the real rule with the same id, so the two can't drift apart.
+func TestReadmeRuleExample(t *testing.T) {
+	readme, err := os.ReadFile("../../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(readme)
+	section := strings.Index(text, "## A rule\n")
+	if section < 0 {
+		t.Fatal(`README has no "## A rule" section`)
+	}
+	text = text[section:]
+	start := strings.Index(text, "```yaml\n")
+	end := strings.Index(text[start+8:], "```")
+	if start < 0 || end < 0 {
+		t.Fatal(`no yaml block in the "A rule" section`)
+	}
+	example := text[start+8 : start+8+end]
+
+	path := filepath.Join(t.TempDir(), "readme-example.yml")
+	if err := os.WriteFile(path, []byte(example), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errOut := runCLI("verify", "-strict", path); code != exitOK {
+		t.Fatalf("README rule example fails verify -strict:\n%s%s", out, errOut)
+	}
+
+	ex, err := rule.Parse([]byte(example), "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := rule.Files([]string{"../../../rules"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var real *rule.Rule
+	for _, f := range files {
+		r, err := rule.Load(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.ID == ex.ID {
+			real = r
+		}
+	}
+	if real == nil {
+		t.Fatalf("README rule example has id %s, which no rule in rules/ has", ex.ID)
+	}
+	same := func(what string, a, b any) {
+		if !reflect.DeepEqual(a, b) {
+			t.Errorf("README rule example differs from %s in %s; update the \"A rule\" section\nREADME: %#v\nrule:   %#v", real.Path, what, a, b)
+		}
+	}
+	same("title", ex.Title, real.Title)
+	same("target.protocol", ex.Target.Protocol, real.Target.Protocol)
+	same("target.ports", ex.Target.Ports, real.Target.Ports)
+	same("detection", ex.Detection, real.Detection)
+	same("identifies", ex.Identifies, real.Identifies)
+	same("extract", ex.Extract, real.Extract)
+	same("confidence", ex.Confidence, real.Confidence)
 }

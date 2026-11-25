@@ -163,15 +163,18 @@ Detection is Sigma's grammar, unchanged except for the `probe` key. A map is AND
 
 **Keywords.** Sigma's `keywords` selection (a bare list of strings) is kept for full-text search. It matches across `service.banner`, `http.headers_raw` and `http.body`, and maps to every engine's free-text search.
 
+A filter excludes what a selection would otherwise include. This detection finds consoles of the ARTEX family that no longer serve the original ARTEX favicon, which is how rebrands surface:
+
 ```yaml
 detection:
   selection_title:
-    http.title|contains: 'Autonomous Penetration Testing Console'
-  selection_body:
-    http.body|contains: '/function/tasks'
-  filter_known:
+    http.title|contains:
+      - '自主渗透测试控制台'
+      - '자율 침투 테스트 콘솔'
+      - 'Autonomous Penetration Testing Console'
+  filter_artex_icon:
     http.favicon.mmh3: -576220750
-  condition: selection_title and selection_body and not filter_known
+  condition: selection_title and not filter_artex_icon
 ```
 
 ## 7. Identification
@@ -183,25 +186,26 @@ detection:
 
 They run in that order. The scanner evaluates `detection` first and runs `extract` on the same response only if the rule matched. `extract` never changes the outcome: if its pattern finds nothing, the service still matches and the value is left out of the record. A field that `extract` reads does not have to appear in `detection`.
 
-The family rule shows the split. `detection` matches every brand by the title suffix and the route they share; `extract` then reads which brand this deployment shows from the part of the title before the suffix.
+The family rule shows the split. `detection` matches every brand by the title suffix they share, in Chinese, Korean or English; `extract` then reads which brand this deployment shows from the part of the title before the suffix.
 
 ```yaml
 detection:
   selection_title:
-    http.title|contains: 'Autonomous Penetration Testing Console'
-  selection_route:
-    http.body|contains: '/function/tasks'
-  condition: selection_title and selection_route
+    http.title|contains:
+      - '自主渗透测试控制台'
+      - '자율 침투 테스트 콘솔'
+      - 'Autonomous Penetration Testing Console'
+  condition: selection_title
 identifies:
   family: artex
   category: offensive-tool
 extract:
   brand:
     field: http.title
-    regex: '^(?P<brand>.+?)\s+[—–-]\s+Autonomous Penetration Testing Console'
+    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console))'
 ```
 
-For the title `NKW — Autonomous Penetration Testing Console`, the record gets `brand: NKW`. A deployment whose title is only `Autonomous Penetration Testing Console` still matches; its record has no brand.
+For the title `ARTEX — 自主渗透测试控制台` the record gets `brand: ARTEX`, and for `NKW: 자율 침투 테스트 콘솔` it gets `brand: NKW`. A console whose title is only the suffix, `自主渗透测试控制台`, still matches; its record has no brand.
 
 Each `extract` entry is named after the value it produces and gives the `field` to read plus either an RE2 `regex` or a `jsonpath` for JSON bodies. The value is the regex group named like the entry (`(?P<brand>…)` for `brand`), else the first group, else the whole match. This is the same idea as Recog's `param` elements.
 
@@ -212,13 +216,14 @@ What a scanner emits for one matched service:
 ```json
 {
   "target": "176.31.234.8:80",
+  "tls": false,
   "rule": "0ce69e91-baee-4475-81ee-4b8eca1a6c3b",
   "title": "Agentic Offensive Framework - ARTEX family",
   "family": "artex",
   "category": "offensive-tool",
   "extracted": { "brand": "NKW" },
   "confidence": "high",
-  "matched": ["selection_title", "selection_route"],
+  "matched": ["selection_title"],
   "probes": ["default"],
   "observed": "2026-11-24T19:46:00Z"
 }
@@ -251,14 +256,26 @@ A rule needs both kinds:
 - A **`match`** test is a response the rule must recognise. Without one, nothing shows that the rule matches anything.
 - A **`no_match`** test is a near miss the rule must reject, such as a similar title on an unrelated page. It catches rules that are too loose.
 
-When someone later edits a selection, the tests show at once whether the rule stopped matching the real service or started matching the near miss. On a `match` test, `extracted` also checks the values `extract` produces.
+When someone later edits a selection, the tests show at once whether the rule stopped matching the real service or started matching the near miss.
+
+A `match` test can also check what `extract` reads. This test passes only if the rule matches the title and `extract` finds the brand `NKW` in it:
+
+```yaml
+tests:
+  - name: English title
+    response:
+      http.title: 'NKW — Autonomous Penetration Testing Console'
+    expect: match
+    extracted:
+      brand: NKW
+```
 
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `name` | yes | Short description of the case. |
-| `expect` | yes | `match` or `no_match`. |
 | `response` | yes | Taxonomy fields and their values for the baseline probe. Fields not listed are absent. |
-| `extracted` | no | Values `extract` must produce for this response. |
+| `expect` | yes | `match` or `no_match`. |
+| `extracted` | no | On a `match` test, the values `extract` must find in this response, by name. |
 
 How tests give responses for custom probes is not defined yet.
 
@@ -287,30 +304,57 @@ A backend turns a rule into one engine's query and labels the result with its fi
 
 **Body truncation.** Engines index only part of large bodies; Censys [searches the first 6 KB](https://docs.censys.com/changelog/august-24-2026) for name-based web endpoints. A `body` match deep in a page can be missed by the engine but found by the scanner.
 
-Example conversions of the ARTEX rules in [rules/offensive-tool/](../rules/offensive-tool/):
+Example conversions of the ARTEX rules in [rules/offensive-tool/](../rules/offensive-tool/), as `athar convert` prints them. The family rule is three alternative titles:
 
 ```text
 Family, FOFA (exact):
-  title="Autonomous Penetration Testing Console" && body="/function/tasks"
+  title="自主渗透测试控制台" || title="자율 침투 테스트 콘솔"
+  || title="Autonomous Penetration Testing Console"
 
-Family, Shodan (approximate):
-  http.title:"Autonomous Penetration Testing Console" http.html:"/function/tasks"
+Family, Shodan (approximate: text is tokenised). Shodan has no OR between
+conditions, but it reads a comma-separated value list as "any of these":
+  http.title:"自主渗透测试控制台","자율 침투 테스트 콘솔","Autonomous Penetration Testing Console"
 
-Family, Censys Platform (approximate; nesting to verify):
-  host.services: (endpoints.http.html_title: "Autonomous Penetration Testing Console"
-                  and endpoints.http.body: "/function/tasks")
+Family, Censys Platform (approximate: ':' is tokenised):
+  host.services: (endpoints.http.html_title: "自主渗透测试控制台"
+                  or endpoints.http.html_title: "자율 침투 테스트 콘솔"
+                  or endpoints.http.html_title: "Autonomous Penetration Testing Console")
 
-Family, Modat at service level (approximate: http.body matches whole words):
-  http.title~"Autonomous Penetration Testing Console" and http.body~"/function/tasks"
+Family, Modat at service level (exact):
+  http.title~"自主渗透测试控制台" or http.title~"자율 침투 테스트 콘솔"
+  or http.title~"Autonomous Penetration Testing Console"
+```
 
-Variant, FOFA (approximate: startswith becomes contains):
-  title="Autonomous Penetration Testing Console" && body="/function/tasks"
+The ARTEX rule adds `title starts with ARTEX or the ARTEX favicon`:
+
+```text
+ARTEX, FOFA (approximate: startswith becomes contains):
+  (title="自主渗透测试控制台" || title="자율 침투 테스트 콘솔"
+   || title="Autonomous Penetration Testing Console")
   && (title="ARTEX" || icon_hash="-576220750")
 
-Basic auth, Modat at host level (exact):
-  same_service(http.headers: (key = "WWW-Authenticate"
-               and value = "Basic realm=\"ARTEX\", charset=\"UTF-8\""))
+ARTEX, Shodan (superset): the alternative of a title prefix and a favicon
+spans two filters, so it is dropped and only the family titles remain.
+  http.title:"自主渗透测试控制台","자율 침투 테스트 콘솔","Autonomous Penetration Testing Console"
+
+ARTEX, Modat (exact: =~ is a case-insensitive regex):
+  (http.title~"自主渗透测试控制台" or http.title~"자율 침투 테스트 콘솔"
+   or http.title~"Autonomous Penetration Testing Console")
+  and (http.title=~"^ARTEX" or http.files.mmh3=-576220750)
 ```
+
+The Basic auth rule matches one header, which only Modat can search by name:
+
+```text
+Basic auth, Modat at service level (exact):
+  http.headers: (key = "Www-Authenticate"
+                 and value = "Basic realm=\"ARTEX\", charset=\"UTF-8\"")
+
+Basic auth, FOFA (approximate: the value is searched in the whole header block):
+  header="Basic realm=\"ARTEX\", charset=\"UTF-8\""
+```
+
+At Modat host level, a query goes into `same_service( … )`.
 
 ## 11. Out of scope for v0.1
 
