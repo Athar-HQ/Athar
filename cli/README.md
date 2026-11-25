@@ -57,16 +57,18 @@ Example session (`verify`, `scan` and `convert` output is real; `match` is illus
 
 ```text
 $ athar verify rules/
-rules/offensive-tool/aof_artex.yml                7/7 tests passed
-rules/offensive-tool/aof_artex_antifox.yml        4/4 tests passed
-rules/offensive-tool/aof_artex_artex.yml          5/5 tests passed
-rules/offensive-tool/aof_artex_artex_favicon.yml  3/3 tests passed
-rules/offensive-tool/aof_artex_basic_auth.yml     2/2 tests passed
-rules/offensive-tool/aof_artex_stylesheet.yml     3/3 tests passed
+rules/offensive-tool/aof_artex.yml                 7/7 tests passed
+rules/offensive-tool/aof_artex_antifox.yml         4/4 tests passed
+rules/offensive-tool/aof_artex_artex.yml           5/5 tests passed
+rules/offensive-tool/aof_artex_artex_favicon.yml   3/3 tests passed
+rules/offensive-tool/aof_artex_basic_auth.yml      2/2 tests passed
+rules/offensive-tool/aof_artex_frontend_files.yml  4/4 tests passed
+rules/offensive-tool/aof_artex_stylesheet.yml      3/3 tests passed
 
-6 rules, 0 failed; 24/24 tests passed; 0 errors, 0 warnings
+7 rules, 0 failed; 28/28 tests passed; 0 errors, 0 warnings
 
 $ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
+warning: 1 rule(s) declare custom probes, which are only sent with -probes; selections on them never match
 athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
 
 $ athar convert -t fofa,modat rules/offensive-tool/aof_artex.yml

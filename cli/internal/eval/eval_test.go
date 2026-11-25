@@ -244,6 +244,34 @@ func TestUnusedSelectionWarning(t *testing.T) {
 	}
 }
 
+// Tests give custom probe responses under probes, by probe id. A probe a
+// test doesn't list got no response.
+func TestRunTestsCustomProbes(t *testing.T) {
+	c := compile(t, "sel:\n  probe: css\n  http.body.sha256: ab12\ncondition: sel",
+		"probes:",
+		"  css: { protocol: http, request: { path: /app.css } }",
+		"tests:",
+		"  - name: file has the hash",
+		"    expect: match",
+		"    probes: { css: { http.body.sha256: ab12 } }",
+		"  - name: baseline body is not the file",
+		"    expect: match",
+		"    response: { http.body.sha256: ab12 }",
+		"  - name: no response from the probe",
+		"    expect: no_match",
+		"    response: { http.title: Console }",
+		"  - name: unknown field in a probe response",
+		"    expect: match",
+		"    probes: { css: { http.sha256: ab12 } }",
+	)
+	want := []bool{true, false, true, false}
+	for i, r := range c.RunTests() {
+		if r.Passed != want[i] {
+			t.Errorf("test %q: passed = %v, want %v (%s)", r.Name, r.Passed, want[i], r.Detail)
+		}
+	}
+}
+
 func TestRunTests(t *testing.T) {
 	c := compile(t, "sel:\n  http.title|contains: Console\ncondition: sel",
 		"extract:",

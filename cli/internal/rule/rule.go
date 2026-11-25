@@ -89,10 +89,11 @@ type Extract struct {
 }
 
 type Test struct {
-	Name      string            `yaml:"name"`
-	Expect    string            `yaml:"expect"`
-	Response  map[string]any    `yaml:"response"`
-	Extracted map[string]string `yaml:"extracted"`
+	Name      string                    `yaml:"name"`
+	Expect    string                    `yaml:"expect"`
+	Response  map[string]any            `yaml:"response"`
+	Probes    map[string]map[string]any `yaml:"probes"` // custom probe responses, by probe id
+	Extracted map[string]string         `yaml:"extracted"`
 }
 
 var knownKeys = map[string]bool{

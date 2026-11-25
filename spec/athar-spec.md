@@ -273,11 +273,34 @@ tests:
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `name` | yes | Short description of the case. |
-| `response` | yes | Taxonomy fields and their values for the baseline probe. Fields not listed are absent. |
+| `response` | yes, unless `probes` is given | Taxonomy fields and their values for the baseline probe. Fields not listed are absent. |
+| `probes` | no | Responses to custom probes, by probe id, with the same taxonomy fields. A custom probe the test does not list got no response, so selections bound to it do not hold. |
 | `expect` | yes | `match` or `no_match`. |
 | `extracted` | no | On a `match` test, the values `extract` must find in this response, by name. |
 
-How tests give responses for custom probes is not defined yet.
+A rule that checks a file's hash fetches the file with a custom probe, and its tests give the file's response under `probes`:
+
+```yaml
+probes:
+  css_4384baud:
+    protocol: http
+    request:
+      path: /_next/static/chunks/4384baud_6ozc.css
+detection:
+  selection_file_css_4384baud:
+    probe: css_4384baud
+    http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
+  condition: 1 of selection_file_*
+tests:
+  - name: ARTEX console serving the stylesheet
+    expect: match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+    probes:
+      css_4384baud:
+        http.status_code: 200
+        http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
+```
 
 **`native`** keeps the original engine queries as provenance, keyed by engine name: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`. Converters never read it.
 
@@ -301,7 +324,7 @@ A backend turns a rule into one engine's query and labels the result with its fi
 - `startswith`, `endswith` and `re` only convert exactly on Censys and Modat (`=~` with anchors). On Modat this works on `http.title`, certificate names and single headers, not on the body or banner, and only for patterns its smaller regex dialect can express. Elsewhere they degrade to `contains`.
 - Single headers: Modat searches one header by name and value, `http.headers: (key = "Server" and value ~ "nginx")`, which matches `http.headers.<name>` exactly. FOFA and ZoomEye search the raw header block and Shodan only full text.
 - Same service: Censys needs the nested form `host.services: ( … )`. Modat records are per service at service level; at host level the query goes into `same_service( … )`. FOFA, ZoomEye and Shodan records are already per service.
-- urlscan.io records pages, not services: what a browser showed for a URL someone submitted, after redirects. It has no field for the body, banner, port, certificate subject or any header but `Server`, so most rules convert to a superset. It indexes every value in lowercase and uses the Elasticsearch query string (`AND`, `OR`, `NOT`). `http.title` converts exactly with regexes on `page.title.keyword`, which urlscan anchors at both ends: `contains` becomes `/.*value.*/`, `startswith` becomes `/value.*/`. Regex searches need a signed-in account. `re` does not convert, because urlscan's regex dialect is not RE2. Lucene reads `a OR NOT b` as `a AND NOT b`, so a negation inside OR gets its own group: `a OR (NOT b)`.
+- urlscan.io records pages, not services: what a browser showed for a URL someone submitted, after redirects. It has no field for the body, banner, port, certificate subject or any header but `Server`, so most rules convert to a superset. It indexes every value in lowercase and uses the Elasticsearch query string (`AND`, `OR`, `NOT`). `http.title` converts exactly with regexes on `page.title.keyword`, which urlscan anchors at both ends: `contains` becomes `/.*value.*/`, `startswith` becomes `/value.*/`. Regex searches need a signed-in account. `re` does not convert, because urlscan's regex dialect is not RE2. urlscan is the one engine that indexes more than the baseline probe: it stores the SHA-256 of every file a page loads, so the `http.body.sha256` of a custom probe that fetches a file converts to `hash:` (approximate: it finds the pages that loaded the file). No other engine searches custom probes. Lucene reads `a OR NOT b` as `a AND NOT b`, so a negation inside OR gets its own group: `a OR (NOT b)`.
 
 **Body truncation.** Engines index only part of large bodies; Censys [searches the first 6 KB](https://docs.censys.com/changelog/august-24-2026) for name-based web endpoints. A `body` match deep in a page can be missed by the engine but found by the scanner.
 

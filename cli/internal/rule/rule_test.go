@@ -56,6 +56,7 @@ func TestCheckProblems(t *testing.T) {
 		{"confidence: high", "confidence: high\nprobes:\n  p:\n    protocol: http\n    request: { method: POST, path: / }", Error, "safe method"},
 		{"confidence: high", "confidence: high\nrelated:\n  - id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53\n    type: child-of", Error, "related type"},
 		{"    expect: no_match", "    expect: match", Warning, "no_match"},
+		{"    response: { http.title: Other }", "    response: { http.title: Other }\n    probes: { css: { http.status_code: 200 } }", Error, `probe "css" is not declared`},
 		{"confidence: high", "confidence: high\nidentfies: {}", Warning, "unknown top-level key"},
 	}
 	for _, tt := range tests {

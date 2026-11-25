@@ -194,7 +194,7 @@ $ athar scan -r rules/ -json -timeout 10s 130.12.171.248:9443
 | `-no-color` | No colours. Colours are also off when the output is not a terminal or `NO_COLOR` is set. |
 | `-c`, `-per-host`, `-rate` | Parallel checks (50), parallel checks per host (8), new connections per second (200). |
 | `-timeout` | Connect, handshake and read timeout (3s). |
-| `-probes` | Also send the custom probes rules declare. Off by default. |
+| `-probes` | Also send the custom probes that rules declare, for example to fetch the files whose hashes the ARTEX frontend files rule checks. Off by default. |
 | `-v` | Print every open port to stderr, with what it answered. A port that accepts connections but answers nothing shows as `no response (tried TLS, HTTP)`. |
 
 Only scan hosts you are allowed to scan. The scanner identifies itself in its HTTP `User-Agent` as `athar`.
@@ -270,14 +270,15 @@ athar verify rules/
 ```
 
 ```text
-rules/offensive-tool/aof_artex.yml                7/7 tests passed
-rules/offensive-tool/aof_artex_antifox.yml        4/4 tests passed
-rules/offensive-tool/aof_artex_artex.yml          5/5 tests passed
-rules/offensive-tool/aof_artex_artex_favicon.yml  3/3 tests passed
-rules/offensive-tool/aof_artex_basic_auth.yml     2/2 tests passed
-rules/offensive-tool/aof_artex_stylesheet.yml     3/3 tests passed
+rules/offensive-tool/aof_artex.yml                 7/7 tests passed
+rules/offensive-tool/aof_artex_antifox.yml         4/4 tests passed
+rules/offensive-tool/aof_artex_artex.yml           5/5 tests passed
+rules/offensive-tool/aof_artex_artex_favicon.yml   3/3 tests passed
+rules/offensive-tool/aof_artex_basic_auth.yml      2/2 tests passed
+rules/offensive-tool/aof_artex_frontend_files.yml  4/4 tests passed
+rules/offensive-tool/aof_artex_stylesheet.yml      3/3 tests passed
 
-6 rules, 0 failed; 24/24 tests passed; 0 errors, 0 warnings
+7 rules, 0 failed; 28/28 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:

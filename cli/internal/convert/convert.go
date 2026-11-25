@@ -74,6 +74,13 @@ func Convert(r *rule.Rule, engine string) (Result, error) {
 	return res, nil
 }
 
+// probeTermer is implemented by engines that index more than the baseline
+// probe sees. urlscan hashes every file a page loads, so the hash of a file a
+// custom probe fetches can still be searched.
+type probeTermer interface {
+	probeTerm(t term) (s string, f Fidelity, note string, ok bool)
+}
+
 // engineNoter is implemented by engines whose data differs from the
 // scanner's in a way that applies to every query.
 type engineNoter interface{ notes() []string }
@@ -310,10 +317,18 @@ func (c *converter) drop(note string) expr {
 func (c *converter) lower(e expr) expr {
 	switch x := e.(type) {
 	case term:
-		if x.probe != "default" {
-			return c.drop(fmt.Sprintf("%s uses the custom probe %q, which engines don't index", describe(x), x.probe))
+		var (
+			s, note string
+			f       Fidelity
+			ok      bool
+		)
+		if pt, can := c.b.(probeTermer); x.probe == "default" {
+			s, f, note, ok = c.b.term(x)
+		} else if can {
+			s, f, note, ok = pt.probeTerm(x)
+		} else {
+			note = fmt.Sprintf("%s uses the custom probe %q, which engines don't index", describe(x), x.probe)
 		}
-		s, f, note, ok := c.b.term(x)
 		if !ok {
 			return c.drop(note)
 		}

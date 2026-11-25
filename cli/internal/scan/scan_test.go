@@ -163,8 +163,15 @@ func TestNeedsAndWarnings(t *testing.T) {
 	if n := s.Needs(); !n.HTTP || !n.Favicon || !n.TLS || n.Banner {
 		t.Errorf("needs for the ARTEX rules = %+v", n)
 	}
-	if len(s.Warnings()) != 0 {
-		t.Errorf("warnings = %v", s.Warnings())
+	// The ARTEX frontend files rule fetches files with custom probes, which
+	// are only sent with -probes.
+	if w := s.Warnings(); len(w) != 1 || !strings.Contains(w[0], "only sent with -probes") {
+		t.Errorf("warnings = %v", w)
+	}
+	withProbes := opts()
+	withProbes.Probes = true
+	if w := New(repoRules(t), withProbes).Warnings(); len(w) != 0 {
+		t.Errorf("warnings with -probes = %v", w)
 	}
 
 	jarm := compileRule(t, `

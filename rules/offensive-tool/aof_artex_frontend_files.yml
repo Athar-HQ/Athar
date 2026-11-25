@@ -1,0 +1,86 @@
+title: Agentic Offensive Framework - ARTEX frontend files
+id: a13d3b6f-cf60-4f55-965f-62462cdb8213
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b   # Agentic Offensive Framework - ARTEX family
+    type: similar
+  - id: ec6bb4f5-737d-4a20-ad55-7054aa89cb41   # Agentic Offensive Framework - ARTEX stylesheet
+    type: similar
+status: experimental
+description: |
+  Files of the console's Next.js frontend, identified by their SHA-256. Each
+  file has a custom probe that fetches it and a selection that checks its
+  hash, so a match means the service serves exactly that file, whatever its
+  title says. On urlscan.io the stylesheet also finds rebrands without the
+  family title (VaptX, ARTIFEX, "安全控制台").
+
+  urlscan.io stores the SHA-256 of every file a page loads, so athar convert
+  turns these selections into urlscan hash: searches. Other engines only hash
+  landing pages and favicons; the ARTEX stylesheet rule covers them with the
+  file's path. The scanner sends the probes with -probes.
+
+  To add a file, add a probe with its path and a selection_file_<name> with
+  its hash. File names come from the build, so each build adds new files.
+references:
+  - https://urlscan.io/search/#hash%3Aff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [8787, 8443, 443, 80]   # most consoles listen on 8787 (Modat, 2026-11-25)
+probes:
+  css_4384baud:
+    protocol: http
+    request:
+      path: /_next/static/chunks/4384baud_6ozc.css
+detection:
+  selection_file_css_4384baud:
+    probe: css_4384baud
+    http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
+  condition: 1 of selection_file_*
+identifies:
+  family: artex
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # The hash is the stylesheet urlscan.io recorded on 2026-11-25; the other
+  # hashes are samples.
+  - name: ARTEX console serving the stylesheet
+    expect: match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+    probes:
+      css_4384baud:
+        http.status_code: 200
+        http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
+  - name: Rebrand serving the same stylesheet
+    expect: match
+    response:
+      http.title: 'VaptX'
+    probes:
+      css_4384baud:
+        http.status_code: 200
+        http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
+  - name: Rebuilt frontend, same path with other content
+    expect: no_match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+    probes:
+      css_4384baud:
+        http.status_code: 200
+        http.body.sha256: eb1904d34c30fd19714781a83f3c77364319e64d9cf1df49dd51377bbf1e1b28
+  - name: Other site, file not found
+    expect: no_match
+    response:
+      http.title: 'Dashboard'
+    probes:
+      css_4384baud:
+        http.status_code: 404
+        http.body.sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

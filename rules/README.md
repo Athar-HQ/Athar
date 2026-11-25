@@ -10,10 +10,13 @@ One folder per category, using the controlled category list from the spec:
 rules/
 ├── c2/
 ├── offensive-tool/
-│   ├── aof_artex.yml              family rule
-│   ├── aof_artex_artex.yml        variant rule
-│   ├── aof_artex_basic_auth.yml   ARTEX behind Basic auth
-│   └── aof_artex_stylesheet.yml   the family's frontend stylesheet
+│   ├── aof_artex.yml                 family rule
+│   ├── aof_artex_antifox.yml         AntiFox variant
+│   ├── aof_artex_artex.yml           ARTEX variant
+│   ├── aof_artex_artex_favicon.yml   ARTEX favicon
+│   ├── aof_artex_basic_auth.yml      ARTEX behind Basic auth
+│   ├── aof_artex_frontend_files.yml  SHA-256 of the family's frontend files
+│   └── aof_artex_stylesheet.yml      path of the family's frontend stylesheet
 ├── phishing-kit/
 └── …
 ```
@@ -33,7 +36,7 @@ Create a category folder when its first rule arrives.
 - [ ] `references` point to the public source of the hunt.
 - [ ] At least one `match` test and one `no_match` test. The negative test should be a near miss (similar title, generic page), not random text.
 - [ ] No engine syntax outside `native`. Detection uses taxonomy fields only.
-- [ ] Baseline probe only, unless the service can't be identified without a custom probe. Custom probes use GET, HEAD or OPTIONS, no credentials, no payloads.
+- [ ] Baseline probe only, unless the service can't be identified without a custom probe or the rule checks the hash of a file the page loads. Custom probes use GET, HEAD or OPTIONS, no credentials, no payloads, and tests give their responses under `probes`.
 - [ ] `confidence` reflects how likely a match is really this service and not something that looks like it.
 - [ ] If you ran the query on a search engine, the engine, date and hit count are in the pull request description, not in the rule.
 - [ ] Variants link to their family with `related` type `variant-of` and repeat the family's selections.

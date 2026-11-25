@@ -15,8 +15,9 @@ type TestResult struct {
 	Detail string // why it failed
 }
 
-// RunTests evaluates the rule's tests (spec section 9). Test responses
-// describe the baseline probe.
+// RunTests evaluates the rule's tests (spec section 9). response describes
+// the baseline probe and probes the custom probes, by id; a custom probe a
+// test doesn't list got no response.
 func (c *Compiled) RunTests() []TestResult {
 	var out []TestResult
 	for i, t := range c.Rule.Tests {
@@ -32,6 +33,13 @@ func (c *Compiled) RunTests() []TestResult {
 				unknown = append(unknown, f)
 			}
 		}
+		for id, pr := range t.Probes {
+			for f := range pr {
+				if !fields.Known(f) {
+					unknown = append(unknown, id+": "+f)
+				}
+			}
+		}
 		sort.Strings(unknown)
 		if len(unknown) > 0 {
 			tr.Passed = false
@@ -40,7 +48,11 @@ func (c *Compiled) RunTests() []TestResult {
 			continue
 		}
 
-		res := c.Eval(Responses{DefaultProbe: Fields(t.Response)})
+		resp := Responses{DefaultProbe: Fields(t.Response)}
+		for id, pr := range t.Probes {
+			resp[id] = Fields(pr)
+		}
+		res := c.Eval(resp)
 		switch {
 		case t.Expect == "match" && !res.Match:
 			tr.Passed = false

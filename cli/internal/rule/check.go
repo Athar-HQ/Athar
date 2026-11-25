@@ -152,8 +152,13 @@ func Check(r *Rule) []Problem {
 		if t.Expect == "no_match" {
 			negative = true
 		}
-		if len(t.Response) == 0 {
+		if len(t.Response) == 0 && len(t.Probes) == 0 {
 			p = append(p, errorf("test %q: missing response", name))
+		}
+		for _, id := range sortedKeys(t.Probes) {
+			if _, ok := r.Probes[id]; !ok {
+				p = append(p, errorf("test %q: probe %q is not declared under probes", name, id))
+			}
 		}
 	}
 	if !positive {
@@ -198,4 +203,13 @@ func keys(m map[string]bool) string {
 	}
 	sort.Strings(k)
 	return strings.Join(k, ", ")
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	k := make([]string, 0, len(m))
+	for v := range m {
+		k = append(k, v)
+	}
+	sort.Strings(k)
+	return k
 }

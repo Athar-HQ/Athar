@@ -668,6 +668,21 @@ func (urlscan) term(t term) (string, Fidelity, string, bool) {
 	return "", 0, describe(t) + ": not supported on urlscan", false
 }
 
+// probeTerm converts the body hash of a custom probe, which fetches one file.
+// urlscan stores the SHA-256 of every file a page loads, so hash: finds the
+// pages that loaded it. Nothing else a custom probe sees is indexed.
+func (urlscan) probeTerm(t term) (string, Fidelity, string, bool) {
+	if t.field != "http.body.sha256" || t.op != "eq" || t.negated || t.wild || t.hex {
+		return "", 0, fmt.Sprintf("%s uses the custom probe %q; urlscan only searches the body SHA-256 of files a page loaded", describe(t), t.probe), false
+	}
+	v := strings.ToLower(t.value)
+	if !urlscanBare.MatchString(v) {
+		v = quote(v)
+	}
+	return "hash:" + v, Approximate,
+		fmt.Sprintf("urlscan finds the file of probe %q only on pages that loaded it", t.probe), true
+}
+
 // luceneRegex turns a value into a Lucene regex on lowercase text: literal
 // characters escaped, Sigma's * and ? as .* and .
 func luceneRegex(t term) string {

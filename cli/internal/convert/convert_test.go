@@ -282,6 +282,27 @@ condition: sel and (brand or not login)
 		check(t, ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n"), map[string]want{"urlscan": c.want})
 	}
 
+	// A custom probe's body hash is the hash of the file it fetches, which
+	// urlscan stores for every file a page loads. Other custom probe fields
+	// are dropped, and other engines drop the whole selection.
+	r = ruleFrom(t, `
+css:
+  probe: api
+  http.body.sha256: FF75F55E
+other:
+  probe: api
+  http.body.sha256: 0a1b2c3d
+condition: css or other
+`)
+	check(t, r, map[string]want{
+		"urlscan": {`hash:ff75f55e OR hash:0a1b2c3d`, Approximate},
+		"fofa":    {"", Unsupported},
+	})
+	r = ruleFrom(t, "css:\n  probe: api\n  http.status_code: 200\n  http.body.sha256: ff75\ncondition: css\n")
+	check(t, r, map[string]want{"urlscan": {`hash:ff75`, Superset}})
+	r = ruleFrom(t, "title:\n  http.title|contains: Console\ncss:\n  probe: api\n  http.body.sha256: ff75\ncondition: title and not css\n")
+	check(t, r, map[string]want{"urlscan": {`page.title.keyword:/.*console.*/`, Superset}})
+
 	// Every query says what urlscan's records are.
 	res, _ := Convert(ruleFrom(t, specFamily), "urlscan")
 	if !strings.Contains(strings.Join(res.Notes, " "), "after redirects") {
