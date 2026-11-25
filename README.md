@@ -218,7 +218,7 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 | `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. Shodan can OR several values of one filter (`http.title:"a","b"`) but not different filters, so the ARTEX rule's `title starts with ARTEX or ARTEX favicon` is dropped there. |
 | `unsupported` | Nothing meaningful is left, and no query is printed. |
 
-urlscan.io is a different kind of source. It records pages that a browser loaded for URLs people submitted, not every service on the internet, and it has no field for the body, banner, port or any header but `Server`. Title rules convert exactly; most others become a superset.
+urlscan.io is a different kind of source. It records pages that a browser loaded for URLs people submitted, not every service on the internet, and it has no field for the body, banner, port or any header but `Server`. Title rules convert exactly; most others become a superset. File hashes are the exception: urlscan stores the SHA-256 of every file a page loads, so a rule that checks a file's hash with a custom probe converts to a `hash:` search. The ARTEX frontend files rule finds 1,103 scans there, 60 of them rebrands without the family title.
 
 **One converted query on the platforms.** On 25 November 2026, before the family rule learned the Chinese and Korean titles, it required the English title and the `/function/tasks` route. Its converted queries, run on each platform:
 
@@ -275,10 +275,11 @@ rules/offensive-tool/aof_artex_antifox.yml         4/4 tests passed
 rules/offensive-tool/aof_artex_artex.yml           5/5 tests passed
 rules/offensive-tool/aof_artex_artex_favicon.yml   3/3 tests passed
 rules/offensive-tool/aof_artex_basic_auth.yml      2/2 tests passed
-rules/offensive-tool/aof_artex_frontend_files.yml  4/4 tests passed
-rules/offensive-tool/aof_artex_stylesheet.yml      3/3 tests passed
+rules/offensive-tool/aof_artex_frontend_files.yml  6/6 tests passed
+rules/offensive-tool/aof_artex_llm_console.yml     3/3 tests passed
+rules/offensive-tool/aof_artex_stylesheet.yml      4/4 tests passed
 
-7 rules, 0 failed; 28/28 tests passed; 0 errors, 0 warnings
+8 rules, 0 failed; 34/34 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:

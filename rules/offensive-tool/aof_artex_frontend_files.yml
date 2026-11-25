@@ -3,23 +3,26 @@ id: a13d3b6f-cf60-4f55-965f-62462cdb8213
 related:
   - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b   # Agentic Offensive Framework - ARTEX family
     type: similar
-  - id: ec6bb4f5-737d-4a20-ad55-7054aa89cb41   # Agentic Offensive Framework - ARTEX stylesheet
+  - id: ec6bb4f5-737d-4a20-ad55-7054aa89cb41   # Agentic Offensive Framework - ARTEX stylesheets
     type: similar
 status: experimental
 description: |
-  Files of the console's Next.js frontend, identified by their SHA-256. Each
-  file has a custom probe that fetches it and a selection that checks its
+  Stylesheets of the console's Next.js frontend, identified by their SHA-256.
+  Each file has a custom probe that fetches it and a selection that checks its
   hash, so a match means the service serves exactly that file, whatever its
-  title says. On urlscan.io the stylesheet also finds rebrands without the
-  family title (VaptX, ARTIFEX, "安全控制台").
+  title says. The list holds one app stylesheet per build seen on urlscan.io
+  up to 2026-11-25. They also find rebrands without the family title (VaptX,
+  ARTIFEX, HACK DOG, Cybrion, ArkanaAI). Builds also load a 49 KB stylesheet
+  that unrelated applications share; it is left out.
 
   urlscan.io stores the SHA-256 of every file a page loads, so athar convert
   turns these selections into urlscan hash: searches. Other engines only hash
-  landing pages and favicons; the ARTEX stylesheet rule covers them with the
-  file's path. The scanner sends the probes with -probes.
+  landing pages and favicons; the ARTEX stylesheets rule covers them with the
+  files' paths. The scanner sends the probes with -probes.
 
-  To add a file, add a probe with its path and a selection_file_<name> with
-  its hash. File names come from the build, so each build adds new files.
+  To add a file, add a probe with its path and a selection_file_<probe> with
+  its hash. A file name can survive a rebuild with new content (the DAO
+  build), so one selection may list several hashes.
 references:
   - https://urlscan.io/search/#hash%3Aff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
 author: Gameel Ali (@MalGamy12)
@@ -34,14 +37,86 @@ target:
   tls: auto
   ports: [8787, 8443, 443, 80]   # most consoles listen on 8787 (Modat, 2026-11-25)
 probes:
-  css_4384baud:
+  css_4384baud_6ozc:
     protocol: http
     request:
       path: /_next/static/chunks/4384baud_6ozc.css
+  css_33cj8z03rhzhn:
+    protocol: http
+    request:
+      path: /_next/static/chunks/33cj8z03rhzhn.css
+  css_21_ph5otuqxv2:
+    protocol: http
+    request:
+      path: /_next/static/chunks/21_ph5otuqxv2.css
+  css_3ij6fl1kqv7_b:
+    protocol: http
+    request:
+      path: /_next/static/chunks/3ij6fl1kqv7_b.css
+  css_eba9231147484ecf:
+    protocol: http
+    request:
+      path: /_next/static/css/eba9231147484ecf.css
+  css_2ks5kxw4iystr:
+    protocol: http
+    request:
+      path: /_next/static/chunks/2ks5kxw4iystr.css
+  css_2qc_y9g_62l:
+    protocol: http
+    request:
+      path: /_next/static/chunks/2qc_y9g_-62l-.css
+  css_0ssdcatqoq6i:
+    protocol: http
+    request:
+      path: /_next/static/chunks/0ssdcatqoq6i-.css
+  css_3em9qoz6fv46y:
+    protocol: http
+    request:
+      path: /_next/static/chunks/3em9qoz6fv46y.css
+  css_1w2j12qeluzit:
+    protocol: http
+    request:
+      path: /_next/static/chunks/1w2j12qeluzit.css
+  css_3hq2fsi98ozj1:
+    protocol: http
+    request:
+      path: /_next/static/chunks/3hq2fsi98ozj1.css
 detection:
-  selection_file_css_4384baud:
-    probe: css_4384baud
-    http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
+  selection_file_css_4384baud_6ozc:
+    probe: css_4384baud_6ozc
+    http.body.sha256:
+      - ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5   # ARTEX, VaptX, ARTIFEX, HACK DOG
+      - 37761e79441b9be7852117179316c4893cba3077be14e2dc293a4d87478576ce   # DAO: same file name, other content
+  selection_file_css_33cj8z03rhzhn:
+    probe: css_33cj8z03rhzhn
+    http.body.sha256: 5ebb38600ac88894b633d8b3308adc11ed7de0ec441a3d3e4a881db91e240beb
+  selection_file_css_21_ph5otuqxv2:
+    probe: css_21_ph5otuqxv2
+    http.body.sha256: c455b9a8cfd0ea9223c9043053f9cf8cc83a6357e78b53800c989f7a6037ec42   # ARTEX, Cybrion, ArkanaAI
+  selection_file_css_3ij6fl1kqv7_b:
+    probe: css_3ij6fl1kqv7_b
+    http.body.sha256: c4186f06f5b1c6a89e47736f5ef32d037917f52c3c6e6e5df0b54ec571373e77   # HekerAI
+  selection_file_css_eba9231147484ecf:
+    probe: css_eba9231147484ecf
+    http.body.sha256: 432281d1bc8715666a33ba779673f805b698d7a229b2fb2a0250eacca9855ceb   # older build with webpack file names
+  selection_file_css_2ks5kxw4iystr:
+    probe: css_2ks5kxw4iystr
+    http.body.sha256: c37a40193c02b10c9e6b71141b9cde1f132f1a0333fbeee0163da067d78fbd80   # AntiFox
+  selection_file_css_2qc_y9g_62l:
+    probe: css_2qc_y9g_62l
+    http.body.sha256: a0fae68213aa665c72567d817bbd26a44804d2226d5b12c7d0fe058c8f2a7a13
+  selection_file_css_0ssdcatqoq6i:
+    probe: css_0ssdcatqoq6i
+    http.body.sha256: ae4102a077dab88ea88279cc154042314817d61f42f45c74197bbf1dbe345b3e
+  selection_file_css_3em9qoz6fv46y:
+    probe: css_3em9qoz6fv46y
+    http.body.sha256: af647826f4b700eb191faa953eaa5dc7187477b5d2618ab168ad93fced8b633e
+  selection_file_css_1w2j12qeluzit:
+    probe: css_1w2j12qeluzit
+    http.body.sha256: 152340f54a71398cc26063110e4cc7046a455390e951e32294e63661494e8a00
+  selection_file_css_3hq2fsi98ozj1:
+    probe: css_3hq2fsi98ozj1
+    http.body.sha256: 3ee4eaec891fa8173fdcbae159bf6c3ea3865ab67a22ca60c7fdc64e2281a097
   condition: 1 of selection_file_*
 identifies:
   family: artex
@@ -50,14 +125,14 @@ confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
 tests:
-  # The hash is the stylesheet urlscan.io recorded on 2026-11-25; the other
-  # hashes are samples.
+  # Hashes of stylesheets urlscan.io recorded up to 2026-11-25; the
+  # no_match hashes are samples.
   - name: ARTEX console serving the stylesheet
     expect: match
     response:
       http.title: 'ARTEX — 自主渗透测试控制台'
     probes:
-      css_4384baud:
+      css_4384baud_6ozc:
         http.status_code: 200
         http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
   - name: Rebrand serving the same stylesheet
@@ -65,15 +140,31 @@ tests:
     response:
       http.title: 'VaptX'
     probes:
-      css_4384baud:
+      css_4384baud_6ozc:
         http.status_code: 200
         http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
-  - name: Rebuilt frontend, same path with other content
+  - name: DAO build, same file name with other content
+    expect: match
+    response:
+      http.title: 'DAO — 自主渗透测试控制台'
+    probes:
+      css_4384baud_6ozc:
+        http.status_code: 200
+        http.body.sha256: 37761e79441b9be7852117179316c4893cba3077be14e2dc293a4d87478576ce
+  - name: Older build with webpack file names
+    expect: match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+    probes:
+      css_eba9231147484ecf:
+        http.status_code: 200
+        http.body.sha256: 432281d1bc8715666a33ba779673f805b698d7a229b2fb2a0250eacca9855ceb
+  - name: Unknown build, same file name with other content
     expect: no_match
     response:
       http.title: 'ARTEX — 自主渗透测试控制台'
     probes:
-      css_4384baud:
+      css_4384baud_6ozc:
         http.status_code: 200
         http.body.sha256: eb1904d34c30fd19714781a83f3c77364319e64d9cf1df49dd51377bbf1e1b28
   - name: Other site, file not found
@@ -81,6 +172,6 @@ tests:
     response:
       http.title: 'Dashboard'
     probes:
-      css_4384baud:
+      css_4384baud_6ozc:
         http.status_code: 404
         http.body.sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

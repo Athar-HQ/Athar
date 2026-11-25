@@ -282,13 +282,13 @@ A rule that checks a file's hash fetches the file with a custom probe, and its t
 
 ```yaml
 probes:
-  css_4384baud:
+  css_4384baud_6ozc:
     protocol: http
     request:
       path: /_next/static/chunks/4384baud_6ozc.css
 detection:
-  selection_file_css_4384baud:
-    probe: css_4384baud
+  selection_file_css_4384baud_6ozc:
+    probe: css_4384baud_6ozc
     http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
   condition: 1 of selection_file_*
 tests:
@@ -297,7 +297,7 @@ tests:
     response:
       http.title: 'ARTEX — 自主渗透测试控制台'
     probes:
-      css_4384baud:
+      css_4384baud_6ozc:
         http.status_code: 200
         http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
 ```

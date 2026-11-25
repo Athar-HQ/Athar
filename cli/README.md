@@ -62,10 +62,11 @@ rules/offensive-tool/aof_artex_antifox.yml         4/4 tests passed
 rules/offensive-tool/aof_artex_artex.yml           5/5 tests passed
 rules/offensive-tool/aof_artex_artex_favicon.yml   3/3 tests passed
 rules/offensive-tool/aof_artex_basic_auth.yml      2/2 tests passed
-rules/offensive-tool/aof_artex_frontend_files.yml  4/4 tests passed
-rules/offensive-tool/aof_artex_stylesheet.yml      3/3 tests passed
+rules/offensive-tool/aof_artex_frontend_files.yml  6/6 tests passed
+rules/offensive-tool/aof_artex_llm_console.yml     3/3 tests passed
+rules/offensive-tool/aof_artex_stylesheet.yml      4/4 tests passed
 
-7 rules, 0 failed; 28/28 tests passed; 0 errors, 0 warnings
+8 rules, 0 failed; 34/34 tests passed; 0 errors, 0 warnings
 
 $ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
 warning: 1 rule(s) declare custom probes, which are only sent with -probes; selections on them never match
