@@ -51,9 +51,9 @@ Every command takes rules plus its own input. None of them depends on another co
 | `athar verify` | Rule files or folders | Schema errors, lint findings, test results; non-zero exit on failure | No |
 | `athar scan` | Rules + hosts, CIDR ranges or `host:port` + ports | Matched services (readable lines, or JSONL with `-json`) | Yes |
 | `athar convert` | Rules + engines (`-t`) | One query per rule and engine, with fidelity and notes (JSON with `-json`) | No |
-| `athar match` | Rules + stored data (engine exports, recorded responses) | Matched records (JSONL) | No |
+| `athar match` (planned) | Rules + stored data (engine exports, recorded responses) | Matched records (JSONL) | No |
 
-Example session (`verify`, `scan` and `convert` output is real; `match` is illustrative):
+Example session (`verify`, `scan` and `convert` output is real; `match` is planned, not built yet):
 
 ```text
 $ athar verify rules/
