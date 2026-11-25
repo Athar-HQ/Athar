@@ -10,8 +10,9 @@ One folder per category, using the controlled category list from the spec:
 rules/
 ├── c2/
 ├── offensive-tool/
-│   ├── aof_artex.yml         family rule
-│   └── aof_artex_artex.yml   variant rule
+│   ├── aof_artex.yml              family rule
+│   ├── aof_artex_artex.yml        variant rule
+│   └── aof_artex_basic_auth.yml   ARTEX behind Basic auth
 ├── phishing-kit/
 └── …
 ```

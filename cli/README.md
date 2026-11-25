@@ -57,10 +57,11 @@ Example session (`verify` and `scan` output is real; `convert` and `match` are i
 
 ```text
 $ athar verify rules/
-rules/offensive-tool/aof_artex.yml        2/2 tests passed
-rules/offensive-tool/aof_artex_artex.yml  3/3 tests passed
+rules/offensive-tool/aof_artex.yml             2/2 tests passed
+rules/offensive-tool/aof_artex_artex.yml       3/3 tests passed
+rules/offensive-tool/aof_artex_basic_auth.yml  2/2 tests passed
 
-2 rules, 0 failed; 5/5 tests passed; 0 errors, 0 warnings
+3 rules, 0 failed; 7/7 tests passed; 0 errors, 0 warnings
 
 $ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
 athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
@@ -124,7 +125,7 @@ flowchart LR
 
 - **Probe planner** expands targets and ports and works out which parts of the baseline probe the rules need and which custom probes to send, like Nuclei's template clustering, so each open port gets each request once.
 - **Prober** does the TCP connect check, sends the baseline probe and any opt-in probes, then computes the hashes: favicon mmh3, MD5 and SHA-256, body mmh3 and SHA-256. JARM and JA3S are planned.
-- **Field adapters** map engine exports (FOFA, Shodan, Censys, ZoomEye) into taxonomy fields.
+- **Field adapters** map engine exports (FOFA, Shodan, Censys, ZoomEye, Modat) into taxonomy fields.
 - **Backends** translate rules into one engine's query language and report the fidelity.
 - **Evaluator** is a Sigma condition engine plus extraction, over taxonomy fields.
 
@@ -144,7 +145,7 @@ cli/
     ├── scan/             scan runner: probe planning, rate and per-host limits, rule evaluation, precedence
     ├── output/           identity records as readable lines or JSONL
     ├── color/            ANSI colours, only on terminals and without NO_COLOR
-    └── backend/          planned: one file per engine (fofa, shodan, censys, zoomeye)
+    └── backend/          planned: one file per engine (fofa, shodan, censys, zoomeye, modat)
 ```
 
 Packages stay under `internal/` until the API settles. The evaluator is the first candidate to become public, so other tools can embed Athar rules.

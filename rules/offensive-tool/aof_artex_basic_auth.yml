@@ -1,0 +1,47 @@
+title: Agentic Offensive Framework - ARTEX (Basic auth)
+id: 5607d053-741c-4d83-9b38-5b3d48e91f45
+related:
+  - id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53   # Agentic Offensive Framework - ARTEX
+    type: similar
+status: experimental
+description: |
+  ARTEX deployments that protect the console with HTTP Basic authentication.
+  The server answers with 401 and the realm "ARTEX", so neither the console
+  title nor its route is visible, and the family and ARTEX rules can't match.
+  The realm is the only signal, which is why confidence is medium: another
+  product could use the same realm name.
+references:
+  - https://magnify.modat.io/search?query=same_service(protocol%3D%22http%22+transport%3D%22tcp%22+http.headers%3D%22Www-Authenticate%3A+Basic+realm%3D%5C%22ARTEX%5C%22%2C+charset%3D%5C%22UTF-8%5C%22%22)&page=1&page_size=10&level=hosts
+author: Florian Roth
+date: 2026-11-25
+tags:
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_realm:
+    http.headers.www-authenticate: 'Basic realm="ARTEX", charset="UTF-8"'
+  condition: selection_realm
+identifies:
+  product: ARTEX
+  family: artex
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Other software that uses "ARTEX" as its Basic auth realm
+tests:
+  # Minimal samples built from the published header, not captured responses.
+  - name: ARTEX realm
+    expect: match
+    response:
+      http.status_code: 401
+      http.headers.www-authenticate: 'Basic realm="ARTEX", charset="UTF-8"'
+  - name: Other Basic auth realm
+    expect: no_match
+    response:
+      http.status_code: 401
+      http.headers.www-authenticate: 'Basic realm="Restricted", charset="UTF-8"'
+native:
+  modat: 'same_service(protocol="http" transport="tcp" http.headers="Www-Authenticate: Basic realm=\"ARTEX\", charset=\"UTF-8\"")'

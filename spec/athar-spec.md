@@ -139,7 +139,7 @@ The taxonomy is what makes a rule portable. Fields describe one service (IP and 
 Three rules keep the taxonomy portable:
 
 - **Hash fields name their algorithm** (`.mmh3`, `.md5`, `.sha256`). A scanner computes all of them; a backend uses the one its engine supports.
-- **Engine-proprietary values** (FOFA `fid` and `app`, Shodan `http.component`, Censys labels) are not taxonomy fields. They go into `native` or an `x-<engine>.` namespace that other backends and the scanner ignore.
+- **Engine-proprietary values** (FOFA `fid` and `app`, Shodan `http.component`, Censys labels, Modat `fingerprints.*` and `tag`) are not taxonomy fields. They go into `native` or an `x-<engine>.` namespace that other backends and the scanner ignore.
 - **Engine-specific header hashes** (FOFA `header_hash`, ZoomEye `http.header_hash`) stay out until their algorithms are documented.
 
 ## 6. Detection
@@ -262,7 +262,7 @@ When someone later edits a selection, the tests show at once whether the rule st
 
 How tests give responses for custom probes is not defined yet.
 
-**`native`** keeps the original engine queries, keyed by engine name, as provenance. Converters never read it.
+**`native`** keeps the original engine queries as provenance, keyed by engine name: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`. Converters never read it.
 
 ## 10. Conversion
 
@@ -279,14 +279,15 @@ A backend turns a rule into one engine's query and labels the result with its fi
 
 **Operators do not line up across engines:**
 
-- `contains` is native on FOFA and ZoomEye (`=`). It is approximate on Shodan and Censys (`:`), which tokenize text.
-- Exact match is `==` on FOFA and ZoomEye and `=` on Censys; Shodan has none.
-- `startswith`, `endswith` and `re` only convert exactly on Censys (`=~` with anchors). Elsewhere they degrade to `contains`.
-- Same service: Censys needs the nested form `host.services: ( … )`. FOFA, ZoomEye and Shodan records are already per service.
+- `contains` is native on FOFA and ZoomEye (`=`) and on Modat (`~`) for fields such as `http.title`. It is approximate on Shodan and Censys (`:`), which tokenize text, and on Modat's `http.body`, `http.headers` and `banner`, which only match whole words.
+- Exact match is `==` on FOFA and ZoomEye and `=` on Censys and Modat; Shodan has none. Modat's `==` and `~~` are the case-sensitive forms, for `cased`.
+- `startswith`, `endswith` and `re` only convert exactly on Censys and Modat (`=~` with anchors). On Modat this works on `http.title`, certificate names and single headers, not on the body or banner, and only for patterns its smaller regex dialect can express. Elsewhere they degrade to `contains`.
+- Single headers: Modat searches one header by name and value, `http.headers: (key = "Server" and value ~ "nginx")`, which matches `http.headers.<name>` exactly. FOFA and ZoomEye search the raw header block and Shodan only full text.
+- Same service: Censys needs the nested form `host.services: ( … )`. Modat records are per service at service level; at host level the query goes into `same_service( … )`. FOFA, ZoomEye and Shodan records are already per service.
 
 **Body truncation.** Engines index only part of large bodies; Censys [searches the first 6 KB](https://docs.censys.com/changelog/august-24-2026) for name-based web endpoints. A `body` match deep in a page can be missed by the engine but found by the scanner.
 
-Example conversions of the two ARTEX rules in [rules/offensive-tool/](../rules/offensive-tool/):
+Example conversions of the ARTEX rules in [rules/offensive-tool/](../rules/offensive-tool/):
 
 ```text
 Family, FOFA (exact):
@@ -299,9 +300,16 @@ Family, Censys Platform (approximate; nesting to verify):
   host.services: (endpoints.http.html_title: "Autonomous Penetration Testing Console"
                   and endpoints.http.body: "/function/tasks")
 
+Family, Modat at service level (approximate: http.body matches whole words):
+  http.title~"Autonomous Penetration Testing Console" and http.body~"/function/tasks"
+
 Variant, FOFA (approximate: startswith becomes contains):
   title="Autonomous Penetration Testing Console" && body="/function/tasks"
   && (title="ARTEX" || icon_hash="-576220750")
+
+Basic auth, Modat at host level (exact):
+  same_service(http.headers: (key = "WWW-Authenticate"
+               and value = "Basic realm=\"ARTEX\", charset=\"UTF-8\""))
 ```
 
 ## 11. Out of scope for v0.1
@@ -312,28 +320,28 @@ Variant, FOFA (approximate: startswith becomes contains):
 
 ## Appendix A: Engine field mapping
 
-Informative. This is the first draft of the mapping backends use. Cells marked † come from secondary sources or are inferred and must be checked against the engine docs before a backend ships. A dash means the engine has no such field.
+Informative. This is the first draft of the mapping backends use. Cells marked † come from secondary sources or are inferred and must be checked against the engine docs before a backend ships. A dash means the engine has no such field. Modat cells name the field only: `~` is contains, `=` exact, `=~` regex.
 
-| Field | FOFA | Shodan | Censys Platform | ZoomEye |
-| --- | --- | --- | --- | --- |
-| `http.title` | `title=` | `http.title:` | `host.services.endpoints.http.html_title` | `title=` |
-| `http.body` | `body=` | `http.html:` | `host.services.endpoints.http.body` | `http.body=` |
-| `http.headers.server` | `server=`† | full text `"Server: …"` | `…http.headers` key/value† | `http.header.server=` |
-| other headers | `header=` on raw block | full text | `…http.headers` key/value† | `http.header=` on raw block |
-| `http.status_code` | `status_code=`† | `http.status:` | `…http.status_code`† | `http.header.status_code=` |
-| `http.favicon.mmh3` | `icon_hash=` | `http.favicon.hash:` | — | `iconhash=` |
-| `http.favicon.md5` | — | — | — | `iconhash=` |
-| `http.favicon.sha256` | — | — | `…http.favicons.hash_sha256` | — |
-| `http.body.mmh3` | `body_hash=`† | `http.html_hash:`† | — | — |
-| `http.body.sha256` | — | — | `…http.body_hash_sha256` | — |
-| `tls.cert.subject.cn` | `cert.subject.cn=` | `ssl.cert.subject.cn:` | `host.services.cert.parsed.subject.common_name`† | `ssl.cert.subject.cn=` |
-| `tls.cert.issuer.cn` | `cert.issuer.cn=`† | `ssl.cert.issuer.cn:` | `host.services.cert.parsed.issuer.common_name`† | `ssl.cert.issuer.cn=` |
-| `tls.cert.sha256` | —† | `ssl.cert.fingerprint:`† | `host.services.cert.fingerprint_sha256` | —† |
-| `tls.jarm` | `jarm=` | `ssl.jarm:` | `host.services.jarm.fingerprint` | `ssl.jarm=` |
-| `tls.ja3s` | —† | `ssl.ja3s:` | —† | `ssl.ja3s=` |
-| `service.banner` | `banner=` | full text | `host.services.banner` | `banner=` |
-| `service.port` | `port=` | `port:` | `host.services.port` | `port=` |
-| `keywords` | bare `"…"` | bare terms | full-document query | bare `"…"` |
+| Field | FOFA | Shodan | Censys Platform | ZoomEye | Modat Magnify |
+| --- | --- | --- | --- | --- | --- |
+| `http.title` | `title=` | `http.title:` | `host.services.endpoints.http.html_title` | `title=` | `http.title` |
+| `http.body` | `body=` | `http.html:` | `host.services.endpoints.http.body` | `http.body=` | `http.body` (whole words) |
+| `http.headers.server` | `server=`† | full text `"Server: …"` | `…http.headers` key/value† | `http.header.server=` | `http.headers: (key = "Server" and value …)` |
+| other headers | `header=` on raw block | full text | `…http.headers` key/value† | `http.header=` on raw block | `http.headers: (key = "…" and value …)` |
+| `http.status_code` | `status_code=`† | `http.status:` | `…http.status_code`† | `http.header.status_code=` | `http.status_code` |
+| `http.favicon.mmh3` | `icon_hash=` | `http.favicon.hash:` | — | `iconhash=` | `http.files.mmh3` |
+| `http.favicon.md5` | — | — | — | `iconhash=` | — |
+| `http.favicon.sha256` | — | — | `…http.favicons.hash_sha256` | — | `http.files.sha256` |
+| `http.body.mmh3` | `body_hash=`† | `http.html_hash:`† | — | — | `http.body_mmh3`† |
+| `http.body.sha256` | — | — | `…http.body_hash_sha256` | — | `http.body_sha256` |
+| `tls.cert.subject.cn` | `cert.subject.cn=` | `ssl.cert.subject.cn:` | `host.services.cert.parsed.subject.common_name`† | `ssl.cert.subject.cn=` | `tls.subject.common_name` |
+| `tls.cert.issuer.cn` | `cert.issuer.cn=`† | `ssl.cert.issuer.cn:` | `host.services.cert.parsed.issuer.common_name`† | `ssl.cert.issuer.cn=` | `tls.issuer.common_name` |
+| `tls.cert.sha256` | —† | `ssl.cert.fingerprint:`† | `host.services.cert.fingerprint_sha256` | —† | `tls.fingerprint_sha256` |
+| `tls.jarm` | `jarm=` | `ssl.jarm:` | `host.services.jarm.fingerprint` | `ssl.jarm=` | `tls.jarm` |
+| `tls.ja3s` | —† | `ssl.ja3s:` | —† | `ssl.ja3s=` | `tls.ja3s` |
+| `service.banner` | `banner=` | full text | `host.services.banner` | `banner=` | `banner` (whole words) |
+| `service.port` | `port=` | `port:` | `host.services.port` | `port=` | `port` |
+| `keywords` | bare `"…"` | bare terms | full-document query | bare `"…"` | bare terms |
 
 Engine references:
 
@@ -342,4 +350,10 @@ Engine references:
 - [Censys Platform JARM fields](https://docs.censys.com/docs/platform-jarm-fingerprints)
 - [Shodan: property hashes](https://help.shodan.io/mastery/property-hashes)
 - [ZoomEye search syntax guide](https://dev.to/stark_zhuang_df5076f35c68/a-complete-guide-to-the-latest-zoomeye-search-syntax-4loo)
+- [Modat Magnify: operators, quoting, negation](https://magnify.modat.io/docs/tips)
+- [Modat Magnify: web content fields and single-header search](https://magnify.modat.io/docs/web-content-search)
+- [Modat Magnify: whole-word and substring fields](https://magnify.modat.io/docs/index-tokenisation-approach)
+- [Modat Magnify: `same_service`](https://magnify.modat.io/docs/host-search)
+- [Modat Magnify: certificate and TLS fingerprint fields](https://magnify.modat.io/docs/certificate-search)
+- [Modat Magnify API (OpenAPI)](https://api.magnify.modat.io/docs)
 - [FOFA syntax reference (mirror, Chinese)](https://gitcode.csdn.net/6aa0d90a1a35784c842067d5.html)

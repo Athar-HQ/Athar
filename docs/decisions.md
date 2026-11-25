@@ -47,8 +47,8 @@ A single tag such as `v0.1.0` versions the spec, the rules and the CLI together,
 
 ## Open
 
-- **Baseline probe.** How each engine actually fetches (redirects, Host header and SNI, favicon source, body truncation) is unknown. A controlled server that logs every request from FOFA, Shodan, Censys and ZoomEye crawlers would settle it.
-- **Undocumented hashes.** FOFA `body_hash` and `header_hash`, and ZoomEye `http.body_hash`, need their algorithms identified before they can map to taxonomy fields.
+- **Baseline probe.** How each engine actually fetches (redirects, Host header and SNI, favicon source, body truncation) is unknown. A controlled server that logs every request from FOFA, Shodan, Censys, ZoomEye and Modat crawlers would settle it.
+- **Undocumented hashes.** FOFA `body_hash` and `header_hash`, ZoomEye `http.body_hash` and Modat `http.body_mmh3` need their algorithms identified before they can map to taxonomy fields.
 - **Body size limit.** `http.body` holds the first 1 MiB for now; the limit still has to be agreed.
 - **Tests for custom probes.** `tests.response` covers the baseline probe only. Rules with custom probes need a way to give one response per probe.
 - **Variant inheritance.** Variants repeat their family's selections today. An `extends: <id>` key would remove the duplication, but every converter would need to resolve it.
@@ -66,7 +66,7 @@ A single tag such as `v0.1.0` versions the spec, the rules and the CLI together,
 
 - **No known case needs it.** The strong signals (default certificates, favicons, titles, banners, JARM) sit on a single service. Where a framework exposes several ports, each one is usually identifiable alone, and the second port only adds confidence.
 - **It changes the unit of everything.** The evaluator, the identity record (`ip:port` becomes `ip`), the tests and the scanner would all have to work per host. The scanner would also have to probe ports it was not asked about.
-- **Engines can't express it.** FOFA, Shodan and ZoomEye match one service record at a time. Censys can match across the services of a host, but only Censys. On the other engines a two-port rule would convert to a superset of one port at best.
+- **Engines can't express it.** FOFA, Shodan and ZoomEye match one service record at a time. Censys and Modat can match across the services of a host (Modat with several `same_service()` groups), but no other engine can. On the other engines a two-port rule would convert to a superset of one port at best.
 - **Passive data is weak for it.** Engines crawl ports at different times, so two records on one IP may never have been live at the same moment.
 
 **If it becomes necessary**, it should be a separate rule type that refers to service rules, not a change to service rules. Sigma did the same with correlation rules: they arrived later as their own type that references base rules by id or name, and existing rules stayed untouched. An Athar host rule would look roughly like this (hypothetical, not part of the spec):
@@ -93,9 +93,9 @@ Consumers that don't support host rules would ignore them. The scanner would get
 
 - [x] Decide standalone vs Sigma extension, pick a name, create the repository
 - [ ] Freeze the v0.1 field taxonomy and write a JSON Schema
-- [ ] Run the baseline-probe measurement against FOFA, Shodan, Censys and ZoomEye
+- [ ] Run the baseline-probe measurement against FOFA, Shodan, Censys, ZoomEye and Modat
 - [x] Build the evaluator and `athar verify`, and run it in CI
 - [x] Build `athar scan` for TCP, TLS and HTTP on hosts, CIDR ranges and ports
 - [ ] Add JARM, JA3S and SSH host key fields to `athar scan`
-- [ ] Build `athar convert` for FOFA, Shodan and Censys
+- [ ] Build `athar convert` for FOFA, Shodan, Censys and Modat
 - [ ] Seed 20–30 rules with tests from published hunts (ARTEX family, common C2 panels)

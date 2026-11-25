@@ -7,7 +7,7 @@
 **Athar** is a service fingerprinting project built around a draft standard for portable YAML rules. Each rule describes one network service using observable signals such as HTTP headers, TLS certificates, or response banners.
 
 - **Rule standard.** Define service fingerprints in YAML with Sigma-style detection logic and test cases.
-- **Query converter.** Translate the same rules into queries for FOFA, Shodan, Censys, and ZoomEye to find candidate services in indexed scan data.
+- **Query converter.** Translate the same rules into queries for FOFA, Shodan, Censys, ZoomEye and Modat Magnify to find candidate services in indexed scan data.
 - **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
 > **Status (draft v0.1).** The Go CLI supports `athar scan` for live scanning and `athar verify` for syntax checks and rule tests. Query conversion and matching against stored data are planned.
@@ -73,7 +73,7 @@ flowchart LR
   S --> SO["Matched services<br/>live"]
 
   R --> C(["athar convert"])
-  C --> CO["Search-engine queries<br/>FOFA · Shodan · Censys · ZoomEye"]
+  C --> CO["Search-engine queries<br/>FOFA · Shodan · Censys · ZoomEye · Modat"]
 
   R --> M(["athar match"])
   D --> M
@@ -138,7 +138,7 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 | --- | --- | --- |
 | `athar scan` | available | Checks hosts, CIDR ranges and ports for services that match the rules; writes the matches as JSONL. |
 | `athar verify` | available | Checks rules against the spec and runs every rule's tests. |
-| `athar convert` | planned | Turns rules into FOFA, Shodan, Censys or ZoomEye queries, with fidelity and warnings. |
+| `athar convert` | planned | Turns rules into FOFA, Shodan, Censys, ZoomEye or Modat Magnify queries, with fidelity and warnings. |
 | `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
 
 ### Install
@@ -207,10 +207,11 @@ athar verify rules/
 ```
 
 ```text
-rules/offensive-tool/aof_artex.yml        2/2 tests passed
-rules/offensive-tool/aof_artex_artex.yml  3/3 tests passed
+rules/offensive-tool/aof_artex.yml             2/2 tests passed
+rules/offensive-tool/aof_artex_artex.yml       3/3 tests passed
+rules/offensive-tool/aof_artex_basic_auth.yml  2/2 tests passed
 
-2 rules, 0 failed; 5/5 tests passed; 0 errors, 0 warnings
+3 rules, 0 failed; 7/7 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:
