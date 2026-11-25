@@ -1,0 +1,60 @@
+title: Agentic Offensive Framework - LLM-driven console
+id: 899dbe5b-73dd-442f-a20c-ef16c0c50020
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
+    type: similar
+status: experimental
+description: |
+  Web console that describes itself as an "LLM-driven autonomous penetration
+  testing system console" (LLM 驱动的自主渗透测试系统控制台). The wording is close
+  to the ARTEX family title suffix (自主渗透测试控制台) but adds 系统 ("system"), so
+  the family rule does not match it. Linked to the family as similar: the link is
+  inferred from the wording and not yet confirmed from a captured response.
+  The phrase is matched anywhere in the response, as in the original FOFA query,
+  because where it appears on the page (title, heading or meta tag) is not known.
+references:
+  - https://en.fofa.info/result?qbase64=IkxMTSDpqbHliqjnmoToh6rkuLvmuJfpgI%2FmtYvor5Xns7vnu5%2FmjqfliLblj7Ai
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  keywords:
+    - 'LLM 驱动的自主渗透测试系统控制台'
+  condition: keywords
+identifies:
+  family: artex
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Articles or product pages that quote the phrase
+tests:
+  # Minimal samples built from the published phrase, not captured responses.
+  - name: Phrase in the page title
+    expect: match
+    response:
+      http.title: 'LLM 驱动的自主渗透测试系统控制台'
+      http.body: '<html><head><title>LLM 驱动的自主渗透测试系统控制台</title></head></html>'
+  - name: Phrase in a heading
+    expect: match
+    response:
+      http.body: '<h1>LLM 驱动的自主渗透测试系统控制台</h1>'
+  - name: ARTEX family title without the LLM phrase
+    expect: no_match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+      http.body: '<title>ARTEX — 自主渗透测试控制台</title>'
+  - name: Chinese pentest services page
+    expect: no_match
+    response:
+      http.title: '渗透测试服务 | 示例安全公司'
+      http.body: '<p>我们提供自主渗透测试服务</p>'
+native:
+  fofa: '"LLM 驱动的自主渗透测试系统控制台"'
