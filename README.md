@@ -204,7 +204,7 @@ Only scan hosts you are allowed to scan. The scanner identifies itself in its HT
 athar convert rules/offensive-tool/aof_artex.yml rules/offensive-tool/aof_artex_artex.yml
 ```
 
-![athar convert output for the ARTEX family and ARTEX rules: one query per engine, each labelled exact, approximate or superset, with notes on what was lost](docs/images/athar-convert.png)
+![athar convert output for the ARTEX family and ARTEX rules: one query per engine for the Chinese, Korean and English titles, each labelled exact, approximate or superset, with notes on what was lost](docs/images/athar-convert.png)
 
 Every query carries a fidelity label, and the notes say what was lost and why:
 
@@ -212,18 +212,20 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 | --- | --- |
 | `exact` | Same result set as the rule on the engine's data. |
 | `approximate` | Same intent, looser operator: tokenised text, a prefix searched as a substring, case-sensitive equality. |
-| `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. The ARTEX rule's `title starts with ARTEX or ARTEX favicon` has no Shodan form, because Shodan has no OR. |
+| `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. Shodan can OR several values of one filter (`http.title:"a","b"`) but not different filters, so the ARTEX rule's `title starts with ARTEX or ARTEX favicon` is dropped there. |
 | `unsupported` | Nothing meaningful is left, and no query is printed. |
 
-**The family rule on the platforms**, 25 November 2026:
+**One converted query on the platforms.** On 25 November 2026, before the family rule learned the Chinese and Korean titles, it required the English title and the `/function/tasks` route. Its converted queries, run on each platform:
 
-| Platform | Result of the converted query |
+| Platform | Result |
 | --- | --- |
 | Censys | 243 hosts. Censys's own software label `artex` is on 239 of them. |
 | ZoomEye | About 525 results. |
 | Modat Magnify | 1,433 services. Modat's own product label `Artex` is on about 1,390 of them. Most run on port 8787. |
 | Shodan | No results. The route sits in an inline script near the end of a 12 KB page, which Shodan's `http.html` index does not reach. The title condition alone finds 292 hosts. |
 | FOFA | Not tested yet: searching `body` needs a registered FOFA account. |
+
+The localized titles matter: on Shodan the Chinese title alone finds 2,847 hosts, the English one 292, and the family rule's current query `http.title:"自主渗透测试控制台","자율 침투 테스트 콘솔","Autonomous Penetration Testing Console"` covers all three languages.
 
 The engines disagree because each indexes pages differently. That is why the scanner, not the query, decides what matches: run `athar scan` on the candidates to confirm them.
 
@@ -265,11 +267,13 @@ athar verify rules/
 ```
 
 ```text
-rules/offensive-tool/aof_artex.yml             2/2 tests passed
-rules/offensive-tool/aof_artex_artex.yml       3/3 tests passed
-rules/offensive-tool/aof_artex_basic_auth.yml  2/2 tests passed
+rules/offensive-tool/aof_artex.yml                7/7 tests passed
+rules/offensive-tool/aof_artex_antifox.yml        4/4 tests passed
+rules/offensive-tool/aof_artex_artex.yml          5/5 tests passed
+rules/offensive-tool/aof_artex_artex_favicon.yml  3/3 tests passed
+rules/offensive-tool/aof_artex_basic_auth.yml     2/2 tests passed
 
-3 rules, 0 failed; 7/7 tests passed; 0 errors, 0 warnings
+5 rules, 0 failed; 21/21 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:

@@ -201,12 +201,33 @@ func TestScanUsageErrors(t *testing.T) {
 	}
 }
 
+// convertFixture is the family rule from spec section 10, kept here so
+// edits to the live rules don't change the expected output.
+const convertFixture = `
+title: Agentic Offensive Framework - ARTEX family
+id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: 'Autonomous Penetration Testing Console'
+  selection_route:
+    http.body|contains: '/function/tasks'
+  condition: selection_title and selection_route
+identifies: { family: artex, category: offensive-tool }
+confidence: high
+`
+
 func TestConvertCommand(t *testing.T) {
-	code, out, errOut := runCLI("convert", "-t", "fofa,shodan", "../../../rules/offensive-tool/aof_artex.yml")
+	fixture := filepath.Join(t.TempDir(), "family.yml")
+	if err := os.WriteFile(fixture, []byte(convertFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runCLI("convert", "-t", "fofa,shodan", fixture)
 	if code != exitOK {
 		t.Fatalf("exit %d\n%s", code, errOut)
 	}
-	want := "Agentic Offensive Framework - ARTEX family  ../../../rules/offensive-tool/aof_artex.yml\n" +
+	want := "Agentic Offensive Framework - ARTEX family  " + fixture + "\n" +
 		"  fofa     exact        title=\"Autonomous Penetration Testing Console\" && body=\"/function/tasks\"\n" +
 		"  shodan   approximate  http.title:\"Autonomous Penetration Testing Console\" http.html:\"/function/tasks\"\n" +
 		"                        note: shodan does not index all of a large body; a body condition can miss hosts the scanner finds\n"

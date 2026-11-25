@@ -92,8 +92,16 @@ type term struct {
 	negated bool
 }
 
-// lit is a term an engine could express, already rendered.
-type lit struct{ s string }
+// lit is a term an engine could express, already rendered. key and val are
+// set by engines that can OR several values of one field (see keyer).
+type lit struct{ s, key, val string }
+
+// keyer is implemented by engines without a general OR that can still list
+// several values for one field, as Shodan does with http.title:"a","b".
+type keyer interface {
+	key(t term) (field, value string)
+	list(field string, values []string) string
+}
 
 func build(r *rule.Rule) (expr, error) {
 	cond, _ := r.Detection["condition"].(string)
@@ -296,7 +304,11 @@ func (c *converter) lower(e expr) expr {
 			c.notes = append(c.notes, note)
 		}
 		c.worse(f)
-		return lit{s}
+		l := lit{s: s}
+		if k, ok := c.b.(keyer); ok {
+			l.key, l.val = k.key(x)
+		}
+		return l
 	case andExpr:
 		var out andExpr
 		for _, ch := range x {
@@ -344,14 +356,38 @@ func (c *converter) lower(e expr) expr {
 			return out[0]
 		}
 		if !c.b.canOr() {
+			if merged, ok := c.sameField(out); ok {
+				return merged
+			}
 			c.notes = c.notes[:start]
-			return c.drop(fmt.Sprintf("%s has no OR between conditions: %s", c.engine, describeExpr(x)))
+			return c.drop(fmt.Sprintf("%s can only OR values of one filter, not %s", c.engine, describeExpr(x)))
 		}
 		return out
 	case boolExpr:
 		return x
 	}
 	return boolExpr(true)
+}
+
+// sameField merges an OR of values of one field into the engine's value
+// list, if the engine has one.
+func (c *converter) sameField(alts orExpr) (expr, bool) {
+	k, ok := c.b.(keyer)
+	if !ok {
+		return nil, false
+	}
+	var key string
+	var vals []string
+	for _, a := range alts {
+		l, ok := a.(lit)
+		if !ok || l.key == "" || (key != "" && l.key != key) {
+			return nil, false
+		}
+		key = l.key
+		vals = append(vals, l.val)
+	}
+	s := k.list(key, vals)
+	return lit{s: s, key: key, val: strings.Join(vals, ",")}, true
 }
 
 func (c *converter) render(e expr, nested bool) string {

@@ -57,20 +57,21 @@ Example session (`verify`, `scan` and `convert` output is real; `match` is illus
 
 ```text
 $ athar verify rules/
-rules/offensive-tool/aof_artex.yml             2/2 tests passed
-rules/offensive-tool/aof_artex_artex.yml       3/3 tests passed
-rules/offensive-tool/aof_artex_basic_auth.yml  2/2 tests passed
+rules/offensive-tool/aof_artex.yml                7/7 tests passed
+rules/offensive-tool/aof_artex_antifox.yml        4/4 tests passed
+rules/offensive-tool/aof_artex_artex.yml          5/5 tests passed
+rules/offensive-tool/aof_artex_artex_favicon.yml  3/3 tests passed
+rules/offensive-tool/aof_artex_basic_auth.yml     2/2 tests passed
 
-3 rules, 0 failed; 7/7 tests passed; 0 errors, 0 warnings
+5 rules, 0 failed; 21/21 tests passed; 0 errors, 0 warnings
 
 $ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
 athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
 
 $ athar convert -t fofa,modat rules/offensive-tool/aof_artex.yml
 Agentic Offensive Framework - ARTEX family  rules/offensive-tool/aof_artex.yml
-  fofa     exact        title="Autonomous Penetration Testing Console" && body="/function/tasks"
-  modat    approximate  http.title~"Autonomous Penetration Testing Console" and http.body~"/function/tasks"
-                        note: modat matches whole words on http.body
+  fofa     exact        title="自主渗透测试控制台" || title="자율 침투 테스트 콘솔" || title="Autonomous Penetration Testing Console"
+  modat    exact        http.title~"自主渗透测试控制台" or http.title~"자율 침투 테스트 콘솔" or http.title~"Autonomous Penetration Testing Console"
 
 $ athar match -r rules/ --format fofa fofa-export.json > candidates.jsonl
 ```

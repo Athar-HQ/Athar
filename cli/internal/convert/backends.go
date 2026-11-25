@@ -322,6 +322,35 @@ func (shodan) term(t term) (string, Fidelity, string, bool) {
 	return neg + spec.name + ":" + quote(t.value), Approximate, note, true
 }
 
+// key lets an OR of positive values of one filter become a comma list,
+// http.title:"a","b", which Shodan reads as a or b.
+func (shodan) key(t term) (string, string) {
+	if t.negated || t.field == "" || t.op == "re" || t.wild || t.hex {
+		return "", ""
+	}
+	spec, ok := shodanFields[t.field]
+	if !ok {
+		return "", ""
+	}
+	switch spec.kind {
+	case words:
+		return spec.name, quote(t.value)
+	case exactOnly:
+		if t.op != "eq" {
+			return "", ""
+		}
+		if shodanBare.MatchString(t.value) {
+			return spec.name, t.value
+		}
+		return spec.name, quote(t.value)
+	}
+	return "", ""
+}
+
+func (shodan) list(field string, values []string) string {
+	return field + ":" + strings.Join(values, ",")
+}
+
 // ---- Censys Platform ----
 
 type censys struct{}
