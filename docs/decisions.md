@@ -66,7 +66,6 @@ Every rule in this repository is licensed under the [Detection Rule License (DRL
 - **Baseline probe.** How each engine actually fetches (redirects, Host header and SNI, favicon source, body truncation) is unknown. A controlled server that logs every request from FOFA, Shodan, Censys, ZoomEye and Modat crawlers would settle it.
 - **Undocumented hashes.** FOFA `body_hash` and `header_hash`, ZoomEye `http.body_hash` and Modat `http.body_mmh3` need their algorithms identified before they can map to taxonomy fields.
 - **Body size limit.** `http.body` holds the first 1 MiB for now; the limit still has to be agreed.
-- **Tests for custom probes.** `tests.response` covers the baseline probe only. Rules with custom probes need a way to give one response per probe.
 - **Variant inheritance.** Variants repeat their family's selections today. An `extends: <id>` key would remove the duplication, but every converter would need to resolve it.
 - **Licensing.** Rules are under DRL 1.1 (decided above). The licence for the CLI, the spec and the docs is still to be chosen. JA4+ fields stay optional because of the FoxIO licence, and [JARM and HASSH are reportedly patented](https://hdm.io/posts/20230927111137909613461915/), which needs checking. Nothing may be copied from `nmap-service-probes`.
 - **Active probing policy.** Scanning infrastructure you don't own carries legal and ethical limits. Proposal: baseline probe only by default, custom probes opt-in, safe methods only, rate limits in the reference scanner.
