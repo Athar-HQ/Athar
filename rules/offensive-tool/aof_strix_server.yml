@@ -1,0 +1,44 @@
+title: Agentic Offensive Framework - Strix viewer server
+id: df701e97-6bf6-4b18-96f9-2db4fb009cb2
+related:
+  - id: 808ca4a3-24b1-4359-9e17-8018263205ca   # Agentic Offensive Framework - Strix
+    type: similar
+status: experimental
+description: |
+  Results viewer of Strix, an open-source AI penetration testing tool that runs autonomous agents against applications. Matched by the Server header of its built-in viewer, "StrixViewer/1.0"
+  (server_version in strix/interface/viewer/server.py), followed by the Python
+  version. Finds viewers whatever their title says.
+references:
+  - https://github.com/usestrix/strix
+  - https://definitely-not-c2.com/Autonomous_AI_Hunting/
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_main:
+    http.headers.server|startswith: 'StrixViewer/'
+  condition: selection_main
+identifies:
+  product: Strix
+  family: strix
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from values in the project repository.
+  - name: Viewer server header
+    expect: match
+    response:
+      http.headers.server: 'StrixViewer/1.0 Python/3.12.3'
+  - name: Plain Python server
+    expect: no_match
+    response:
+      http.headers.server: 'SimpleHTTP/0.6 Python/3.12.3'

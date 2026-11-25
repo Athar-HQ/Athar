@@ -1,0 +1,37 @@
+title: AionUi
+id: e1946a84-31a6-495d-a18d-1651eef0e895
+status: experimental
+description: |
+  Web UI of AionUi, an open-source app that runs and coordinates CLI coding agents
+  (Claude Code, Codex, OpenCode and others). Matched by the page title "AionUi" from
+  packages/desktop/src/renderer/index.html.
+references:
+  - https://github.com/iOfficeAI/AionUi
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - category.ai-infrastructure
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_main:
+    http.title: 'AionUi'
+  condition: selection_main
+identifies:
+  product: AionUi
+  family: aionui
+  category: ai-infrastructure
+confidence: medium
+falsepositives:
+  - Legitimate self-hosted deployments, which are the usual case
+tests:
+  # Minimal samples built from values in the project repository.
+  - name: Web UI title
+    expect: match
+    response:
+      http.title: 'AionUi'
+  - name: Similar title
+    expect: no_match
+    response:
+      http.title: 'Aion UI Kit'

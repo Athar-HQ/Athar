@@ -1,0 +1,45 @@
+title: Agentic Offensive Framework - PentAGI certificate name
+id: e6346bf9-46b3-494c-9d9c-0099802168bd
+related:
+  - id: 22406af1-42ab-45b8-b540-9868e65d5c5e   # Agentic Offensive Framework - PentAGI
+    type: similar
+status: experimental
+description: |
+  The DNS name pentagi.local in the self-signed certificate PentAGI creates in
+  scripts/entrypoint.sh (subjectAltName=DNS:pentagi.local). Complements the
+  issuer rule for the same certificate.
+references:
+  - https://github.com/vxcontrol/pentagi
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: required
+detection:
+  selection_main:
+    tls.cert.san: 'pentagi.local'
+  condition: selection_main
+identifies:
+  product: PentAGI
+  family: pentagi
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from values in the project repository.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'localhost'
+      tls.cert.issuer.cn: 'PentAGI CA'
+      tls.cert.san: ['pentagi.local']
+  - name: Other local name
+    expect: no_match
+    response:
+      tls.cert.san: ['pentagi.example.com']
