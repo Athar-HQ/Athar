@@ -57,15 +57,15 @@ Example session (`verify`, `scan` and `convert` output is real; `match` is illus
 
 ```text
 $ athar verify rules/
-rules/offensive-tool/aof_artex.yml                 7/7 tests passed
-rules/offensive-tool/aof_artex_antifox.yml         4/4 tests passed
-rules/offensive-tool/aof_artex_artex.yml           5/5 tests passed
-rules/offensive-tool/aof_artex_artex_favicon.yml   3/3 tests passed
-rules/offensive-tool/aof_artex_basic_auth.yml      2/2 tests passed
-rules/offensive-tool/aof_artex_frontend_files.yml  6/6 tests passed
-rules/offensive-tool/aof_artex_llm_console.yml     3/3 tests passed
-rules/offensive-tool/aof_artex_rebrands.yml        7/7 tests passed
-rules/offensive-tool/aof_artex_stylesheet.yml      4/4 tests passed
+rules/offensive-tool/aof_artex_nov26.yml                 7/7 tests passed
+rules/offensive-tool/aof_artex_antifox_nov26.yml         4/4 tests passed
+rules/offensive-tool/aof_artex_artex_nov26.yml           5/5 tests passed
+rules/offensive-tool/aof_artex_artex_favicon_nov26.yml   3/3 tests passed
+rules/offensive-tool/aof_artex_basic_auth_nov26.yml      2/2 tests passed
+rules/offensive-tool/aof_artex_frontend_files_nov26.yml  6/6 tests passed
+rules/offensive-tool/aof_artex_llm_console_nov26.yml     3/3 tests passed
+rules/offensive-tool/aof_artex_rebrands_nov26.yml        7/7 tests passed
+rules/offensive-tool/aof_artex_stylesheet_nov26.yml      4/4 tests passed
 
 9 rules, 0 failed; 41/41 tests passed; 0 errors, 0 warnings
 
@@ -73,8 +73,8 @@ $ athar scan -r rules/ -json -p 80,443,18080 127.0.0.0/30 > matches.jsonl
 warning: 1 rule(s) declare custom probes, which are only sent with -probes; selections on them never match
 athar scan: 4 hosts, 12 checks, 1 open, 1 match in 3.1s
 
-$ athar convert -t fofa,modat rules/offensive-tool/aof_artex.yml
-Agentic Offensive Framework - ARTEX family  rules/offensive-tool/aof_artex.yml
+$ athar convert -t fofa,modat rules/offensive-tool/aof_artex_nov26.yml
+Agentic Offensive Framework - ARTEX family  rules/offensive-tool/aof_artex_nov26.yml
   fofa     exact        title="自主渗透测试控制台" || title="자율 침투 테스트 콘솔" || title="Autonomous Penetration Testing Console"
   modat    exact        http.title~"自主渗透测试控制台" or http.title~"자율 침투 테스트 콘솔" or http.title~"Autonomous Penetration Testing Console"
 

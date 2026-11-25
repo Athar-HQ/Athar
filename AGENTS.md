@@ -58,7 +58,7 @@ Values in angle brackets are placeholders. "contains" means `field|contains: val
 | ZoomEye `iconhash=` with 32 hex characters | `http.favicon.md5` exact |
 | Censys `…http.favicons.hash_sha256` · Modat `http.files.sha256` | `http.favicon.sha256` exact |
 | Shodan `http.html_hash:` · FOFA `body_hash=` · Modat `http.body_mmh3` | `http.body.mmh3` exact |
-| urlscan `hash:<sha256>` | A file the page loaded. Ask for the file's path (urlscan lists it under the scan's requests), declare a custom probe that fetches it, and match `http.body.sha256` in a selection with `probe: <id>`. See spec section 9 and `rules/offensive-tool/aof_artex_frontend_files.yml`. If the file is the favicon or the landing page itself, use `http.favicon.sha256` or `http.body.sha256` without a probe. |
+| urlscan `hash:<sha256>` | A file the page loaded. Ask for the file's path (urlscan lists it under the scan's requests), declare a custom probe that fetches it, and match `http.body.sha256` in a selection with `probe: <id>`. See spec section 9 and `rules/offensive-tool/aof_artex_frontend_files_nov26.yml`. If the file is the favicon or the landing page itself, use `http.favicon.sha256` or `http.body.sha256` without a probe. |
 | FOFA `cert.subject.cn=` · Shodan `ssl.cert.subject.cn:` · ZoomEye `ssl.cert.subject.cn=` · Modat `tls.subject.common_name` · Censys `…cert.parsed.subject.common_name` | `tls.cert.subject.cn` contains (exact for `==` or `=`) |
 | The same with `issuer` | `tls.cert.issuer.cn` |
 | Shodan `ssl.cert.fingerprint:` · Censys `…cert.fingerprint_sha256` · Modat `tls.fingerprint_sha256` | `tls.cert.sha256` exact |
@@ -74,7 +74,7 @@ Field names follow spec section 5 and Appendix A. If a filter has no row here an
 
 ### Worked example
 
-The FOFA query behind `rules/offensive-tool/aof_artex_rebrands.yml`:
+The FOFA query behind `rules/offensive-tool/aof_artex_rebrands_nov26.yml`:
 
 ```text
 ("Autonomous penetration testing" && body="/function/tasks") && icon_hash!="-576220750"
