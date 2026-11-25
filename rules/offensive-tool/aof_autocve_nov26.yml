@@ -1,0 +1,48 @@
+title: Agentic Offensive Framework - AutoCVE
+id: c5255fbb-590e-4389-a623-430763efd345
+related:
+  - id: b1968c15-6753-4749-8530-be52d3601827   # Agentic Offensive Framework - DeepAudit
+    type: similar
+status: experimental
+description: |
+  Web interface of AutoCVE, an open-source agent-driven platform for automated
+  CVE discovery: source code auditing, vulnerability verification and
+  reporting. Its README credits DeepAudit's architecture as its starting
+  point. Matched by the page title "AutoCVE" from frontend/index.html. The
+  favicon is covered by separate rules.
+references:
+  - https://github.com/larlarua/AutoCVE
+author: Gameel Ali (@MalGamy12)
+date: 2026-11-25
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_title:
+    http.title: 'AutoCVE'
+  condition: selection_title
+identifies:
+  product: AutoCVE
+  family: autocve
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Unrelated projects with the same name
+tests:
+  # Minimal samples built from the title in frontend/index.html.
+  - name: Interface title
+    expect: match
+    response:
+      http.title: 'AutoCVE'
+  - name: Title with more words
+    expect: no_match
+    response:
+      http.title: 'AutoCVE Analyzer for automotive vulnerabilities'
+native:
+  fofa: 'title=="AutoCVE"'

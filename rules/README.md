@@ -19,6 +19,9 @@ rules/
 │   ├── aof_artex_llm_console_nov26.yml             LLM-driven console phrase
 │   ├── aof_artex_rebrands_nov26.yml                family without ARTEX's title or favicon
 │   ├── aof_artex_stylesheet_nov26.yml              paths of the family's frontend stylesheets
+│   ├── aof_autocve_nov26.yml                       AutoCVE title
+│   ├── aof_autocve_favicon_nov26.yml               favicon, MurmurHash3
+│   ├── aof_autocve_favicon_sha256_nov26.yml        favicon, SHA-256
 │   ├── aof_cairn_nov26.yml                         console title of the Cairn fork CL-STA-1238 used
 │   ├── aof_cairn_cert_nov26.yml                    the fork's certificate, common name
 │   ├── aof_cairn_cert_org_nov26.yml                the fork's certificate, organisation
@@ -27,6 +30,9 @@ rules/
 │   ├── aof_cyberstrikeai_favicon_nov26.yml         favicon, MurmurHash3
 │   ├── aof_cyberstrikeai_favicon_sha256_nov26.yml  favicon, SHA-256
 │   ├── aof_cyberstrikeai_wordmark_nov26.yml        wordmark in the classic interface
+│   ├── aof_deepaudit_nov26.yml                     DeepAudit title
+│   ├── aof_deepaudit_favicon_nov26.yml             favicon, MurmurHash3
+│   ├── aof_deepaudit_favicon_sha256_nov26.yml      favicon, SHA-256
 │   ├── aof_pentagi_nov26.yml                       PentAGI title
 │   ├── aof_pentagi_cert_nov26.yml                  default certificate, issuer
 │   ├── aof_pentagi_cert_san_nov26.yml              default certificate, DNS name
