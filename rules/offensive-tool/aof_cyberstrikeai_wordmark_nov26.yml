@@ -30,6 +30,7 @@ detection:
   condition: selection_wordmark
 identifies:
   product: CyberStrikeAI
+  family: cyberstrikeai
   category: offensive-tool
 confidence: high
 falsepositives:

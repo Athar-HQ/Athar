@@ -30,6 +30,7 @@ detection:
   condition: selection_ca
 identifies:
   product: PentAGI
+  family: pentagi
   category: offensive-tool
 confidence: high
 falsepositives:

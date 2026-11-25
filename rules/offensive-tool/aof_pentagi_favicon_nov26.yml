@@ -33,6 +33,7 @@ detection:
   condition: selection_icon
 identifies:
   product: PentAGI
+  family: pentagi
   category: offensive-tool
 confidence: high
 falsepositives:

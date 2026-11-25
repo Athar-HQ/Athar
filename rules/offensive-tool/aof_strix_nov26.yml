@@ -27,6 +27,7 @@ detection:
   condition: selection_main
 identifies:
   product: Strix
+  family: strix
   category: offensive-tool
 confidence: medium
 falsepositives:
