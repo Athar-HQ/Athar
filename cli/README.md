@@ -116,9 +116,9 @@ $ athar match -r rules/ --format fofa fofa-export.json > candidates.jsonl
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 192.0.2.10 example.org
 ```
 
-1. **Targets.** IP addresses, hostnames and CIDR ranges (up to /16) as arguments, or one per line with `-iL <file>` (`-` for stdin). A `host:port` target is checked on that port only, so the output of `athar match` or another tool can be fed in directly. Checks go port by port across all hosts, so consecutive connections hit different hosts.
-2. **Ports.** `-p` takes a list and ranges, as in Nmap: `-p 22,80,443,8000-8100`. Without `-p`, scan checks a built-in list of common service ports (`athar scan -h` prints it) plus every port the loaded rules name in `target.ports`.
-3. **Open ports.** A TCP connect to each host and port. This needs no root privileges; ports that refuse or time out are skipped.
+1. **Targets.** IP addresses, hostnames and CIDR ranges (up to /16) as arguments, or one per line with `-iL <file>` (`-` for stdin). A `host:port` target is checked on that port only, so the output of `athar match` or a port scanner can be fed in directly. Checks go port by port across all hosts, in a spread order, so consecutive connections go to hosts far apart (different /24s of a /16) rather than to neighbours.
+2. **Ports.** `-p` takes a list and ranges, as in Nmap: `-p 22,80,443,8000-8100`. Without `-p`, scan checks a built-in list of 106 ports plus every port the loaded rules name in `target.ports`. The list holds ports where the baseline probe can see something: common services, alternative web ports and admin consoles, container and infrastructure APIs, AI and LLM tools, and C2 and offensive tools. `athar scan -h` prints it.
+3. **Open ports.** A TCP connect to each host and port, with a 1.5 s timeout (`-connect-timeout`), long enough for one SYN retransmission. This needs no root privileges; ports that refuse or time out are skipped.
 4. **Fingerprint.** The scanner only collects what the loaded rules use:
    - **Banner**, only when a rule's `target.protocol` is not `http`: wait up to 2 seconds for the server to speak first (SSH, FTP, SMTP). A banner ends the baseline probe for that port.
    - **TLS** on the same, still unused connection, unless every rule says `tls: none`: certificate fields, version and cipher. SNI is sent only for hostname targets.
@@ -132,12 +132,22 @@ At start, scan warns about rules it can't fully evaluate. Not collected yet: `tl
 Defaults that keep scanning polite and safe:
 
 - Baseline probe only. Custom probes run only with `-probes`, and only if they are safe: GET, HEAD or OPTIONS, a path that starts with `/`, no line breaks in the path or headers, and no credential, body or method-override headers (`Authorization`, `Cookie`, `Content-Length`, `X-HTTP-Method-Override`, …). A `tcp` probe whose payload contains an HTTP request that breaks these rules isn't sent either. `athar verify` reports such probes as errors, so `athar scan` refuses to load the rule.
-- At most 200 new connections per second (`-rate`), 50 parallel checks (`-c`), 8 per host (`-per-host`).
+- At most 200 new connections per second (`-rate`), 500 parallel checks (`-c`), 8 per host (`-per-host`).
 - The HTTP `User-Agent` names the tool: `Mozilla/5.0 (compatible; athar/<version>; +https://github.com/Athar-HQ/Athar)`.
 - Ranges larger than /16 are refused; split them.
 - Ctrl-C stops the scan; matches found so far are already written.
 
 Exit codes: `0` scan completed (with or without matches), `2` usage error, invalid rules, or interrupted.
+
+Speed is set by `-rate`. Most addresses on the internet don't answer at all, so each check waits for the connect timeout, and `-c` must cover rate × timeout (200 × 1.5 s = 300) for the scan to reach its rate. With the defaults and the 106 built-in ports, a /24 takes a little over 2 minutes and a /16 about 10 hours. To sweep large ranges or all ports, find open ports with a fast port scanner you are allowed to run at that rate, and pass them as `host:port` lines; `-iL` reads all lines before the scan starts:
+
+```bash
+naabu -host 10.0.0.0/16 -top-ports 1000 -silent | athar scan -r rules/ -iL -
+```
+
+```bash
+masscan 10.0.0.0/24 -p1-65535 --rate 1000 -oL open.txt && awk '$1 == "open" {print $4 ":" $3}' open.txt | athar scan -r rules/ -iL -
+```
 
 UDP scanning and raw SYN scanning are out of scope for the first version.
 

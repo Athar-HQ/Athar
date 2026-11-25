@@ -196,13 +196,14 @@ $ athar scan -r rules/ -json -timeout 10s 130.12.171.248:9443
 | Flag | Effect |
 | --- | --- |
 | `-r` | Rule file or folder; repeat for more. Required. |
-| `-p` | Ports, e.g. `22,80,443,8000-8100`. Without it, a built-in list of common ports plus the ports the rules list under `target.ports` (`athar scan -h` prints the list). |
-| `-iL` | Read targets from a file, one per line; `-` reads stdin. |
+| `-p` | Ports, e.g. `22,80,443,8000-8100`. Without it, a built-in list of 106 ports (services, web and admin consoles, AI tools, C2) plus the ports the rules list under `target.ports` (`athar scan -h` prints the list). |
+| `-iL` | Read targets from a file, one per line; `-` reads stdin. `host:port` lines, such as naabu output, are checked on that port only. |
 | `-json` | Print matches as JSON lines instead of readable lines. |
 | `-o` | Write the matches to a file instead of stdout, as readable lines or, with `-json`, JSON lines. |
 | `-no-color` | No colours. Colours are also off when the output is not a terminal or `NO_COLOR` is set. |
-| `-c`, `-per-host`, `-rate` | Parallel checks (50), parallel checks per host (8), new connections per second (200). |
-| `-timeout` | Connect, handshake and read timeout (3s). |
+| `-c`, `-per-host`, `-rate` | Parallel checks (500), parallel checks per host (8), new connections per second (200). At the default rate, a /24 takes about 2 minutes. |
+| `-connect-timeout` | TCP connect timeout (1.5s, at most `-timeout`). |
+| `-timeout` | Handshake and read timeout (3s). |
 | `-probes` | Also send the custom probes that rules declare, for example to fetch the files whose hashes the ARTEX frontend files rule checks. Off by default. |
 | `-v` | Print every open port to stderr, with what it answered. A port that accepts connections but answers nothing shows as `no response (tried TLS, HTTP)`. |
 

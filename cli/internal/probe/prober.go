@@ -55,7 +55,8 @@ func ProbeKey(p rule.Probe) string {
 
 // Prober checks one host and port at a time. It is safe for concurrent use.
 type Prober struct {
-	Timeout    time.Duration // connect, handshake and read timeout
+	Connect    time.Duration // TCP connect timeout; 0 means Timeout
+	Timeout    time.Duration // handshake and read timeout
 	BannerWait time.Duration // how long to wait for a server-first banner
 	UserAgent  string
 	Needs      Needs
@@ -273,7 +274,11 @@ func (p *Prober) dial(ctx context.Context, host string, port int) (net.Conn, err
 			return nil, err
 		}
 	}
-	d := net.Dialer{Timeout: p.Timeout}
+	timeout := p.Connect
+	if timeout <= 0 {
+		timeout = p.Timeout
+	}
+	d := net.Dialer{Timeout: timeout}
 	return d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 }
 

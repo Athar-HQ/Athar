@@ -26,7 +26,8 @@ type Options struct {
 	Concurrency int           // parallel checks
 	PerHost     int           // parallel checks per host
 	Rate        int           // new connections per second; 0 means no limit
-	Timeout     time.Duration // connect, handshake and read timeout
+	Connect     time.Duration // TCP connect timeout; 0 means Timeout
+	Timeout     time.Duration // handshake and read timeout
 	Probes      bool          // send the custom probes rules declare
 	UserAgent   string
 	Log         io.Writer     // receives one line per open port; nil for none
@@ -128,6 +129,7 @@ func New(rules []*eval.Compiled, opts Options) *Scanner {
 	sort.Slice(customProbes, func(i, j int) bool { return customProbes[i].Key < customProbes[j].Key })
 
 	s.prober = &probe.Prober{
+		Connect:    opts.Connect,
 		Timeout:    opts.Timeout,
 		BannerWait: min(opts.Timeout, 2*time.Second),
 		UserAgent:  opts.UserAgent,

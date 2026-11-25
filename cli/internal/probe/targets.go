@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math/bits"
 	"net"
 	"net/netip"
 	"sort"
@@ -19,12 +20,29 @@ import (
 const MaxPrefixHosts = 1 << 16
 
 // DefaultPorts is checked when no port list is given, together with the ports
-// the loaded rules list under target.ports.
+// the loaded rules list under target.ports. It holds ports where the baseline
+// probe (banner, TLS, HTTP) can see something; ports whose services answer
+// none of these, such as SMB, are left out. athar scan -h prints the list.
 var DefaultPorts = []int{
-	21, 22, 23, 25, 80, 81, 110, 143, 443, 465, 587, 993, 995, 1080, 1433, 1521,
-	2375, 2376, 3000, 3306, 3389, 5000, 5432, 5601, 5900, 6379, 6443, 7001, 7443,
-	8000, 8008, 8080, 8081, 8088, 8443, 8888, 9000, 9090, 9200, 9443, 10000,
-	27017, 50050,
+	// Common services: FTP, SSH, Telnet, mail, SOCKS, databases, remote desktop.
+	21, 22, 23, 25, 110, 143, 465, 587, 993, 995, 1080, 1433, 1521, 2222, 3306,
+	3389, 5432, 5900, 6379, 27017,
+	// Web, alternative web ports and admin consoles (cPanel, GlassFish,
+	// Kibana, WebLogic, Splunk, Nessus, RabbitMQ, Webmin and others).
+	80, 81, 82, 88, 443, 591, 2082, 2083, 2086, 2087, 3000, 3001, 4443, 4848,
+	5000, 5001, 5443, 5601, 7000, 7001, 7070, 7080, 7777, 8000, 8001, 8002,
+	8008, 8010, 8080, 8081, 8082, 8083, 8085, 8088, 8089, 8090, 8091, 8180,
+	8181, 8280, 8443, 8800, 8834, 8880, 8888, 8899, 9000, 9001, 9080, 9090,
+	9091, 9093, 9200, 9443, 9999, 10000, 10443, 15672, 18080,
+	// Containers and infrastructure APIs: Docker, etcd, WinRM, Kubernetes,
+	// Proxmox, Consul, kubelet.
+	2375, 2376, 2379, 5985, 5986, 6443, 8006, 8500, 10250,
+	// AI and LLM tools: LibreChat, LiteLLM, Vite, n8n, TensorBoard, Gradio,
+	// ComfyUI, Ray, Streamlit, agentic consoles on 8787, Ollama.
+	3080, 4000, 5173, 5678, 6006, 7860, 8188, 8265, 8501, 8787, 11434,
+	// C2 and offensive tools: Empire, Metasploit, Mythic, Sliver, Havoc,
+	// Cobalt Strike, Metasploit RPC.
+	1337, 4444, 7443, 31337, 40056, 50050, 55553,
 }
 
 // Target is one scan target: a host (IP or name), a CIDR range, or a host with
@@ -170,7 +188,7 @@ func Count(targets []Target, ports []int) (hosts, checks int) {
 			hosts++
 			checks++
 		case t.Prefix.IsValid():
-			n := 1 << (t.Prefix.Addr().BitLen() - t.Prefix.Bits())
+			n := int(size(t))
 			hosts += n
 			checks += n * len(ports)
 		default:
@@ -181,24 +199,37 @@ func Count(targets []Target, ports []int) (hosts, checks int) {
 	return hosts, checks
 }
 
-// Each calls fn for every host and port. It walks port by port, so
-// consecutive checks go to different hosts. It stops when fn returns false.
+// Each calls fn for every host and port. It walks port by port; within a
+// port it visits the hosts of all targets in a spread order, so consecutive
+// checks go to hosts far apart (different /24s of a /16, different targets of
+// a list) instead of to neighbours. host:port targets come last, in order. It
+// stops when fn returns false.
 func Each(targets []Target, ports []int, fn func(host string, port int) bool) {
+	// hosts holds the ranges and single hosts; ends[k] is the number of
+	// addresses in hosts[:k+1].
+	var hosts []Target
+	var ends []uint64
+	var n uint64
+	for _, t := range targets {
+		if t.Port != 0 {
+			continue
+		}
+		n += size(t)
+		hosts = append(hosts, t)
+		ends = append(ends, n)
+	}
+	step := spreadStep(n)
 	for _, port := range ports {
-		for _, t := range targets {
-			switch {
-			case t.Port != 0:
-				continue
-			case t.Prefix.IsValid():
-				for a := t.Prefix.Addr(); t.Prefix.Contains(a); a = a.Next() {
-					if !fn(a.String(), port) {
-						return
-					}
-				}
-			default:
-				if !fn(t.Host, port) {
-					return
-				}
+		for i := uint64(0); i < n; i++ {
+			hi, lo := bits.Mul64(i, step)
+			j := bits.Rem64(hi, lo, n)
+			k := sort.Search(len(ends), func(k int) bool { return ends[k] > j })
+			t, host := hosts[k], hosts[k].Host
+			if t.Prefix.IsValid() {
+				host = nthAddr(t.Prefix, j-(ends[k]-size(t))).String()
+			}
+			if !fn(host, port) {
+				return
 			}
 		}
 	}
@@ -207,4 +238,45 @@ func Each(targets []Target, ports []int, fn func(host string, port int) bool) {
 			return
 		}
 	}
+}
+
+// size is the number of hosts a range or host target expands to.
+func size(t Target) uint64 {
+	if t.Prefix.IsValid() {
+		return 1 << (t.Prefix.Addr().BitLen() - t.Prefix.Bits())
+	}
+	return 1
+}
+
+// spreadStep returns a step coprime to n close to n divided by the golden
+// ratio. Then i*step mod n visits every index below n once, and consecutive
+// indexes land far apart and evenly spread (Fibonacci hashing).
+func spreadStep(n uint64) uint64 {
+	if n < 3 {
+		return 1
+	}
+	s := uint64(float64(n) * 0.6180339887498949)
+	for gcd(s, n) != 1 {
+		s++
+	}
+	return s
+}
+
+func gcd(a, b uint64) uint64 {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+// nthAddr returns the address at offset off in the range p.
+func nthAddr(p netip.Prefix, off uint64) netip.Addr {
+	b := p.Addr().AsSlice()
+	for i := len(b) - 1; i >= 0 && off > 0; i-- {
+		off += uint64(b[i])
+		b[i] = byte(off)
+		off >>= 8
+	}
+	a, _ := netip.AddrFromSlice(b)
+	return a
 }

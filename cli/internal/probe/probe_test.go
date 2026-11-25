@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,6 +128,88 @@ func TestEachAndCount(t *testing.T) {
 	}
 	if hosts, checks := Count(targets, ports); hosts != 4 || checks != 7 {
 		t.Errorf("Count = %d hosts, %d checks; want 4, 7", hosts, checks)
+	}
+}
+
+// Within a port, Each visits every host once in a spread order, so
+// consecutive checks go to different /24s of a /16.
+func TestEachSpread(t *testing.T) {
+	big, err := ParseTarget("10.0.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	nets := map[netip.Prefix]bool{}
+	Each([]Target{big}, []int{80}, func(h string, p int) bool {
+		a := netip.MustParseAddr(h)
+		if !big.Prefix.Contains(a) || seen[h] {
+			t.Fatalf("host %s is outside the range or repeated", h)
+		}
+		seen[h] = true
+		if len(seen) <= 256 {
+			nets[netip.PrefixFrom(a, 24).Masked()] = true
+		}
+		return true
+	})
+	if len(seen) != 1<<16 {
+		t.Errorf("visited %d hosts, want %d", len(seen), 1<<16)
+	}
+	if len(nets) < 200 {
+		t.Errorf("the first 256 checks went to %d /24s, want at least 200", len(nets))
+	}
+
+	// Ranges, IPv6 and names mixed: each host once per port, port by port,
+	// host:port targets last.
+	var targets []Target
+	for _, s := range []string{"192.0.2.0/29", "a.example", "2001:db8::/126", "b.example", "10.9.9.9:2222"} {
+		tg, err := ParseTarget(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, tg)
+	}
+	want := []string{"a.example", "b.example", "2001:db8::", "2001:db8::1", "2001:db8::2", "2001:db8::3"}
+	for i := range 8 {
+		want = append(want, "192.0.2."+strconv.Itoa(i))
+	}
+	sort.Strings(want)
+	var got []string
+	Each(targets, []int{1, 2}, func(h string, p int) bool {
+		got = append(got, net.JoinHostPort(h, strconv.Itoa(p)))
+		return true
+	})
+	if len(got) != 2*len(want)+1 || got[len(got)-1] != "10.9.9.9:2222" {
+		t.Fatalf("Each visited %v", got)
+	}
+	for i, port := range []string{"1", "2"} {
+		var hosts []string
+		for _, hp := range got[i*len(want) : (i+1)*len(want)] {
+			h, p, _ := net.SplitHostPort(hp)
+			if p != port {
+				t.Fatalf("port %s check %s out of order: %v", port, hp, got)
+			}
+			hosts = append(hosts, h)
+		}
+		sort.Strings(hosts)
+		if !reflect.DeepEqual(hosts, want) {
+			t.Errorf("port %s hosts:\n got %v\nwant %v", port, hosts, want)
+		}
+	}
+
+	calls := 0
+	Each(targets, []int{1, 2}, func(string, int) bool { calls++; return calls < 5 })
+	if calls != 5 {
+		t.Errorf("Each made %d calls after fn returned false, want 5", calls)
+	}
+}
+
+func TestDefaultPorts(t *testing.T) {
+	seen := map[int]bool{}
+	for _, p := range DefaultPorts {
+		if p < 1 || p > 65535 || seen[p] {
+			t.Errorf("DefaultPorts: port %d is invalid or repeated", p)
+		}
+		seen[p] = true
 	}
 }
 
