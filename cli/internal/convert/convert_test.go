@@ -91,6 +91,7 @@ func TestSpecExamples(t *testing.T) {
 		"zoomeye": {`title="Autonomous Penetration Testing Console" && http.body="/function/tasks"`, Exact},
 		"modat":   {`http.title~"Autonomous Penetration Testing Console" and http.body~"/function/tasks"`, Approximate},
 		"urlscan": {`page.title.keyword:/.*autonomous penetration testing console.*/`, Superset},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(html.head.title LIKE '%Autonomous Penetration Testing Console%' AND html.body.content LIKE '%/function/tasks%')`, Approximate},
 	})
 	check(t, ruleFrom(t, specVariant), map[string]want{
 		"fofa":    {`title="Autonomous Penetration Testing Console" && body="/function/tasks" && (title="ARTEX" || icon_hash="-576220750")`, Approximate},
@@ -99,6 +100,7 @@ func TestSpecExamples(t *testing.T) {
 		"zoomeye": {`title="Autonomous Penetration Testing Console" && http.body="/function/tasks" && (title="ARTEX" || iconhash="-576220750")`, Approximate},
 		"modat":   {`http.title~"Autonomous Penetration Testing Console" and http.body~"/function/tasks" and (http.title=~"^ARTEX" or http.files.mmh3=-576220750)`, Approximate},
 		"urlscan": {`page.title.keyword:/.*autonomous penetration testing console.*/`, Superset},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(html.head.title LIKE '%Autonomous Penetration Testing Console%' AND html.body.content LIKE '%/function/tasks%' AND (html.head.title LIKE 'ARTEX%' OR favicon.hash.mmh3 == -576220750))`, Approximate},
 	})
 	check(t, ruleFrom(t, specBasicAuth), map[string]want{
 		"modat":   {`http.headers: (key = "Www-Authenticate" and value = "Basic realm=\"ARTEX\", charset=\"UTF-8\"")`, Exact},
@@ -106,6 +108,7 @@ func TestSpecExamples(t *testing.T) {
 		"zoomeye": {`http.header="Basic realm=\"ARTEX\", charset=\"UTF-8\""`, Approximate},
 		"censys":  {"", Unsupported},
 		"urlscan": {"", Unsupported},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(http.headers.bytes.content LIKE '%Basic realm="ARTEX", charset="UTF-8"%')`, Approximate},
 	})
 }
 
@@ -126,6 +129,7 @@ condition: sel and not filter
 		"censys":  {`host.services: (endpoints.http.html_title: "Console")`, Superset},
 		"zoomeye": {`title="Console" && iconhash!="123"`, Exact},
 		"urlscan": {`page.title.keyword:/.*console.*/`, Superset},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(html.head.title LIKE '%Console%' AND NOT (favicon.hash.mmh3 == 123))`, Approximate},
 	})
 
 	// not (a or b) becomes not a and not b.
@@ -403,6 +407,94 @@ condition: css or other
 	}
 }
 
+// huntioHead starts every hunt.io query.
+const huntioHead = "SELECT ip, service.port FROM ip.current WHERE same_port("
+
+// hunt.io's LIKE and == are case-sensitive, so only |cased terms convert
+// exactly. LIKE is anchored, with % and _ as wildcards; RLIKE is anchored too
+// and its dialect undocumented, so |re is dropped (checked in the portal,
+// 2026-11-26).
+func TestHuntio(t *testing.T) {
+	cases := []struct {
+		detection string
+		want      want
+	}{
+		{`http.title|contains|cased: ARTEX`, want{`html.head.title LIKE '%ARTEX%'`, Exact}},
+		{`http.title|startswith|cased: ARTEX`, want{`html.head.title LIKE 'ARTEX%'`, Exact}},
+		{`http.title|endswith: ' Console'`, want{`html.head.title LIKE '% Console'`, Approximate}},
+		{`http.title|cased: 'Say "hi"'`, want{`html.head.title == 'Say "hi"'`, Exact}},
+		{`http.title|cased: "it's"`, want{`html.head.title == "it's"`, Exact}},
+		// Sigma wildcards become LIKE wildcards; escaped ones stay literal.
+		{`http.title|cased: 'AR*X C?nsole'`, want{`html.head.title LIKE 'AR%X C_nsole'`, Exact}},
+		{`http.title|cased: 'AR\*X'`, want{`html.head.title == 'AR*X'`, Exact}},
+		{`http.title|contains|cased: '\*'`, want{`html.head.title LIKE '%*%'`, Exact}},
+		// A % or _ in the value is a wildcard to LIKE, but not to ==.
+		{`http.title|contains|cased: '100%'`, want{`html.head.title LIKE '%100%%'`, Approximate}},
+		{`http.title|cased: 'a_b'`, want{`html.head.title == 'a_b'`, Exact}},
+		// No documented escapes.
+		{`http.title|contains: 'C:\\Users'`, want{"", Unsupported}},
+		{`http.title|contains: 'it''s "x"'`, want{"", Unsupported}},
+		{`http.title|re: '^AR(TEX|GOS)'`, want{"", Unsupported}},
+		{`http.body|contains|cased: '/function/tasks'`, want{`html.body.content LIKE '%/function/tasks%'`, Exact}},
+		{`http.headers.server|contains|cased: nginx`, want{`http.headers.server LIKE '%nginx%'`, Exact}},
+		{`http.headers.x-powered-by|cased: Express`, want{`http.headers.x_powered_by == 'Express'`, Exact}},
+		{`http.headers_raw|contains|cased: X-Havoc`, want{`http.headers.bytes.content LIKE '%X-Havoc%'`, Exact}},
+		{`http.headers_raw|startswith|cased: 'HTTP/1.1 200'`, want{`http.headers.bytes.content LIKE '%HTTP/1.1 200%'`, Approximate}},
+		{`http.headers.www-authenticate|cased: ARTEX`, want{`http.headers.bytes.content LIKE '%ARTEX%'`, Approximate}},
+		{`http.status_code: 200`, want{`http.headers.status.code == 200`, Exact}},
+		{`http.favicon.mmh3: -576220750`, want{`favicon.hash.mmh3 == -576220750`, Exact}},
+		{`http.favicon.sha256: abcdef01`, want{`favicon.hash.sha256 == 'abcdef01'`, Exact}},
+		{`tls.cert.sha256: abcdef01`, want{`tls.cert.hash.sha256 == 'abcdef01'`, Exact}},
+		{`tls.cert.issuer.cn|cased: 'PentAGI CA'`, want{`tls.cert.issuer.common_name == 'PentAGI CA'`, Exact}},
+		{`tls.jarm: abcdef01`, want{`jarm.fingerprint == 'abcdef01'`, Exact}},
+		{`service.port: 8787`, want{`service.port == 8787`, Exact}},
+		{`x-huntio.html.head.meta.generator|contains|cased: WordPress`, want{`html.head.meta.generator LIKE '%WordPress%'`, Exact}},
+		{`tls.jarm|contains: abc`, want{"", Unsupported}},
+		{`tls.ja3s: abc`, want{"", Unsupported}},
+		{`service.banner|contains: SSH`, want{"", Unsupported}},
+		{`http.body.mmh3: 123`, want{"", Unsupported}},
+		{`- ARTEX`, want{"", Unsupported}},
+	}
+	for _, c := range cases {
+		w := c.want
+		if w.query != "" {
+			w.query = huntioHead + w.query + ")"
+		}
+		check(t, ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n"), map[string]want{"huntio": w})
+	}
+
+	// Negations become NOT ( … ), inside OR too.
+	r := ruleFrom(t, `
+sel:
+  http.title|contains|cased: Console
+brand:
+  http.title|startswith|cased: ARTEX
+filter:
+  http.title|contains|cased: ScopeWeaver
+condition: sel and (brand or not filter)
+`)
+	check(t, r, map[string]want{
+		"huntio": {huntioHead + `html.head.title LIKE '%Console%' AND (html.head.title LIKE 'ARTEX%' OR NOT (html.head.title LIKE '%ScopeWeaver%')))`, Exact},
+	})
+	// A negated LIKE with a literal % or _, or one header searched in the
+	// whole block, would exclude services the rule matches, so it is dropped.
+	for _, filter := range []string{`http.title|contains|cased: 'a_b'`, `http.headers.www-authenticate|contains|cased: ARTEX`} {
+		r = ruleFrom(t, "sel:\n  http.title|contains|cased: Console\nfilter:\n  "+filter+"\ncondition: sel and not filter\n")
+		check(t, r, map[string]want{"huntio": {huntioHead + `html.head.title LIKE '%Console%')`, Superset}})
+		res, _ := Convert(r, "huntio")
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "would also exclude services the rule matches") {
+			t.Errorf("%s: notes don't explain the dropped filter: %v", filter, res.Notes)
+		}
+	}
+
+	// Every query says which rows it searches, and an uncased one why it is
+	// approximate.
+	res, _ := Convert(ruleFrom(t, specFamily), "huntio")
+	if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "last 30 days") || !strings.Contains(notes, "case-sensitive") {
+		t.Errorf("missing notes: %v", res.Notes)
+	}
+}
+
 // Every rule in the repository converts for every engine without error.
 func TestRepositoryRules(t *testing.T) {
 	files, err := rule.Files([]string{"../../../rules"})
@@ -497,6 +589,9 @@ func TestTargetTLS(t *testing.T) {
 		{"required, urlscan", title, "required", "urlscan", `page.title.keyword:"console"`, Superset, required},
 		{"required, already superset", "selection:\n  http.title: 'Console'\n  service.banner|contains: 'x-y'\ncondition: selection\n",
 			"required", "urlscan", `page.title.keyword:"console"`, Superset, required},
+		{"required, huntio", title, "required", "huntio", huntioHead + `html.head.title == 'Console')`, Approximate, required},
+		{"required, huntio, cased", "selection:\n  http.title|cased: 'Console'\ncondition: selection\n",
+			"required", "huntio", huntioHead + `html.head.title == 'Console')`, Superset, required},
 		{"required, certificate", cert, "required", "fofa", `cert.subject.cn=="acme"`, Exact, ""},
 		{"none, certificate", cert, "none", "fofa", `cert.subject.cn=="acme"`, Superset, none},
 		{"required, title and certificate", "selection:\n  http.title: 'Console'\n  tls.cert.subject.cn: 'acme'\ncondition: selection\n",
@@ -631,6 +726,8 @@ func checkLiteral(engine, q, op, value, sample string) string {
 		return "control character in the query"
 	}
 	switch engine {
+	case "huntio":
+		return checkHuntio(q, op, value, sample)
 	case "censys":
 		inner, ok := strings.CutPrefix(q, "host.services: (")
 		if !ok || !strings.HasSuffix(inner, ")") {
@@ -697,6 +794,12 @@ func checkLiteral(engine, q, op, value, sample string) string {
 	if err != nil {
 		return "the engine reads the regex " + got + ": " + err.Error()
 	}
+	return checkMatches(re, got, op, sample)
+}
+
+// checkMatches tries a regex an engine reads on texts that the rule's
+// operator matches, and on texts it doesn't.
+func checkMatches(re *regexp.Regexp, got, op, sample string) string {
 	texts := map[string][2][]string{ // operator: texts that match, texts that don't
 		"":           {{sample}, {"zz" + sample, sample + "zz"}},
 		"cased":      {{sample}, {"zz" + sample, sample + "zz"}},
@@ -716,6 +819,49 @@ func checkLiteral(engine, q, op, value, sample string) string {
 		}
 	}
 	return ""
+}
+
+var huntioQuery = regexp.MustCompile(`^SELECT ip, service\.port FROM ip\.current WHERE same_port\(([a-z_.]+) (LIKE|==) (.*)\)$`)
+
+// checkHuntio reads a one-term hunt.io query: a value in single or double
+// quotes, with no escapes, compared with == or LIKE. A LIKE pattern is
+// anchored at both ends, with % and _ as wildcards; the header block is
+// searched for the value anywhere.
+func checkHuntio(q, op, value, sample string) string {
+	m := huntioQuery.FindStringSubmatch(q)
+	if m == nil {
+		return "not one column compared inside same_port( )"
+	}
+	v := m[3]
+	if len(v) < 2 || (v[0] != '\'' && v[0] != '"') || v[len(v)-1] != v[0] || strings.IndexByte(v[1:len(v)-1], v[0]) >= 0 {
+		return "the value's quotes are not closed, or it holds its own quote"
+	}
+	got := v[1 : len(v)-1]
+	if strings.Contains(got, `\`) {
+		return "a backslash, for which HuntSQL documents no meaning"
+	}
+	if m[2] == "==" {
+		if got != value {
+			return "the engine reads the value " + got
+		}
+		return ""
+	}
+	if m[1] == "http.headers.bytes.content" {
+		op = "contains"
+	}
+	var b strings.Builder
+	for _, r := range got {
+		switch r {
+		case '%':
+			b.WriteString(".*")
+		case '_':
+			b.WriteString(".")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	re := regexp.MustCompile("(?s)^" + b.String() + "$")
+	return checkMatches(re, got, op, sample)
 }
 
 // unquotePairs reads a double-quoted value in which \\ is a backslash and \"
@@ -822,6 +968,8 @@ func TestUnverifiedFields(t *testing.T) {
 		{"shodan", "tls.cert.sha256: " + strings.Repeat("ab", 32)},
 		{"censys", "http.headers.server|contains: nginx"},
 		{"censys", "- ARTEX"},
+		{"huntio", "http.body.mmh3: 123"},
+		{"huntio", "service.banner|contains: SSH"},
 	}
 	for _, c := range dropped {
 		r := ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n")
@@ -930,6 +1078,7 @@ func TestNegatedCasedTerms(t *testing.T) {
 		"censys":  {`host.services: (endpoints.http.html_title: "Console")`, Superset},
 		"urlscan": {`page.title.keyword:/.*console.*/`, Superset},
 		"modat":   {`http.title~"Console" and not http.title~~"ARTEX"`, Exact},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(html.head.title LIKE '%Console%' AND NOT (html.head.title LIKE '%ARTEX%'))`, Approximate},
 	})
 	for _, engine := range []string{"fofa", "zoomeye", "shodan", "censys", "urlscan"} {
 		res, _ := Convert(r, engine)
@@ -973,6 +1122,7 @@ func TestCasedTerms(t *testing.T) {
 		"censys":  {`host.services: (endpoints.http.html_title: "ARTEX")`, Approximate},
 		"urlscan": {`page.title.keyword:/.*artex.*/`, Approximate},
 		"modat":   {`http.title~~"ARTEX"`, Exact},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(html.head.title LIKE '%ARTEX%')`, Exact},
 	})
 	for _, engine := range []string{"fofa", "zoomeye", "shodan", "censys", "urlscan"} {
 		res, _ := Convert(r, engine)
@@ -1019,6 +1169,7 @@ func TestNegatedLooseFields(t *testing.T) {
 	for engine, fields := range map[string]map[string]fieldSpec{
 		"fofa": fofaFields, "shodan": shodanFields, "censys": censysFields,
 		"zoomeye": zoomeyeFields, "modat": modatFields, "urlscan": urlscanFields,
+		"huntio": huntioFields,
 	} {
 		for field, spec := range fields {
 			if !spec.loose {

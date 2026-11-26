@@ -191,7 +191,7 @@ cli/
     ├── scan/             scan runner: probe planning, rate and per-host limits, rule evaluation, precedence
     ├── output/           identity records as readable lines or JSONL
     ├── color/            ANSI colours, only on terminals and without NO_COLOR
-    └── convert/          rule to query: expression tree, superset rule, one backend per engine (fofa, shodan, censys, zoomeye, modat, urlscan), Nuclei templates, athar.nse and its rule data
+    └── convert/          rule to query: expression tree, superset rule, one backend per engine (fofa, shodan, censys, zoomeye, modat, urlscan, huntio), Nuclei templates, athar.nse and its rule data
 ```
 
 Packages stay under `internal/` until the API settles. The evaluator is the first candidate to become public, so other tools can embed Athar rules.
@@ -200,5 +200,5 @@ Packages stay under `internal/` until the API settles. The evaluator is the firs
 
 1. ~~`rule`, `condition`, `eval` and `athar verify`~~ (done): the evaluator defines what rules mean, and CI needs it first.
 2. ~~`probe`, `scan`, `output` and `athar scan` for TCP, TLS and HTTP~~ (done). Next for scan: JARM, JA3S, SSH host key and key exchange.
-3. ~~`convert` and `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat and urlscan.io~~ (done), Nuclei templates (done) and Nmap NSE (done). Next: Censys header search, once its syntax is verified; other targets are in [docs/conversion-targets.md](../docs/conversion-targets.md).
+3. ~~`convert` and `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat, urlscan.io and Hunt.io~~ (done), Nuclei templates (done) and Nmap NSE (done). Next: Censys header search, once its syntax is verified; other targets are in [docs/conversion-targets.md](../docs/conversion-targets.md).
 4. `fields` adapters and `athar match`.

@@ -36,7 +36,7 @@ func (f Fidelity) String() string {
 func (f Fidelity) MarshalText() ([]byte, error) { return []byte(f.String()), nil }
 
 // Engines lists the supported search engines in output order.
-var Engines = []string{"fofa", "shodan", "censys", "zoomeye", "modat", "urlscan"}
+var Engines = []string{"fofa", "shodan", "censys", "zoomeye", "modat", "urlscan", "huntio"}
 
 // Scanners lists the scanners rules convert to as templates.
 var Scanners = []string{nucleiTarget, nseTarget}

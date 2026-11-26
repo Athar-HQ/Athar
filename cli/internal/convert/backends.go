@@ -25,6 +25,7 @@ var backends = map[string]backend{
 	"zoomeye": zoomeye{},
 	"modat":   modat{},
 	"urlscan": urlscan{},
+	"huntio":  huntio{},
 }
 
 // kind says how an engine searches a field.
@@ -143,6 +144,29 @@ var (
 		"http.favicon.sha256": {name: "hash", kind: exactOnly, loose: true, note: urlscanHashNote},
 		"tls.cert.issuer.cn":  {name: "page.tlsIssuer", kind: prefixKeyword},
 	}
+	// hunt.io fields are columns of its ip.current table, as the portal's
+	// schema panel lists them. Text columns are searched with LIKE, the rest
+	// with ==. Missing here: JA3S and full text, which have no column, and
+	// html.body.hash.murmur3 and protocol.data, whose meaning the schema
+	// doesn't pin down (see huntio.term).
+	huntioFields = map[string]fieldSpec{
+		"http.title":                {name: "html.head.title"},
+		"http.body":                 {name: "html.body.content"},
+		"http.headers_raw":          {name: "http.headers.bytes.content", kind: rawHeaders},
+		"http.headers.server":       {name: "http.headers.server"},
+		"http.headers.x-powered-by": {name: "http.headers.x_powered_by"},
+		"http.headers.etag":         {name: "http.headers.etag"},
+		"http.status_code":          {name: "http.headers.status.code", kind: exactOnly},
+		"http.favicon.mmh3":         {name: "favicon.hash.mmh3", kind: exactOnly},
+		"http.favicon.md5":          {name: "favicon.hash.md5", kind: exactOnly},
+		"http.favicon.sha256":       {name: "favicon.hash.sha256", kind: exactOnly},
+		"http.body.sha256":          {name: "html.body.hash.sha256", kind: exactOnly},
+		"tls.cert.subject.cn":       {name: "tls.cert.subject.common_name"},
+		"tls.cert.issuer.cn":        {name: "tls.cert.issuer.common_name"},
+		"tls.cert.sha256":           {name: "tls.cert.hash.sha256", kind: exactOnly},
+		"tls.jarm":                  {name: "jarm.fingerprint", kind: exactOnly},
+		"service.port":              {name: "service.port", kind: exactOnly},
+	}
 )
 
 // fieldTables holds every engine's fields. A query on a field marked
@@ -154,6 +178,7 @@ var fieldTables = map[string]map[string]fieldSpec{
 	"zoomeye": zoomeyeFields,
 	"modat":   modatFields,
 	"urlscan": urlscanFields,
+	"huntio":  huntioFields,
 }
 
 // lookup applies the checks every engine shares and finds the field.
@@ -244,6 +269,8 @@ func caseLost(engine string, t term) string {
 		}
 	case "urlscan":
 		return "urlscan indexes values in lowercase, so the search ignores case"
+	case "huntio":
+		return "" // LIKE and == are case-sensitive
 	default:
 		return "" // scanner templates match as the rule does
 	}
@@ -942,4 +969,161 @@ func luceneEscape(s string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// ---- hunt.io ----
+
+// huntio writes HuntSQL for hunt.io's ip.current table. A row there is one
+// IP with its services nested under it, and same_port( … ) keeps every
+// condition on one service, so the query asks for that. In the portal on
+// 2026-11-26: LIKE is SQL's, anchored at both ends with % and _ as
+// wildcards; LIKE and == are case-sensitive; RLIKE is anchored at both ends.
+type huntio struct{}
+
+func (huntio) andOp() string { return " AND " }
+func (huntio) orOp() string  { return " OR " }
+func (huntio) canOr() bool   { return true }
+
+func (huntio) wrap(q string) string {
+	return "SELECT ip, service.port FROM ip.current WHERE same_port(" + q + ")"
+}
+
+func (huntio) notes() []string {
+	return []string{"huntio searches the ip.current rows of the last 30 days unless the query adds a timestamp condition"}
+}
+
+// huntioInts are the integer columns, compared with a bare number.
+var huntioInts = map[string]bool{"http.status_code": true, "http.favicon.mmh3": true, "service.port": true}
+
+var huntioNumber = regexp.MustCompile(`^-?[0-9]+$`)
+
+const huntioCaseNote = "huntio's LIKE and == are case-sensitive, so the query misses values that differ from the rule's only in case"
+
+func (huntio) term(t term) (string, Fidelity, string, bool) {
+	switch {
+	case t.field == "":
+		return "", 0, describe(t) + ": huntio has no full-text search", false
+	case t.field == "http.body.mmh3":
+		return "", 0, describe(t) + ": huntio does not document which Murmur3 variant html.body.hash.murmur3 holds", false
+	case t.field == "service.banner":
+		return "", 0, describe(t) + ": huntio does not document which probe's answer protocol.data holds", false
+	case t.op == "re":
+		return "", 0, describe(t) + ": huntio's RLIKE is anchored at both ends and its regex dialect is not documented", false
+	}
+	spec, note, ok := lookup("huntio", huntioFields, rawHeaders, t)
+	if !ok {
+		return "", 0, note, false
+	}
+	not := func(s string) string {
+		if t.negated {
+			return "NOT (" + s + ")"
+		}
+		return s
+	}
+
+	if spec.kind == exactOnly {
+		if t.op != "eq" || t.wild {
+			return "", 0, fmt.Sprintf("%s: huntio only supports equality on %s", describe(t), spec.name), false
+		}
+		v := t.value
+		if huntioInts[t.field] {
+			if !huntioNumber.MatchString(v) {
+				return "", 0, fmt.Sprintf("%s: huntio's %s holds integers", describe(t), spec.name), false
+			}
+		} else if v, ok = huntioQuote(v); !ok {
+			return "", 0, huntioQuoteNote(t), false
+		}
+		return not(spec.name + " == " + v), Exact, note, true
+	}
+
+	// Text columns, and the header block for headers without a column.
+	f := Exact
+	if !t.cased {
+		f, note = Approximate, joinNote(note, huntioCaseNote)
+	}
+	op := t.op
+	if spec.kind == rawHeaders {
+		if t.field != "http.headers_raw" || op != "contains" {
+			if t.negated {
+				return "", 0, widenedNote(t, fmt.Sprintf("huntio can only exclude %q anywhere in the header block", t.value)), false
+			}
+			how := fmt.Sprintf("huntio searches the whole header block for %q, not one header", t.value)
+			if t.field == "http.headers_raw" {
+				how = fmt.Sprintf("huntio searches the header block for %q as a substring", t.value)
+			}
+			f, note = Approximate, joinNote(note, how)
+		}
+		op = "contains"
+	}
+	if op == "eq" && !t.wild {
+		// == compares the literal value, % and _ included.
+		v, ok := huntioQuote(t.value)
+		if !ok {
+			return "", 0, huntioQuoteNote(t), false
+		}
+		return not(spec.name + " == " + v), f, note, true
+	}
+	pattern, loose := huntioLike(t.raw)
+	if loose {
+		if t.negated {
+			return "", 0, widenedNote(t, "LIKE reads its % and _ as wildcards"), false
+		}
+		f, note = Approximate, joinNote(note, fmt.Sprintf("LIKE reads the %% and _ in %q as wildcards", t.value))
+	}
+	switch op {
+	case "contains":
+		pattern = "%" + pattern + "%"
+	case "startswith":
+		pattern += "%"
+	case "endswith":
+		pattern = "%" + pattern
+	}
+	v, ok := huntioQuote(pattern)
+	if !ok {
+		return "", 0, huntioQuoteNote(t), false
+	}
+	return not(spec.name + " LIKE " + v), f, note, true
+}
+
+// huntioLike turns a rule value into a LIKE pattern: Sigma's * and ? become
+// % and _, and \*, \? and \\ the characters themselves. loose reports a %
+// or _ in the value, which LIKE reads as a wildcard; HuntSQL documents no
+// escape for them.
+func huntioLike(raw string) (pattern string, loose bool) {
+	var b strings.Builder
+	for i := 0; i < len(raw); i++ {
+		switch c := raw[i]; {
+		case c == '\\' && i+1 < len(raw) && strings.IndexByte(`*?\`, raw[i+1]) >= 0:
+			i++
+			b.WriteByte(raw[i])
+		case c == '*':
+			b.WriteByte('%')
+		case c == '?':
+			b.WriteByte('_')
+		default:
+			loose = loose || c == '%' || c == '_'
+			b.WriteByte(c)
+		}
+	}
+	return b.String(), loose
+}
+
+// huntioQuote writes a value in single quotes, or in double quotes when it
+// holds a single quote. HuntSQL documents both kinds of quotes but no
+// escapes, so a value with a backslash, or with both kinds of quotes, can't
+// be written.
+func huntioQuote(s string) (string, bool) {
+	switch {
+	case strings.Contains(s, `\`):
+		return "", false
+	case !strings.Contains(s, "'"):
+		return "'" + s + "'", true
+	case !strings.Contains(s, `"`):
+		return `"` + s + `"`, true
+	}
+	return "", false
+}
+
+func huntioQuoteNote(t term) string {
+	return describe(t) + ": huntio documents no way to write a backslash, or both kinds of quotes, in a value"
 }

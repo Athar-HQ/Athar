@@ -30,6 +30,10 @@ The first draft had a `validation` section for search-engine hit counts (engine,
 
 urlscan.io is not a port scanner. It records what a browser showed for URLs that people or feeds submitted, after redirects, and indexes the page's title, Server header, status, TLS issuer and response hashes. It still earns a backend: it reaches pages behind hostnames that IP-based crawlers never request, such as the `sslip.io` names in the ARTEX results, and the ARTEX family query found 1,111 scans there (25 November 2026, last 365 days). Most rules convert to a superset there, and the notes say so.
 
+### Hunt.io as a convert target
+
+Hunt.io searches its scan data with HuntSQL, a read-only SQL dialect, so `athar convert -t huntio` writes a whole statement, `SELECT ip, service.port FROM ip.current WHERE same_port( … )`, that runs as pasted (decided 2026-11-26). `ip.current` holds one row per IP with its services nested under it; `same_port` keeps the rule's conditions on one service. The target is called `huntio` rather than `hunt`, because "hunt" is an everyday word in rules and docs. The SQL docs and the table schema are only in the portal, behind a sign-in. The column names come from the schema panel; how `LIKE`, `RLIKE`, `==` and `NOT` treat case, anchors and wildcards was checked with a few queries in the portal on 2026-11-26, since the docs don't say.
+
 ### Nuclei templates as a convert target
 
 Many hunters already run Nuclei, so `athar convert -t nuclei` writes one template per rule (decided 2026-11-25). A scanner sees the whole live response, so most rules convert exactly, unlike engine queries. The rule's condition becomes one DSL matcher, which keeps negations and nested conditions; the template rebuilds the fields Athar's scanner reads. Templates are tested against real Nuclei with each rule's own tests. Other scanners and formats wait in [conversion-targets.md](conversion-targets.md) until someone asks for them, because every backend has to be maintained.
@@ -116,7 +120,7 @@ Consumers that don't support host rules would ignore them. The scanner would get
 - [x] Build the evaluator and `athar verify`, and run it in CI
 - [x] Build `athar scan` for TCP, TLS and HTTP on hosts, CIDR ranges and ports
 - [ ] Add JARM, JA3S and SSH host key fields to `athar scan`
-- [x] Build `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat and urlscan.io
+- [x] Build `athar convert` for FOFA, Shodan, Censys, ZoomEye, Modat, urlscan.io and Hunt.io
 - [x] Convert rules to Nuclei templates
 - [x] Convert rules to an Nmap script (NSE)
 - [ ] Seed 20–30 rules with tests from published hunts (ARTEX family, common C2 panels)
