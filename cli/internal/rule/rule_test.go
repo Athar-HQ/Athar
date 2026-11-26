@@ -110,6 +110,125 @@ func TestCheckSet(t *testing.T) {
 	}
 }
 
+const familyRule = `
+title: Fam family
+id: 11111111-1111-4111-8111-111111111111
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains:
+      - 'Fam Console'
+      - 'Fam Konsole'
+  condition: selection_title
+identifies: { family: fam, category: c2 }
+confidence: high
+`
+
+const variantRule = `
+title: Fam variant
+id: 22222222-2222-4222-8222-222222222222
+related:
+  - id: 11111111-1111-4111-8111-111111111111
+    type: variant-of
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains:
+      - 'Fam Console'
+      - 'Fam Konsole'
+  selection_brand:
+    http.title|startswith: 'Acme'
+  filter_icon:
+    http.favicon.mmh3: 1
+  condition: selection_title and selection_brand and not filter_icon
+identifies: { product: Acme, family: fam, category: c2 }
+confidence: high
+`
+
+// A variant-of rule must imply its family (spec section 8).
+func TestCheckSetVariantImpliesFamily(t *testing.T) {
+	const cond = "condition: selection_title and selection_brand and not filter_icon"
+	const famLink = "status: experimental"
+	const back = "related:\n  - id: 22222222-2222-4222-8222-222222222222\n    type: variant-of\nstatus: experimental"
+	for name, tt := range map[string]struct {
+		in, replace, with string // in: "variant" or "family"
+		severity          Severity
+		want              string // "" means no problem
+	}{
+		"implied":             {},
+		"subset of values":    {"variant", "      - 'Fam Konsole'\n", "", 0, ""},
+		"or after the family": {"variant", cond, "condition: selection_title and (selection_brand or filter_icon)", 0, ""},
+		"not 1 of":            {"variant", cond, "condition: selection_title and not 1 of filter_*", 0, ""},
+		"all of":              {"variant", cond, "condition: all of selection_*", 0, ""},
+		"missing selection":   {"variant", cond, "condition: selection_brand and not filter_icon", Error, `does not imply its family: no required selection repeats the family's "selection_title"`},
+		"negated selection":   {"variant", cond, "condition: selection_brand and not selection_title", Error, "does not imply its family"},
+		"changed value":       {"variant", "'Fam Konsole'", "'Fam Panel'", Error, "does not imply its family"},
+		"changed modifier":    {"variant", "http.title|contains", "http.title|endswith", Error, "does not imply its family"},
+		"other probe":         {"variant", "    http.title|contains", "    probe: page\n    http.title|contains", Error, "does not imply its family"},
+		"different family":    {"variant", "family: fam", "family: other", Error, `identifies.family "other" differs from the family rule's "fam"`},
+		"variant or":          {"variant", cond, "condition: selection_title or selection_brand", Warning, "could not check that this rule implies its family"},
+		"variant 1 of":        {"variant", cond, "condition: 1 of selection_*", Warning, "could not check"},
+		"family not":          {"family", "condition: selection_title", "condition: not selection_title", Warning, "could not check"},
+		"family or":           {"family", "condition: selection_title", "condition: selection_title or selection_title", Warning, "could not check"},
+		"itself":              {"variant", "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", Error, "variant of itself"},
+		"cycle":               {"family", famLink, back, Error, "cycle"},
+	} {
+		fsrc, vsrc := familyRule, variantRule
+		if tt.in == "family" {
+			fsrc = strings.Replace(fsrc, tt.replace, tt.with, 1)
+		} else {
+			vsrc = strings.Replace(vsrc, tt.replace, tt.with, 1)
+		}
+		f, err := Parse([]byte(fsrc), "family.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := Parse([]byte(vsrc), "variant.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := CheckSet([]*Rule{f, v})["variant.yml"]
+		switch {
+		case tt.want == "" && len(got) != 0:
+			t.Errorf("%s: unexpected problems: %v", name, got)
+		case tt.want != "" && (len(got) != 1 || got[0].Severity != tt.severity || !strings.Contains(got[0].Msg, tt.want)):
+			t.Errorf("%s: want one %s containing %q, got %v", name, tt.severity, tt.want, got)
+		}
+		// Implies looks at one link; the last two cases need the whole set.
+		if want := tt.want == ""; name != "itself" && name != "cycle" && Implies(v, f) != want {
+			t.Errorf("%s: Implies = %v, want %v", name, !want, want)
+		}
+	}
+}
+
+func TestSelectionImplies(t *testing.T) {
+	type m = map[string]any
+	type l = []any
+	for name, tt := range map[string]struct {
+		variant, family any
+		want            bool
+	}{
+		"more fields":            {m{"http.title": "a", "http.status_code": 200}, m{"http.title": "a"}, true},
+		"fewer fields":           {m{"http.title": "a"}, m{"http.title": "a", "http.status_code": 200}, false},
+		"number and string":      {m{"http.status_code": "200"}, m{"http.status_code": 200}, true},
+		"null and string":        {m{"http.title": nil}, m{"http.title": "<nil>"}, false},
+		"modifier order":         {m{"http.body|cased|contains": "a"}, m{"http.body|contains|cased": "a"}, true},
+		"all, more values":       {m{"http.body|contains|all": l{"a", "b", "c"}}, m{"http.body|contains|all": l{"a", "b"}}, true},
+		"all, fewer values":      {m{"http.body|contains|all": l{"a"}}, m{"http.body|contains|all": l{"a", "b"}}, false},
+		"one of the maps":        {m{"http.title": "a"}, l{m{"http.title": "a"}, m{"http.title": "b"}}, true},
+		"a map the family lacks": {l{m{"http.title": "a"}, m{"http.title": "c"}}, l{m{"http.title": "a"}, m{"http.title": "b"}}, false},
+		"fewer keywords":         {l{"a"}, l{"a", "b"}, true},
+		"another keyword":        {l{"a", "c"}, l{"a", "b"}, false},
+		"keyword and map":        {"a", m{"http.title|contains": "a"}, false},
+	} {
+		if got := selectionImplies(&Rule{}, tt.variant, &Rule{}, tt.family); got != tt.want {
+			t.Errorf("%s: got %v, want %v", name, got, tt.want)
+		}
+	}
+}
+
 func TestUnescape(t *testing.T) {
 	got, err := Unescape(`\x00\x01PING\r\n\\`)
 	if err != nil || string(got) != "\x00\x01PING\r\n\\" {

@@ -123,6 +123,56 @@ func TestVariantSupersedesFamily(t *testing.T) {
 	}
 }
 
+const famRule = `
+title: Fam family
+id: 11111111-1111-4111-8111-111111111111
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: 'Fam Console'
+  condition: selection_title
+identifies: { family: fam, category: c2 }
+confidence: high
+`
+
+const famVariant = `
+title: Fam variant
+id: 22222222-2222-4222-8222-222222222222
+related:
+  - id: 11111111-1111-4111-8111-111111111111
+    type: variant-of
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: 'Fam Console'
+  selection_status:
+    http.status_code: 200
+  condition: %s
+identifies: { product: Acme, family: fam, category: c2 }
+confidence: high
+`
+
+// A variant only replaces its family's record if it implies the family. A
+// link that could not be checked (a warning in athar verify) keeps both.
+func TestUncheckedVariantKeepsFamily(t *testing.T) {
+	srv := httptest.NewServer(page("X Fam Console"))
+	defer srv.Close()
+
+	for cond, want := range map[string]int{
+		"selection_title and selection_status": 1,
+		"selection_title or selection_status":  2,
+		"selection_status":                     2,
+	} {
+		rules := []*eval.Compiled{compileRule(t, famRule), compileRule(t, strings.Replace(famVariant, "%s", cond, 1))}
+		recs := scanOne(t, New(rules, opts()), srv.URL)
+		if len(recs) != want {
+			t.Errorf("condition %q: got %d records, want %d: %+v", cond, len(recs), want, recs)
+		}
+	}
+}
+
 func TestNoMatch(t *testing.T) {
 	srv := httptest.NewServer(page("Penetration Testing Services | Example Corp"))
 	defer srv.Close()
