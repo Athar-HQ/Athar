@@ -213,7 +213,7 @@ func loadRules(paths []string) ([]*eval.Compiled, error) {
 		rules = append(rules, r)
 		compiled = append(compiled, c)
 	}
-	for path, problems := range rule.CheckSet(rules) {
+	for path, problems := range rule.CheckSet(rules, rule.Families(rules)...) {
 		for _, p := range problems {
 			if p.Severity == rule.Error {
 				return nil, fmt.Errorf("%s: %s", path, p.Msg)

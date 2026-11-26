@@ -202,8 +202,9 @@ func Check(r *Rule) []Problem {
 }
 
 // CheckSet runs checks that need the whole rule set: duplicate ids and
-// variant-of links. It returns problems keyed by rule path.
-func CheckSet(rules []*Rule) map[string][]Problem {
+// variant-of links. It returns problems keyed by rule path. known are further
+// rules that variant-of links may point to; they are not checked themselves.
+func CheckSet(rules []*Rule, known ...*Rule) map[string][]Problem {
 	out := map[string][]Problem{}
 	byID := map[string]*Rule{}
 	for _, r := range rules {
@@ -216,11 +217,28 @@ func CheckSet(rules []*Rule) map[string][]Problem {
 		}
 		byID[r.ID] = r
 	}
+	for _, r := range known {
+		if r.ID != "" && byID[r.ID] == nil {
+			byID[r.ID] = r
+		}
+	}
 	for _, r := range rules {
 		for _, rel := range r.Related {
-			if rel.Type == "variant-of" && byID[rel.ID] == nil {
-				out[r.Path] = append(out[r.Path], warnf("variant-of %s: family rule not found in this rule set", rel.ID))
+			if rel.Type != "variant-of" {
+				continue
 			}
+			family := byID[rel.ID]
+			switch {
+			case rel.ID == r.ID:
+				family = r
+			case family == nil:
+				out[r.Path] = append(out[r.Path], warnf("variant-of %s: family rule not found in this rule set", rel.ID))
+				continue
+			case variantOf(byID, family, r.ID, map[*Rule]bool{}):
+				out[r.Path] = append(out[r.Path], errorf("variant-of %s: cycle: that rule is in turn a variant of this one", rel.ID))
+				continue
+			}
+			out[r.Path] = append(out[r.Path], checkVariant(r, family)...)
 		}
 	}
 	return out

@@ -247,7 +247,7 @@ Rebrands of one codebase (for example ARTEX, NKW, ARGOS and AntiFox) are one **f
 
 - The family rule matches every brand and usually extracts the brand name.
 - A variant rule links to its family with `related` type `variant-of` and adds what identifies the variant (title prefix, favicon, certificate).
-- A variant repeats the family's selections, so each file converts on its own. A linter checks that a `variant-of` rule implies its family.
+- A variant repeats the family's selections, so each file converts on its own. `athar verify` checks that a `variant-of` rule implies its family: both have the same `identifies.family`, and every selection the family's condition requires is repeated by a selection the variant's condition requires (the condition itself or a term of its top-level `and`), with the same probe, fields, modifiers and values; of a list of alternative values the variant may keep fewer. A variant that fails this is an error. If the check can't decide, because the family's condition has an `or` or a `not` or the variant's requires no selection, it is a warning, and a scanner then reports the family as well as the variant.
 
 ```yaml
 related:

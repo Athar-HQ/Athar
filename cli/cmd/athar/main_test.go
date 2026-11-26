@@ -111,6 +111,78 @@ confidence: high
 	}
 }
 
+// A variant given on its own finds its family among the files next to it
+// (AGENTS.md step 9). The family is not reported or counted.
+func TestVerifySingleVariant(t *testing.T) {
+	code, out, _ := runCLI("verify", "-strict", "-no-color", "../../../rules/offensive-tool/aof_artex_antifox_nov26.yml")
+	if code != exitOK || !strings.Contains(out, "1 rule, 0 failed") || strings.Contains(out, "aof_artex_nov26.yml") {
+		t.Errorf("repository variant: exit %d\n%s", code, out)
+	}
+
+	const family = `
+title: Fam family
+id: 11111111-1111-4111-8111-111111111111
+status: experimental
+tags: [category.c2]
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: %s
+  condition: selection_title
+identifies: { family: fam, category: c2 }
+confidence: high
+`
+	const variant = `
+title: Fam variant
+id: 22222222-2222-4222-8222-222222222222
+related:
+  - id: 11111111-1111-4111-8111-111111111111
+    type: variant-of
+status: experimental
+tags: [category.c2]
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: Fam Console
+  condition: selection_title
+identifies: { product: Acme, family: fam, category: c2 }
+confidence: high
+tests:
+  - name: hit
+    expect: match
+    response: { http.title: Acme Fam Console }
+  - name: miss
+    expect: no_match
+    response: { http.title: Other }
+`
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v := filepath.Join(dir, "fam_acme.yml")
+	write("fam_acme.yml", variant)
+
+	// No family next to it: the warning stays.
+	code, out, _ = runCLI("verify", "-strict", "-no-color", v)
+	if code != exitFindings || !strings.Contains(out, "family rule not found") {
+		t.Errorf("no family: exit %d\n%s", code, out)
+	}
+	// A family the variant does not imply is an error, also without -strict.
+	write("fam.yaml", strings.Replace(family, "%s", "Other Console", 1))
+	code, out, _ = runCLI("verify", "-no-color", v)
+	if code != exitFindings || !strings.Contains(out, "does not imply its family") || !strings.Contains(out, "1 rule, 1 failed") {
+		t.Errorf("family not implied: exit %d\n%s", code, out)
+	}
+	write("fam.yaml", strings.Replace(family, "%s", "Fam Console", 1))
+	code, out, _ = runCLI("verify", "-strict", "-no-color", v)
+	if code != exitOK || !strings.Contains(out, "1 rule, 0 failed") {
+		t.Errorf("family implied: exit %d\n%s", code, out)
+	}
+}
+
 func TestUsage(t *testing.T) {
 	for _, args := range [][]string{{}, {"nope"}, {"verify"}, {"verify", "/does/not/exist"}, {"scan"}} {
 		if code, _, _ := runCLI(args...); code != exitUsage {
