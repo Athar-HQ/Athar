@@ -151,6 +151,8 @@ Detection is Sigma's grammar, unchanged except for the `probe` key. A map is AND
 
 **Matching.** String matching is case-insensitive by default, as in Sigma. A bare value is an exact match. This differs from FOFA, where `title="x"` is a substring match; backends handle such differences, authors don't. As in Sigma, `*` and `?` in a value are wildcards (`\*`, `\?` and `\\` are literals), and a `re` expression is used as written, so it is case-sensitive unless it starts with `(?i)`.
 
+**List fields.** Some fields hold several values: `tls.cert.san`, `ssh.kex_algorithms`, and any header the response sends more than once, such as `http.headers.set-cookie`. A condition on such a field holds when at least one element matches. Each element is compared on its own, so `tls.cert.san|endswith: '.nip.io'` or an anchored `re` tests one name at a time, never the joined list. With `all`, every listed value must match some element, not necessarily the same one. Under `not`, one matching element is enough to exclude the service.
+
 | Modifier | Source | Meaning |
 | --- | --- | --- |
 | `contains`, `startswith`, `endswith` | Sigma | Substring position. |
