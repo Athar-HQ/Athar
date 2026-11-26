@@ -83,6 +83,14 @@ func TestParseTarget(t *testing.T) {
 		{"example.org", "example.org||0"},
 		{"example.org.", "example.org||0"},
 		{"example.org:8080", "example.org||8080"},
+		{"[::1]:80", "::1||80"},
+		{"host-1.internal", "host-1.internal||0"},
+		{"a.b.c.10gen.com", "a.b.c.10gen.com||0"},
+		{"10gen.com:80", "10gen.com||80"},
+		{"1.example.org", "1.example.org||0"},
+		{"0x10.example", "0x10.example||0"},
+		{"bücher.example", "bücher.example||0"},
+		{"xn--bcher-kva.example", "xn--bcher-kva.example||0"},
 	} {
 		tg, err := ParseTarget(tt.in)
 		if err != nil {
@@ -100,6 +108,59 @@ func TestParseTarget(t *testing.T) {
 	for _, bad := range []string{"", "http://example.org", "10.0.0.0/8", "10.0.0.0/33", "host:0", "host:http", "a b"} {
 		if _, err := ParseTarget(bad); err == nil {
 			t.Errorf("ParseTarget(%q): want error", bad)
+		}
+	}
+	// Numbers that are not IP addresses are not hostnames either: system
+	// resolvers read them as addresses, so 10.0.1 would scan 10.0.0.1.
+	for _, bad := range []string{
+		"10.0.1", "127.1", "2130706433", "0x7f.0.0.1", "0x7f000001", "0X7F000001", "1.2.3.0x4",
+		"1.2.3.4.5", "256.1.1.1", "127.1.", "1..2", ".", "host.123", "host.0x1f",
+		"10.0.1:80", "0x7f.0.0.1:80", "[127.1]:80", "2130706433:443",
+	} {
+		if tg, err := ParseTarget(bad); err == nil {
+			t.Errorf("ParseTarget(%q) = %+v, want error", bad, tg)
+		}
+	}
+}
+
+// Repeated and overlapping targets are checked once.
+func TestDedup(t *testing.T) {
+	ports := []int{80, 443}
+	for _, tt := range []struct {
+		in, want string
+	}{
+		{"1.2.3.4 1.2.3.4", "1.2.3.4"},
+		{"1.2.3.4 ::ffff:1.2.3.4 2001:db8::1 2001:DB8:0::1", "1.2.3.4 2001:db8::1"},
+		{"h.example H.Example h.example. other.example", "h.example other.example"},
+		{"10.0.0.5 10.0.0.0/30 10.0.0.1 10.0.0.2/32 10.0.0.9", "10.0.0.5 10.0.0.0/30 10.0.0.9"},
+		{"10.0.0.0/25 10.0.0.0/24 10.0.0.0/24 10.0.0.128/26 10.0.1.0/24", "10.0.0.0/24 10.0.1.0/24"},
+		{"2001:db8::/126 2001:db8::2 2001:db8::4", "2001:db8::/126 2001:db8::4"},
+		{"1.2.3.4:8080 1.2.3.4:8080 h.example:8080 H.example:8080", "1.2.3.4:8080 h.example:8080"},
+		// A host:port whose host is scanned on that port anyway.
+		{"1.2.3.4:80 1.2.3.4 1.2.3.4:8080", "1.2.3.4 1.2.3.4:8080"},
+		{"10.0.0.7:443 10.0.0.7:22 10.0.0.0/24 h.example:80 h.example", "10.0.0.7:22 10.0.0.0/24 h.example"},
+	} {
+		var targets []Target
+		for _, s := range strings.Fields(tt.in) {
+			tg, err := ParseTarget(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			targets = append(targets, tg)
+		}
+		var got []string
+		for _, tg := range Dedup(targets, ports) {
+			switch {
+			case tg.Prefix.IsValid():
+				got = append(got, tg.Prefix.String())
+			case tg.Port != 0:
+				got = append(got, net.JoinHostPort(tg.Host, strconv.Itoa(tg.Port)))
+			default:
+				got = append(got, tg.Host)
+			}
+		}
+		if g := strings.Join(got, " "); g != tt.want {
+			t.Errorf("Dedup(%s):\n got %s\nwant %s", tt.in, g, tt.want)
 		}
 	}
 }

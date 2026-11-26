@@ -107,7 +107,7 @@ The same steps apply without a query: take the most specific stable signals the 
 
 A product with rebrands gets a family rule plus variant rules (spec section 8): the family matches what all brands share and extracts the brand; a variant links to the family with `related` type `variant-of` and repeats the family's selections.
 
-`confidence` says how likely a match is really this service and not a lookalike: `certain` for unique hashes or certificates, `high` for a distinctive title or phrase, `medium` for signals other software could share, `low` for weak hints.
+`confidence` says how likely a match is really this service and not a lookalike: `certain` for the SHA-256 of a file or certificate that only this product has, `high` for a favicon hash, a default certificate name or a distinctive title or phrase, `medium` for signals other software could share, `low` for weak hints.
 
 ## Scanning
 

@@ -345,6 +345,14 @@ func (c *converter) lower(e expr) expr {
 		if !ok {
 			return c.drop(note)
 		}
+		if how := caseLost(c.engine, x); how != "" {
+			// A search that ignores case finds more than the term, so its
+			// negation finds less.
+			if x.negated {
+				return c.drop(widenedNote(x, how))
+			}
+			f, note = max(f, Approximate), joinNote(note, how)
+		}
 		if note != "" {
 			c.notes = append(c.notes, note)
 		}

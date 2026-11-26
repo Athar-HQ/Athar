@@ -174,6 +174,9 @@ func lookup(engine string, fields map[string]fieldSpec, headerKind kind, t term)
 		return fieldSpec{name: name}, "", true
 	}
 	if spec, ok := fields[t.field]; ok {
+		if spec.loose && t.negated {
+			return fieldSpec{}, widenedNote(t, fmt.Sprintf("%s's %s covers more than %s", engine, spec.name, t.field)), false
+		}
 		note := spec.note
 		if spec.unverified {
 			note = joinNote(note, fmt.Sprintf("the mapping of %s to %s is not verified against the %s docs yet", t.field, spec.name, engine))
@@ -208,6 +211,43 @@ func widened(t term) bool {
 
 func widenedNote(t term, how string) string {
 	return fmt.Sprintf("not %s: %s, which would also exclude services the rule matches", describe(t), how)
+}
+
+// caseLost says why an engine's search for a |cased term ignores case, and
+// so finds more than the term. It returns "" where the operator the backend
+// uses is case-sensitive. The converter then labels the term approximate, or
+// drops it under not, as backends do with widened terms.
+func caseLost(engine string, t term) string {
+	if !t.cased {
+		return ""
+	}
+	switch engine {
+	case "fofa", "shodan":
+		// No case-sensitive operator.
+	case "modat":
+		// ==, ~~ and ==~ are case-sensitive. Hashes and numbers are searched
+		// with =, and a regex on a header with =~.
+		spec, _, _ := lookup(engine, modatFields, oneHeader, t)
+		if spec.kind != exactOnly && (spec.kind != oneHeader || t.op != "re") {
+			return ""
+		}
+	case "zoomeye":
+		// == on a text field is case-sensitive.
+		spec, _, _ := lookup(engine, zoomeyeFields, rawHeaders, t)
+		if spec.kind == substring && t.op == "eq" {
+			return ""
+		}
+	case "censys":
+		// Only ":" is known to ignore case; the backend handles regex.
+		if t.op != "contains" {
+			return ""
+		}
+	case "urlscan":
+		return "urlscan indexes values in lowercase, so the search ignores case"
+	default:
+		return "" // scanner templates match as the rule does
+	}
+	return fmt.Sprintf("%s searches %q without regard to case", engine, t.value)
 }
 
 func joinNote(a, b string) string {
@@ -453,6 +493,9 @@ func (censys) term(t term) (string, Fidelity, string, bool) {
 		if !spec.regex {
 			return "", 0, fmt.Sprintf("%s: no regex on %s", describe(t), spec.name), false
 		}
+		if t.negated && t.cased {
+			return "", 0, widenedNote(t, "censys regex may ignore case"), false
+		}
 		re := t.raw
 		switch t.op {
 		case "startswith":
@@ -648,10 +691,6 @@ func (urlscan) term(t term) (string, Fidelity, string, bool) {
 	f := Exact
 	if spec.loose {
 		f = Approximate
-	}
-	if t.cased {
-		f = Approximate
-		note = joinNote(note, "urlscan indexes values in lowercase, so the search ignores case")
 	}
 	v := strings.ToLower(t.value)
 

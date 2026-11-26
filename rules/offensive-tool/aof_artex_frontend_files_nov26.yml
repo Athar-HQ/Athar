@@ -27,6 +27,7 @@ references:
   - https://urlscan.io/search/#hash%3Aff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -121,7 +122,7 @@ detection:
 identifies:
   family: artex
   category: offensive-tool
-confidence: high
+confidence: certain
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
 tests:
