@@ -15,7 +15,7 @@ var (
 	probeKeys      = set("protocol", "request", "send", "read")
 	requestKeys    = set("method", "path", "headers")
 	extractKeys    = set("field", "regex", "jsonpath")
-	testKeys       = set("name", "expect", "response", "probes", "extracted")
+	testKeys       = set("name", "expect", "raw", "response", "probes", "extracted")
 
 	// readLimits are the keys of a probe's read block with their upper
 	// bounds (spec section 4): 1 MiB and 30 seconds.
