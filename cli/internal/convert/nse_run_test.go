@@ -617,7 +617,11 @@ func runNSE(t *testing.T, bin string, rules []*rule.Rule, ports []int, args ...s
 		pl = append(pl, strconv.Itoa(p))
 	}
 	out := filepath.Join(dir, "nmap.xml")
-	cmdArgs := []string{"-sT", "-Pn", "-n", "-p", strings.Join(pl, ","), "--script", filepath.Join(dir, "athar.nse"), "-oX", out}
+	// --max-parallelism lets all script threads open their sockets at once.
+	// With Nmap's default limit some start late, and a TLS handshake that
+	// fails on one socket then makes Nmap 7.97 (OpenSSL 3) report a read
+	// error on another TLS socket, which loses that server's response.
+	cmdArgs := []string{"-sT", "-Pn", "-n", "--max-parallelism", "100", "-p", strings.Join(pl, ","), "--script", filepath.Join(dir, "athar.nse"), "-oX", out}
 	if len(args) > 0 {
 		cmdArgs = append(cmdArgs, "--script-args", strings.Join(args, ","))
 	}
