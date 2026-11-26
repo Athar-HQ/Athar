@@ -66,6 +66,25 @@ func TestNucleiTemplateFeatures(t *testing.T) {
 		{rule: "athar-features-hashes", test: "hashes: same favicon and body", target: serveIconPage(t, icon), expect: true},
 		{rule: "athar-features-hashes", test: "hashes: other favicon", target: serveIconPage(t, []byte("other")), expect: false},
 	}
+	// target.tls: the same page over TLS and in plaintext.
+	for i, mode := range []string{"required", "none"} {
+		rules = append(rules, parse(t, "features_tls_"+mode+".yml", `
+title: tls `+mode+`
+id: 55555555-5555-4555-8555-55555555555`+fmt.Sprint(i)+`
+target: {protocol: http, tls: `+mode+`}
+detection:
+  selection:
+    http.title: 'Hash test'
+  condition: selection
+`))
+	}
+	plain, secure := serveIconPage(t, icon), servePageTLS(t)
+	extra = append(extra,
+		nucleiCase{rule: "athar-features-tls-required", test: "tls required: over TLS", target: secure, expect: true},
+		nucleiCase{rule: "athar-features-tls-required", test: "tls required: plaintext", target: plain, expect: false},
+		nucleiCase{rule: "athar-features-tls-none", test: "tls none: plaintext", target: plain, expect: true},
+		nucleiCase{rule: "athar-features-tls-none", test: "tls none: over TLS", target: secure, expect: false},
+	)
 	nucleiCheck(t, bin, rules, extra, true)
 }
 
@@ -240,6 +259,15 @@ func serveIconPage(t *testing.T, ico []byte) string {
 			w.Write(ico)
 			return
 		}
+		fmt.Fprint(w, featurePage)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// servePageTLS serves featurePage at / over TLS.
+func servePageTLS(t *testing.T) string {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, featurePage)
 	}))
 	t.Cleanup(srv.Close)

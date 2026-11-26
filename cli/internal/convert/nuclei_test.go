@@ -169,3 +169,50 @@ condition: selection
 		t.Errorf("banner only: fidelity %s, template %q", res.Fidelity, res.Template)
 	}
 }
+
+// target.tls limits a template to one scheme. A template that only reads the
+// certificate needs no guard: its ssl block only matches over TLS.
+func TestNucleiTargetTLS(t *testing.T) {
+	title := "selection:\n  http.title: 'Console'\ncondition: selection\n"
+	cert := "selection:\n  tls.cert.subject.cn: 'acme'\ncondition: selection\n"
+	both := "a:\n  http.title: 'Console'\nb:\n  tls.cert.subject.cn: 'acme'\ncondition: a or b\n"
+	with := func(detection, tls string) Result {
+		t.Helper()
+		r := ruleFrom(t, detection)
+		r.Target.TLS = tls
+		res, err := Convert(r, "nuclei")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	auto := with(title, "auto")
+	if strings.Contains(auto.Template, "Scheme") {
+		t.Errorf("tls: auto needs no guard:\n%s", auto.Template)
+	}
+	if res := with(title, ""); res.Template != auto.Template {
+		t.Errorf("no target.tls should convert like auto:\n%s", res.Template)
+	}
+	for _, c := range []struct {
+		detection, tls, dsl string
+	}{
+		{title, "required", `Scheme == "https" && (tolower(title) == "console")`},
+		{title, "none", `Scheme == "http" && (tolower(title) == "console")`},
+		{specVariant, "required", `Scheme == "https" && status_code_2 > 0 && (contains(`},
+		{both, "required", `Scheme == "https" && (tolower(title) == "console" || tolower(ssl_subject_cn) == "acme")`},
+		{both, "none", `Scheme == "http" && (tolower(title) == "console" || tolower(ssl_subject_cn) == "acme")`},
+	} {
+		res := with(c.detection, c.tls)
+		wantIn(t, res, c.dsl)
+		if want := with(c.detection, "auto").Fidelity; res.Fidelity != want {
+			t.Errorf("tls: %s: fidelity %s, want %s as for auto", c.tls, res.Fidelity, want)
+		}
+	}
+	if res := with(cert, "required"); res.Template != with(cert, "auto").Template {
+		t.Errorf("a certificate-only template needs no guard:\n%s", res.Template)
+	}
+	// A plaintext service has no certificate to read.
+	if res := with(cert, "none"); res.Fidelity != Unsupported || res.Template != "" || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "target.tls") {
+		t.Errorf("certificate only, tls: none: fidelity %s, notes %q, template %q", res.Fidelity, res.Notes, res.Template)
+	}
+}
