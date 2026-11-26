@@ -42,7 +42,7 @@ func TestNSEFamily(t *testing.T) {
 		"-- Fidelity: exact\n",
 		"return {\n  nse = 1,\n",
 		// Without target.protocol, athar scan also waits for a banner.
-		`needs = {banner = true, tls = true, http = true}`,
+		`needs = {banner = true, http = true}`,
 		`{f = "http.title", m = "contains", v = "autonomous penetration testing console"}`,
 		`{f = "http.body", m = "contains", v = "/function/tasks"}`,
 		// s and k also match ſ and the Kelvin sign.
@@ -65,7 +65,7 @@ condition: selection_title and not 1 of filter_*
 		t.Errorf("fidelity %s, want exact: the script fetches favicons as athar scan does", res.Fidelity)
 	}
 	wantData(t, res,
-		`needs = {banner = true, tls = true, http = true, favicon = true}`,
+		`needs = {banner = true, http = true, favicon = true}`,
 		`{f = "http.favicon.mmh3", m = "eq", v = "-576220750", n = true}`,
 		`{f = "http.title", m = "startswith", v = "ARTEX", c = true, n = true}`,
 	)
@@ -115,7 +115,7 @@ condition: selection and keywords
 		`{f = "http.body", m = "contains", v = "say \"hi\"\t\\", c = true}`,
 		`{k = true, m = "contains", v = "k"}`,
 		"fold = {[\"\u212a\"] = \"k\"}",
-		`needs = {banner = true, tls = true, http = true}`,
+		`needs = {banner = true, http = true}`,
 	)
 }
 

@@ -1547,7 +1547,9 @@ local function baseline(host, port, needs, cfg)
     end
   end
 
-  if needs.tls then
+  -- TLS is tried whatever the rules need: every rule's target.tls depends
+  -- on whether the service speaks it.
+  do
     sock:set_timeout(cfg.timeout)
     if sock:reconnect_ssl() then
       svc.tls = true

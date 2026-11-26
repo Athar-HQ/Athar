@@ -21,10 +21,11 @@ import (
 const maxBanner = 8 << 10
 
 // Needs says which parts of the baseline probe the loaded rules use, so the
-// prober only does work that can change a result.
+// prober only does work that can change a result. A TLS handshake is not
+// among them: it is always tried, because every rule's target.tls depends on
+// whether the service speaks TLS.
 type Needs struct {
 	Banner  bool // wait for a server-first banner (SSH, FTP, SMTP, …)
-	TLS     bool // try a TLS handshake
 	HTTP    bool // send GET /
 	Favicon bool // fetch the favicon
 }
@@ -117,8 +118,8 @@ func (p *Prober) baseline(ctx context.Context, svc *Service, conn net.Conn) {
 		}
 	}
 
-	// 2. TLS on the same, still unused connection.
-	if p.Needs.TLS {
+	// 2. TLS on the same, still unused connection, whatever the rules need.
+	{
 		tc := tls.Client(conn, p.tlsConfig(svc.Host))
 		tc.SetDeadline(time.Now().Add(p.Timeout))
 		if err := tc.HandshakeContext(ctx); err == nil {
@@ -350,9 +351,6 @@ func bannerFields(f eval.Fields, b []byte) {
 func tlsFields(f eval.Fields, st tls.ConnectionState) {
 	f["tls.version"] = tls.VersionName(st.Version)
 	f["tls.cipher"] = tls.CipherSuiteName(st.CipherSuite)
-	if st.NegotiatedProtocol != "" {
-		f["tls.alpn"] = st.NegotiatedProtocol
-	}
 	if len(st.PeerCertificates) == 0 {
 		return
 	}

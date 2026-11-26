@@ -287,7 +287,7 @@ func TestProbeHTTP(t *testing.T) {
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
 
-	p := testProber(Needs{TLS: true, HTTP: true, Favicon: true})
+	p := testProber(Needs{HTTP: true, Favicon: true})
 	svc := p.Probe(context.Background(), host, port)
 	if svc == nil {
 		t.Fatal("port reported closed")
@@ -327,7 +327,7 @@ func TestProbeTLS(t *testing.T) {
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
 
-	svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || !svc.TLS {
 		t.Fatalf("expected a TLS service, got %+v", svc)
 	}
@@ -348,6 +348,33 @@ func TestProbeTLS(t *testing.T) {
 	}
 	if _, ok := f["http.favicon.mmh3"]; ok {
 		t.Error("favicon fetched although not needed")
+	}
+}
+
+// Whether a service speaks TLS is found out whatever the rules need:
+// target.tls can't be honoured without it, and a plaintext request to a TLS
+// server gets a "400 Bad Request" that rules would match. No ALPN protocol
+// is offered, so tls.alpn is never set.
+func TestProbeAlwaysDetectsTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(panelHandler())
+	defer srv.Close()
+	host, port := hostPort(t, srv.URL)
+
+	for _, needs := range []Needs{{}, {HTTP: true}, {Banner: true, HTTP: true}} {
+		svc := testProber(needs).Probe(context.Background(), host, port)
+		if svc == nil || !svc.TLS {
+			t.Fatalf("needs %+v: expected a TLS service, got %+v", needs, svc)
+		}
+		f := svc.Fields
+		if f["tls.cert.subject.o"] != "Acme Co" || f["tls.version"] == nil || f["tls.cipher"] == nil {
+			t.Errorf("needs %+v: TLS fields = %#v", needs, f)
+		}
+		if needs.HTTP && f["http.status_code"] != 200 {
+			t.Errorf("needs %+v: http.status_code = %#v", needs, f["http.status_code"])
+		}
+		if v, ok := f["tls.alpn"]; ok {
+			t.Errorf("needs %+v: tls.alpn = %#v, but no protocol was offered", needs, v)
+		}
 	}
 }
 
@@ -377,7 +404,7 @@ func TestProbeBanner(t *testing.T) {
 		c.Write([]byte("SSH-2.0-OpenSSH_9.6\r\n"))
 		time.Sleep(500 * time.Millisecond)
 	})
-	svc := testProber(Needs{Banner: true, TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{Banner: true, HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil {
 		t.Fatal("port reported closed")
 	}
@@ -398,7 +425,7 @@ func TestProbeHTTPWithBannerWait(t *testing.T) {
 	srv := httptest.NewServer(panelHandler())
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
-	svc := testProber(Needs{Banner: true, TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{Banner: true, HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || svc.Fields["http.status_code"] != 200 {
 		t.Fatalf("got %+v", svc)
 	}
@@ -411,7 +438,7 @@ func TestProbeClosed(t *testing.T) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
-	if svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), "127.0.0.1", port); svc != nil {
+	if svc := testProber(Needs{HTTP: true}).Probe(context.Background(), "127.0.0.1", port); svc != nil {
 		t.Errorf("closed port reported open: %+v", svc)
 	}
 }
