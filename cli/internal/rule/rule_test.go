@@ -1,6 +1,7 @@
 package rule
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -9,6 +10,8 @@ const validRule = `
 title: Example
 id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
 status: experimental
+tags:
+  - category.web-server
 target:
   protocol: http
 detection:
@@ -78,6 +81,82 @@ func TestCheckProblems(t *testing.T) {
 	}
 }
 
+// Typos in nested keys and values out of range must not pass silently.
+func TestCheckNested(t *testing.T) {
+	const (
+		target = "  protocol: http\n"
+		end    = "confidence: high"
+		probes = end + "\nprobes:\n  p:\n"
+	)
+	tests := []struct {
+		replace, with string
+		severity      Severity
+		want          string // "" means no problems at all
+	}{
+		// Unknown keys below the top level.
+		{target, target + "  port: [8080]\n", Error, `line 9: target: unknown key "port"`},
+		{target, target + "  tsl: required\n", Error, `target: unknown key "tsl"`},
+		{"  product: Example\n", "  product: Example\n  categroy: cms\n", Error, `identifies: unknown key "categroy"`},
+		{end, probes + "    protocol: http\n    paht: /x", Error, `probe "p": unknown key "paht"`},
+		{end, probes + "    protocol: http\n    request: { path: /x, follow: true }", Error, `probe "p": request: unknown key "follow"`},
+		{end, probes + "    protocol: tcp\n    read: { max_byte: 512 }", Error, `probe "p": read: unknown key "max_byte"`},
+		{end, end + "\nextract:\n  brand:\n    field: http.title\n    regex: '(x)'\n    regexp: y", Error, `extract brand: unknown key "regexp"`},
+		{end, end + "\nrelated:\n  - id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53\n    type: similar\n    typ: x", Error, `related entry 1: unknown key "typ"`},
+		{"    expect: match\n", "    expect: match\n    extract: { brand: X }\n", Error, `test "hit": unknown key "extract"`},
+		{target, target + "  x-note: y\n", Error, `target: unknown key "x-note"`},
+
+		// Values out of range.
+		{target, target + "  ports: [0]\n", Error, "target.ports: 0 is not a port"},
+		{target, target + "  ports: [80, 70000]\n", Error, "target.ports: 70000 is not a port"},
+		{target, target + "  ports: [-1]\n", Error, "target.ports: -1 is not a port"},
+		{target, target + "  transport: sctp\n", Error, "target.transport"},
+		{target, "  protocol: mqtt\n  transport: udp\n  tls: none\n  ports: [1, 65535]\n", Error, ""},
+
+		// Probes the scanner cannot send.
+		{end, probes + "    protocol: udp", Error, `probe "p": protocol "udp" is not one of http, tcp`},
+		{end, probes + "    protocol: tcp\n    send: '\\qGARBAGE'", Error, `probe "p": send: unknown escape \q`},
+		{end, probes + "    protocol: http\n    request: { path: /x, body: a=b }", Error, `probe "p": request.body is not allowed`},
+		{end, probes + "    protocol: tcp\n    read: { max_bytes: 0 }", Error, `probe "p": read.max_bytes 0 is not between 1 and 1048576`},
+		{end, probes + "    protocol: tcp\n    read: { max_bytes: -5 }", Error, "read.max_bytes -5"},
+		{end, probes + "    protocol: tcp\n    read: { max_bytes: 1048577 }", Error, "read.max_bytes 1048577"},
+		{end, probes + "    protocol: tcp\n    read: { timeout_ms: 0 }", Error, `probe "p": read.timeout_ms 0 is not between 1 and 30000`},
+		{end, probes + "    protocol: tcp\n    read: { timeout_ms: 86400000 }", Error, "read.timeout_ms 86400000"},
+		{end, probes + "    protocol: tcp\n    send: '\\x00PING'\n    read: { max_bytes: 1048576, timeout_ms: 30000 }", Error, ""},
+		{end, probes + "    protocol: tcp\n    read: { timeout_ms: 3000 }", Error, ""},
+		{end, probes + "    protocol: HTTP\n    request: { method: GET, path: /x, headers: { Accept: text/html } }", Error, ""},
+
+		// The category tag repeats identifies.category.
+		{"  - category.web-server", "  - category.database", Error, `tag "category.database" does not repeat identifies.category "web-server"`},
+		{"  - category.web-server", "  - category.web-server\n  - category.cms", Error, `tag "category.cms"`},
+		{"  - category.web-server", "  - aof", Warning, "no category.* tag; add category.web-server"},
+		{"tags:\n  - category.web-server\n", "", Warning, "no category.* tag; add category.web-server"},
+	}
+	for _, tt := range tests {
+		src := strings.Replace(validRule, tt.replace, tt.with, 1)
+		r, err := Parse([]byte(src), "x.yml")
+		if err != nil {
+			t.Errorf("%q: %v", tt.with, err)
+			continue
+		}
+		got := Check(r)
+		if tt.want == "" {
+			if len(got) != 0 {
+				t.Errorf("%q: unexpected problems: %v", tt.with, got)
+			}
+			continue
+		}
+		found := false
+		for _, p := range got {
+			if p.Severity == tt.severity && strings.Contains(p.Msg, tt.want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%q: no %s containing %q in %v", tt.with, tt.severity, tt.want, got)
+		}
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	for name, src := range map[string]string{
 		"empty":     "",
@@ -88,6 +167,94 @@ func TestParseErrors(t *testing.T) {
 		if _, err := Parse([]byte(src), name); err == nil {
 			t.Errorf("%s: want error", name)
 		}
+	}
+}
+
+// String fields keep the text the author wrote; numeric and boolean fields
+// and the values of exists and the comparisons keep what YAML decoded.
+func TestParseValuesAsWritten(t *testing.T) {
+	r, err := Parse([]byte(`
+title: t
+x-serial: &serial 0100
+x-common: &common
+  http.title: 1_000
+  http.status_code: 200
+detection:
+  sel:
+    <<: *common
+    tls.cert.serial: *serial
+    service.banner|hex|contains: [0016, '17']
+    service.port|hex: 0016
+    http.headers.etag|cased: [0x1F, True, 2.0, 2026-11-26, plain]
+    http.favicon.mmh3: [-576220750, 0x10]
+    http.body.mmh3|gt: 1e3
+    http.title|exists: true
+    tls.cert.self_signed: true
+    tls.jarm: ~
+    probe: p
+  any:
+    - http.title: .5
+    - http.status_code: 0100
+  keywords: [2.0, text, ~]
+  word: 0100
+  condition: sel
+tests:
+  - name: a
+    expect: match
+    response:
+      <<: *common
+      tls.cert.serial: *serial
+      tls.cert.san: [1e3, a]
+      http.body.mmh3: 0x10
+      tls.cert.self_signed: true
+      tls.jarm: ~
+    probes:
+      p: { http.body: 2.0, http.status_code: 2_00 }
+`), "t.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDetection := map[string]any{
+		"sel": map[string]any{
+			"http.title":                  "1_000",
+			"http.status_code":            200,
+			"tls.cert.serial":             "0100",
+			"service.banner|hex|contains": []any{"0016", "17"},
+			"service.port|hex":            "0016",
+			"http.headers.etag|cased":     []any{"0x1F", "True", "2.0", "2026-11-26", "plain"},
+			"http.favicon.mmh3":           []any{-576220750, 16},
+			"http.body.mmh3|gt":           1000.0,
+			"http.title|exists":           true,
+			"tls.cert.self_signed":        true,
+			"tls.jarm":                    nil,
+			"probe":                       "p",
+		},
+		"any": []any{
+			map[string]any{"http.title": ".5"},
+			map[string]any{"http.status_code": 64},
+		},
+		"keywords":  []any{"2.0", "text", nil},
+		"word":      64,
+		"condition": "sel",
+	}
+	if !reflect.DeepEqual(r.Detection, wantDetection) {
+		t.Errorf("detection:\n got %#v\nwant %#v", r.Detection, wantDetection)
+	}
+	wantResponse := map[string]any{
+		"http.title":           "1_000",
+		"http.status_code":     200,
+		"tls.cert.serial":      "0100",
+		"tls.cert.san":         []any{"1e3", "a"},
+		"http.body.mmh3":       16,
+		"tls.cert.self_signed": true,
+		"tls.jarm":             nil,
+	}
+	if got := r.Tests[0].Response; !reflect.DeepEqual(got, wantResponse) {
+		t.Errorf("response:\n got %#v\nwant %#v", got, wantResponse)
+	}
+	wantProbe := map[string]any{"http.body": "2.0", "http.status_code": 200}
+	if got := r.Tests[0].Probes["p"]; !reflect.DeepEqual(got, wantProbe) {
+		t.Errorf("probe response:\n got %#v\nwant %#v", got, wantProbe)
 	}
 }
 
@@ -107,6 +274,125 @@ func TestCheckSet(t *testing.T) {
 	}
 	if len(got["c.yml"]) != 1 || !strings.Contains(got["c.yml"][0].Msg, "family rule not found") {
 		t.Errorf("c.yml: %v", got["c.yml"])
+	}
+}
+
+const familyRule = `
+title: Fam family
+id: 11111111-1111-4111-8111-111111111111
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains:
+      - 'Fam Console'
+      - 'Fam Konsole'
+  condition: selection_title
+identifies: { family: fam, category: c2 }
+confidence: high
+`
+
+const variantRule = `
+title: Fam variant
+id: 22222222-2222-4222-8222-222222222222
+related:
+  - id: 11111111-1111-4111-8111-111111111111
+    type: variant-of
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains:
+      - 'Fam Console'
+      - 'Fam Konsole'
+  selection_brand:
+    http.title|startswith: 'Acme'
+  filter_icon:
+    http.favicon.mmh3: 1
+  condition: selection_title and selection_brand and not filter_icon
+identifies: { product: Acme, family: fam, category: c2 }
+confidence: high
+`
+
+// A variant-of rule must imply its family (spec section 8).
+func TestCheckSetVariantImpliesFamily(t *testing.T) {
+	const cond = "condition: selection_title and selection_brand and not filter_icon"
+	const famLink = "status: experimental"
+	const back = "related:\n  - id: 22222222-2222-4222-8222-222222222222\n    type: variant-of\nstatus: experimental"
+	for name, tt := range map[string]struct {
+		in, replace, with string // in: "variant" or "family"
+		severity          Severity
+		want              string // "" means no problem
+	}{
+		"implied":             {},
+		"subset of values":    {"variant", "      - 'Fam Konsole'\n", "", 0, ""},
+		"or after the family": {"variant", cond, "condition: selection_title and (selection_brand or filter_icon)", 0, ""},
+		"not 1 of":            {"variant", cond, "condition: selection_title and not 1 of filter_*", 0, ""},
+		"all of":              {"variant", cond, "condition: all of selection_*", 0, ""},
+		"missing selection":   {"variant", cond, "condition: selection_brand and not filter_icon", Error, `does not imply its family: no required selection repeats the family's "selection_title"`},
+		"negated selection":   {"variant", cond, "condition: selection_brand and not selection_title", Error, "does not imply its family"},
+		"changed value":       {"variant", "'Fam Konsole'", "'Fam Panel'", Error, "does not imply its family"},
+		"changed modifier":    {"variant", "http.title|contains", "http.title|endswith", Error, "does not imply its family"},
+		"other probe":         {"variant", "    http.title|contains", "    probe: page\n    http.title|contains", Error, "does not imply its family"},
+		"different family":    {"variant", "family: fam", "family: other", Error, `identifies.family "other" differs from the family rule's "fam"`},
+		"variant or":          {"variant", cond, "condition: selection_title or selection_brand", Warning, "could not check that this rule implies its family"},
+		"variant 1 of":        {"variant", cond, "condition: 1 of selection_*", Warning, "could not check"},
+		"family not":          {"family", "condition: selection_title", "condition: not selection_title", Warning, "could not check"},
+		"family or":           {"family", "condition: selection_title", "condition: selection_title or selection_title", Warning, "could not check"},
+		"itself":              {"variant", "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", Error, "variant of itself"},
+		"cycle":               {"family", famLink, back, Error, "cycle"},
+	} {
+		fsrc, vsrc := familyRule, variantRule
+		if tt.in == "family" {
+			fsrc = strings.Replace(fsrc, tt.replace, tt.with, 1)
+		} else {
+			vsrc = strings.Replace(vsrc, tt.replace, tt.with, 1)
+		}
+		f, err := Parse([]byte(fsrc), "family.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		v, err := Parse([]byte(vsrc), "variant.yml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := CheckSet([]*Rule{f, v})["variant.yml"]
+		switch {
+		case tt.want == "" && len(got) != 0:
+			t.Errorf("%s: unexpected problems: %v", name, got)
+		case tt.want != "" && (len(got) != 1 || got[0].Severity != tt.severity || !strings.Contains(got[0].Msg, tt.want)):
+			t.Errorf("%s: want one %s containing %q, got %v", name, tt.severity, tt.want, got)
+		}
+		// Implies looks at one link; the last two cases need the whole set.
+		if want := tt.want == ""; name != "itself" && name != "cycle" && Implies(v, f) != want {
+			t.Errorf("%s: Implies = %v, want %v", name, !want, want)
+		}
+	}
+}
+
+func TestSelectionImplies(t *testing.T) {
+	type m = map[string]any
+	type l = []any
+	for name, tt := range map[string]struct {
+		variant, family any
+		want            bool
+	}{
+		"more fields":            {m{"http.title": "a", "http.status_code": 200}, m{"http.title": "a"}, true},
+		"fewer fields":           {m{"http.title": "a"}, m{"http.title": "a", "http.status_code": 200}, false},
+		"number and string":      {m{"http.status_code": "200"}, m{"http.status_code": 200}, true},
+		"null and string":        {m{"http.title": nil}, m{"http.title": "<nil>"}, false},
+		"modifier order":         {m{"http.body|cased|contains": "a"}, m{"http.body|contains|cased": "a"}, true},
+		"all, more values":       {m{"http.body|contains|all": l{"a", "b", "c"}}, m{"http.body|contains|all": l{"a", "b"}}, true},
+		"all, fewer values":      {m{"http.body|contains|all": l{"a"}}, m{"http.body|contains|all": l{"a", "b"}}, false},
+		"one of the maps":        {m{"http.title": "a"}, l{m{"http.title": "a"}, m{"http.title": "b"}}, true},
+		"a map the family lacks": {l{m{"http.title": "a"}, m{"http.title": "c"}}, l{m{"http.title": "a"}, m{"http.title": "b"}}, false},
+		"fewer keywords":         {l{"a"}, l{"a", "b"}, true},
+		"another keyword":        {l{"a", "c"}, l{"a", "b"}, false},
+		"keyword and map":        {"a", m{"http.title|contains": "a"}, false},
+	} {
+		if got := selectionImplies(&Rule{}, tt.variant, &Rule{}, tt.family); got != tt.want {
+			t.Errorf("%s: got %v, want %v", name, got, tt.want)
+		}
 	}
 }
 

@@ -1,0 +1,70 @@
+title: Agentic Offensive Framework - ARTEX redirect page
+id: 19787559-0b38-4e7c-af07-72ab7e2b0d58
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b   # Agentic Offensive Framework - ARTEX family
+    type: similar
+  - id: 0536c409-98ed-4d1d-8e07-7c80b39a4f53   # Agentic Offensive Framework - ARTEX
+    type: similar
+status: experimental
+description: |
+  ARTEX deployments whose landing page is not the console but a short HTML
+  page that sends the browser on to it: the title is "artex" in lowercase,
+  and a meta refresh plus a location.replace() script point to
+  /function/tasks/, the console's task view. The console with the family
+  title is served there. The baseline probe requests / and follows no
+  redirects, so the family, ARTEX, stylesheet and LLM-driven console rules
+  see only this page and do not match; without this rule only the ARTEX
+  favicon rule finds such a host. Seen on one of 15 live ARTEX hosts on
+  2026-11-26. Linked as similar rather than variant-of because the page does
+  not carry the family title.
+author: Florian Roth
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [8787, 8443, 443, 80]   # most consoles listen on 8787 (Modat, 2026-11-25)
+detection:
+  selection_title:
+    http.title: 'artex'
+  selection_refresh:
+    http.body|contains: 'url=/function/tasks/'
+  condition: selection_title and selection_refresh
+identifies:
+  product: ARTEX
+  family: artex
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # The first test is a captured response (2026-11-26). The others are minimal samples.
+  - name: Redirect page, captured
+    expect: match
+    response:
+      http.status_code: 200
+      http.title: 'artex'
+      http.body: |
+        <!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>artex</title><meta http-equiv="refresh" content="0;url=/function/tasks/"/>
+        <script>location.replace("/function/tasks/")</script></head><body></body></html>
+  - name: Console itself (left to the family rules)
+    expect: no_match
+    response:
+      http.title: 'ARTEX — 自主渗透测试控制台'
+      http.body: '<title>ARTEX — 自主渗透测试控制台</title><a href="/function/tasks">'
+  - name: Unrelated site named Artex
+    expect: no_match
+    response:
+      http.title: 'Artex'
+      http.body: '<title>Artex</title><meta http-equiv="refresh" content="0;url=/shop/"/>'
+  - name: Other application redirecting to the same path
+    expect: no_match
+    response:
+      http.title: 'Loading'
+      http.body: '<title>Loading</title><meta http-equiv="refresh" content="0;url=/function/tasks/"/>'

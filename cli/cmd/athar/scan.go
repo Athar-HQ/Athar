@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -19,6 +20,9 @@ import (
 	"github.com/Athar-HQ/Athar/cli/internal/rule"
 	"github.com/Athar-HQ/Athar/cli/internal/scan"
 )
+
+// lookupHost resolves the hostnames among the targets; tests replace it.
+var lookupHost = net.DefaultResolver.LookupHost
 
 type listFlag []string
 
@@ -144,6 +148,7 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		Timeout:     *timeout,
 		Probes:      *probes,
 		UserAgent:   "Mozilla/5.0 (compatible; athar/" + versionString() + "; +https://github.com/Athar-HQ/Athar)",
+		Lookup:      lookupHost,
 	}
 	ce := color.For(stderr, *noColor)
 	if *verbose {
@@ -162,6 +167,13 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	targets, unresolved := s.Resolve(ctx, targets)
+	for _, w := range unresolved {
+		fmt.Fprintln(stderr, ce.Yellow("warning:"), w)
+	}
+	if len(targets) == 0 {
+		return fail("no target resolves; nothing scanned")
+	}
 	st := s.Run(ctx, targets, sink)
 
 	status := ""
@@ -213,7 +225,7 @@ func loadRules(paths []string) ([]*eval.Compiled, error) {
 		rules = append(rules, r)
 		compiled = append(compiled, c)
 	}
-	for path, problems := range rule.CheckSet(rules) {
+	for path, problems := range rule.CheckSet(rules, rule.Families(rules)...) {
 		for _, p := range problems {
 			if p.Severity == rule.Error {
 				return nil, fmt.Errorf("%s: %s", path, p.Msg)

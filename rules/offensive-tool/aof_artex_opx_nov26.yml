@@ -15,8 +15,11 @@ description: |
   Linked as similar rather than variant-of because the family rule does not
   match this title. Widening the family title instead would need a body
   condition, which Shodan cannot OR with the other titles.
+  Confidence is medium because the rule rests on a single console, found in
+  our own scan; no published hunt confirms the brand.
 author: Florian Roth
 date: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -38,7 +41,7 @@ identifies:
   product: OPX
   family: artex
   category: offensive-tool
-confidence: high
+confidence: medium
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
 tests:

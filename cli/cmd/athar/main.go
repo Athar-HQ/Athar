@@ -49,18 +49,23 @@ Run "athar <command> -h" for a command's flags.
 
 // parseFlags parses flags that may come before, between or after the
 // positional arguments, as Nmap allows, and returns the positional ones.
+// Everything after "--" is positional.
 func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 	var pos []string
 	for {
 		if err := fs.Parse(args); err != nil {
 			return nil, err
 		}
-		args = fs.Args()
-		if len(args) == 0 {
+		rest := fs.Args()
+		// Parse stops after "--" and before a positional argument.
+		if n := len(args) - len(rest); n > 0 && args[n-1] == "--" {
+			return append(pos, rest...), nil
+		}
+		if len(rest) == 0 {
 			return pos, nil
 		}
-		pos = append(pos, args[0])
-		args = args[1:]
+		pos = append(pos, rest[0])
+		args = rest[1:]
 	}
 }
 

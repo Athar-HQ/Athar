@@ -14,7 +14,10 @@ references:
   - https://magnify.modat.io/search?query=same_service(protocol%3D%22http%22+transport%3D%22tcp%22+http.headers%3D%22Www-Authenticate%3A+Basic+realm%3D%5C%22ARTEX%5C%22%2C+charset%3D%5C%22UTF-8%5C%22%22)&page=1&page_size=10&level=hosts
 author: Florian Roth
 date: 2026-11-25
+modified: 2026-11-26
 tags:
+  - attack.resource_development
+  - attack.t1588.002
   - category.offensive-tool
   - aof
 target:
