@@ -643,7 +643,7 @@ func TestHostileValuesStayQuoted(t *testing.T) {
 	}
 	fields := []string{
 		"", "http.title", "http.body", "http.headers_raw", "http.headers.x-test", "http.headers.server",
-		"tls.cert.subject.cn", "tls.cert.issuer.cn", "service.banner",
+		"tls.cert.subject.cn", "tls.cert.issuer.cn", "tls.cert.subject.o", "tls.cert.san", "service.banner",
 	}
 	mods := []string{"", "|contains", "|startswith", "|endswith", "|cased", "|contains|cased", "|startswith|cased", "|endswith|cased"}
 	converted := map[string]int{}
@@ -698,7 +698,7 @@ func TestHostileValuesStayQuoted(t *testing.T) {
 	}
 	for _, re := range regexes {
 		y, _ := json.Marshal(re[0])
-		for _, field := range []string{"http.title", "http.headers.x-test", "tls.cert.subject.cn", "service.banner"} {
+		for _, field := range []string{"http.title", "http.headers.x-test", "tls.cert.subject.cn", "tls.cert.issuer.o", "tls.cert.san", "service.banner"} {
 			for _, mod := range []string{"|re", "|re|cased"} {
 				r := ruleFrom(t, "sel:\n  "+field+mod+": "+string(y)+"\ncondition: sel\n")
 				for _, engine := range Engines {
@@ -991,6 +991,9 @@ var appendixRows = map[string]string{
 	"`http.body.sha256`":    "http.body.sha256: " + strings.Repeat("ab", 32),
 	"`tls.cert.subject.cn`": "tls.cert.subject.cn: x",
 	"`tls.cert.issuer.cn`":  "tls.cert.issuer.cn: x",
+	"`tls.cert.subject.o`":  "tls.cert.subject.o: x",
+	"`tls.cert.issuer.o`":   "tls.cert.issuer.o: x",
+	"`tls.cert.san`":        "tls.cert.san: x",
 	"`tls.cert.sha256`":     "tls.cert.sha256: " + strings.Repeat("ab", 32),
 	"`tls.jarm`":            "tls.jarm: " + strings.Repeat("ab", 31),
 	"`tls.ja3s`":            "tls.ja3s: " + strings.Repeat("ab", 16),
@@ -1188,4 +1191,99 @@ func TestNegatedLooseFields(t *testing.T) {
 		"zoomeye": {`title="Console"`, Superset},
 		"shodan":  {`http.title:"Console"`, Superset},
 	})
+}
+
+// Certificate organisations and SAN names, on the engines that document a
+// field for them. Censys and FOFA fields are unverified, so never exact.
+func TestCertOrgAndSAN(t *testing.T) {
+	none := want{"", Unsupported}
+	check(t, ruleFrom(t, "sel:\n  tls.cert.subject.o: 'Cairn Platform'\ncondition: sel\n"), map[string]want{
+		"fofa":    {`cert.subject.org=="Cairn Platform"`, Approximate},
+		"censys":  {`host.services: (cert.parsed.subject.organization = "Cairn Platform")`, Approximate},
+		"modat":   {`tls.subject.organization="Cairn Platform"`, Exact},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.subject.organization == 'Cairn Platform')`, Approximate},
+		"shodan":  none,
+		"zoomeye": none,
+		"urlscan": none,
+	})
+	check(t, ruleFrom(t, "sel:\n  tls.cert.issuer.o|contains: 'PentAGI'\ncondition: sel\n"), map[string]want{
+		"fofa":    {`cert.issuer.org="PentAGI"`, Approximate},
+		"censys":  {`host.services: (cert.parsed.issuer.organization: "PentAGI")`, Approximate},
+		"modat":   {`tls.issuer.organization~"PentAGI"`, Exact},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.issuer.organization LIKE '%PentAGI%')`, Approximate},
+		"shodan":  none,
+		"zoomeye": none,
+		"urlscan": none,
+	})
+	check(t, ruleFrom(t, "sel:\n  tls.cert.san: 'pentagi.local'\ncondition: sel\n"), map[string]want{
+		"censys":  {`host.services: (cert.parsed.extensions.subject_alt_name.dns_names = "pentagi.local")`, Approximate},
+		"modat":   {`tls.extensions.subject_alt_name.dns="pentagi.local"`, Exact},
+		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names == 'pentagi.local')`, Approximate},
+		"fofa":    none,
+		"shodan":  none,
+		"zoomeye": none,
+		"urlscan": none,
+	})
+
+	for _, c := range []struct {
+		detection string
+		engine    string
+		want      want
+		note      string // part of a note the query must carry
+	}{
+		// Modat: organisations are substring fields with regex but no
+		// wildcards; SAN names are searched with = only.
+		{"tls.cert.subject.o|cased: 'Cairn Platform'", "modat", want{`tls.subject.organization=="Cairn Platform"`, Exact}, ""},
+		{"tls.cert.subject.o|startswith: 'Cairn'", "modat", want{`tls.subject.organization=~"^Cairn"`, Exact}, ""},
+		{"tls.cert.subject.o: 'Cairn*'", "modat", none, "wildcards only on"},
+		{"tls.cert.subject.o: 'Cairn*'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.subject.organization LIKE 'Cairn%')`, Approximate}, ""},
+		{"tls.cert.san|endswith: '.nip.io'", "modat", none, "only supports equality"},
+		{"tls.cert.san|cased: 'pentagi.local'", "modat", want{`tls.extensions.subject_alt_name.dns="pentagi.local"`, Approximate}, "without regard to case"},
+		// Engines index the DNS names of the SAN, not its IP addresses.
+		{"tls.cert.san: '192.0.2.10'", "modat", want{`tls.extensions.subject_alt_name.dns="192.0.2.10"`, Approximate}, "only the DNS names"},
+		{"tls.cert.san|cased: 'pentagi.local'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names == 'pentagi.local')`, Exact}, ""},
+		{"tls.cert.san|endswith|cased: '.nip.io'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names LIKE '%.nip.io')`, Exact}, ""},
+		{"tls.cert.san|contains|cased: '10.0'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names LIKE '%10.0%')`, Approximate}, "only the DNS names"},
+		{"tls.cert.san|re: '^antifox\\..+\\.nip\\.io$'", "censys", want{`host.services: (cert.parsed.extensions.subject_alt_name.dns_names =~ "^antifox\\..+\\.nip\\.io$")`, Approximate}, "only the DNS names"},
+	} {
+		r := ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n")
+		check(t, r, map[string]want{c.engine: c.want})
+		res, _ := Convert(r, c.engine)
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, c.note) {
+			t.Errorf("%s on %s: notes %v lack %q", c.detection, c.engine, res.Notes, c.note)
+		}
+	}
+
+	// A narrower field only excludes less under not, so the filter stays.
+	r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  tls.cert.san: '127.0.0.1'\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"modat": {`http.title~"Console" and not tls.extensions.subject_alt_name.dns="127.0.0.1"`, Approximate},
+	})
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  tls.cert.san: 'localhost'\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"modat": {`http.title~"Console" and not tls.extensions.subject_alt_name.dns="localhost"`, Exact},
+	})
+}
+
+func TestIPLike(t *testing.T) {
+	for _, c := range []struct {
+		op, value string
+		wild      bool
+		want      bool
+	}{
+		{"eq", "192.0.2.10", false, true},
+		{"eq", "2001:DB8::1", false, true},
+		{"eq", "pentagi.local", false, false},
+		{"eq", "1.2.3", false, false},
+		{"contains", "10.0", false, true},
+		{"contains", "cafe:", false, true},
+		{"endswith", ".nip.io", false, false},
+		{"eq", "192.0.2.*", true, true},
+		{"eq", "*.nip.io", true, false},
+		{"re", "^antifox", false, true},
+	} {
+		if got := ipLike(term{op: c.op, value: c.value, wild: c.wild}); got != c.want {
+			t.Errorf("ipLike(%s %q) = %v, want %v", c.op, c.value, got, c.want)
+		}
+	}
 }
