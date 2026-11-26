@@ -124,7 +124,8 @@ func (p *Prober) baseline(ctx context.Context, svc *Service, conn net.Conn) {
 
 	// 2. TLS on the same, still unused connection, whatever the rules need.
 	{
-		tc := tls.Client(conn, p.tlsConfig(svc.Host))
+		sc := &sniffConn{Conn: conn}
+		tc := tls.Client(sc, p.tlsConfig(svc.Host))
 		tc.SetDeadline(time.Now().Add(p.Timeout))
 		if err := tc.HandshakeContext(ctx); err == nil {
 			svc.TLS = true
@@ -145,6 +146,23 @@ func (p *Prober) baseline(ctx context.Context, svc *Service, conn net.Conn) {
 		// A failed handshake leaves the connection unusable.
 		conn.Close()
 		conn = nil
+		// A peer that answered in TLS is a TLS service, though crypto/tls
+		// refused its certificate or parameters. Plaintext HTTP would only
+		// get an error page from it, so the probe ends here, with what the
+		// certificate shows if it was sent in the clear.
+		if ok, leaf := sniffTLS(sc.buf); ok {
+			svc.TLS = true
+			if leaf == nil {
+				leaf = p.leafTLS12(ctx, svc)
+			}
+			if c, err := x509.ParseCertificate(leaf); err == nil {
+				certFields(f, c)
+			} else if leaf != nil {
+				f["tls.cert.sha256"] = sha256Hex(leaf)
+				f["tls.cert.sha1"] = sha1Hex(leaf)
+			}
+			return
+		}
 	}
 
 	// 3. Plaintext HTTP.
@@ -368,7 +386,10 @@ func tlsFields(f eval.Fields, st tls.ConnectionState) {
 	if len(st.PeerCertificates) == 0 {
 		return
 	}
-	c := st.PeerCertificates[0]
+	certFields(f, st.PeerCertificates[0])
+}
+
+func certFields(f eval.Fields, c *x509.Certificate) {
 	setString(f, "tls.cert.subject.cn", c.Subject.CommonName)
 	setList(f, "tls.cert.subject.o", c.Subject.Organization)
 	setString(f, "tls.cert.subject.dn", c.Subject.String())

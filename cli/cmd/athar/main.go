@@ -1,3 +1,8 @@
+// athar scan reads certificates to fingerprint them, not to trust them, so
+// it also takes the negative serial numbers of sloppy self-signed ones.
+//
+//go:debug x509negativeserial=1
+
 // Command athar verifies, converts and evaluates Athar service fingerprint
 // rules, and scans live services for them.
 package main
