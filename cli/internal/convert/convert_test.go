@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -396,4 +397,134 @@ condition: sel and not 1 of filter_*
 		"fofa":   {`title="Console" && title!="ARTEX"`, Exact},
 		"shodan": {`http.title:"Console" -http.title:"ARTEX"`, Approximate},
 	})
+}
+
+const unverifiedNote = "is not verified against the"
+
+// Fields marked † in spec Appendix A are not checked against the engine's
+// documentation. A query that uses one is approximate at best and says so.
+func TestUnverifiedFields(t *testing.T) {
+	cases := []struct {
+		engine, detection, query string
+	}{
+		{"fofa", `http.headers.server|contains: nginx`, `server="nginx"`},
+		{"fofa", `http.status_code: 200`, `status_code="200"`},
+		{"fofa", `tls.cert.issuer.cn|contains: 'PentAGI CA'`, `cert.issuer.cn="PentAGI CA"`},
+		{"shodan", `http.body.mmh3: 123`, `http.html_hash:123`},
+		{"censys", `http.status_code: 200`, `host.services: (endpoints.http.status_code = "200")`},
+		{"censys", `tls.cert.subject.cn|cased: Cairn`, `host.services: (cert.parsed.subject.common_name = "Cairn")`},
+		{"censys", `tls.cert.issuer.cn|cased: 'PentAGI CA'`, `host.services: (cert.parsed.issuer.common_name = "PentAGI CA")`},
+		{"modat", `http.body.mmh3: 123`, `http.body_mmh3=123`},
+	}
+	for _, c := range cases {
+		r := ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n")
+		check(t, r, map[string]want{c.engine: {c.query, Approximate}})
+		res, _ := Convert(r, c.engine)
+		if !strings.Contains(strings.Join(res.Notes, " "), unverifiedNote+" "+c.engine+" docs") {
+			t.Errorf("%s %s: no note that the field is unverified: %v", c.engine, c.detection, res.Notes)
+		}
+	}
+
+	// Fields whose meaning on the engine is not recorded are not converted:
+	// FOFA's body_hash (algorithm undocumented, docs/decisions.md), Shodan's
+	// ssl.cert.fingerprint (hash not recorded), Censys headers and keywords.
+	dropped := []struct{ engine, detection string }{
+		{"fofa", "http.body.mmh3: 123"},
+		{"shodan", "tls.cert.sha256: " + strings.Repeat("ab", 32)},
+		{"censys", "http.headers.server|contains: nginx"},
+		{"censys", "- ARTEX"},
+	}
+	for _, c := range dropped {
+		r := ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n")
+		check(t, r, map[string]want{c.engine: {"", Unsupported}})
+	}
+}
+
+// appendixRows gives a condition for every row of spec Appendix A.
+var appendixRows = map[string]string{
+	"`http.title`":          "http.title: x",
+	"`http.body`":           "http.body: x",
+	"`http.headers.server`": "http.headers.server: x",
+	"other headers":         "http.headers.x-athar: x",
+	"`http.status_code`":    "http.status_code: 200",
+	"`http.favicon.mmh3`":   "http.favicon.mmh3: 123",
+	"`http.favicon.md5`":    "http.favicon.md5: " + strings.Repeat("ab", 16),
+	"`http.favicon.sha256`": "http.favicon.sha256: " + strings.Repeat("ab", 32),
+	"`http.body.mmh3`":      "http.body.mmh3: 123",
+	"`http.body.sha256`":    "http.body.sha256: " + strings.Repeat("ab", 32),
+	"`tls.cert.subject.cn`": "tls.cert.subject.cn: x",
+	"`tls.cert.issuer.cn`":  "tls.cert.issuer.cn: x",
+	"`tls.cert.sha256`":     "tls.cert.sha256: " + strings.Repeat("ab", 32),
+	"`tls.jarm`":            "tls.jarm: " + strings.Repeat("ab", 31),
+	"`tls.ja3s`":            "tls.ja3s: " + strings.Repeat("ab", 16),
+	"`service.banner`":      "service.banner: x",
+	"`service.port`":        "service.port: 443",
+	"`keywords`":            "- x",
+}
+
+// Spec Appendix A and the backends agree. A cell that starts with a dash or
+// says "not converted" is a field no query uses; a cell marked † is a field
+// the query uses with the unverified note and never as exact; every other
+// cell is a field the query uses without that note.
+func TestAppendixAMatchesBackends(t *testing.T) {
+	spec, err := os.ReadFile("../../../spec/athar-spec.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, table, ok := strings.Cut(string(spec), "## Appendix A: Engine field mapping")
+	if !ok {
+		t.Fatal("spec has no Appendix A")
+	}
+	seen := map[string]bool{}   // rows found in the table
+	marked := map[string]bool{} // engine and field of the † cells
+	for _, line := range strings.Split(table, "\n") {
+		cells := strings.Split(strings.Trim(line, "| "), " | ")
+		detection, ok := appendixRows[cells[0]]
+		if !ok {
+			continue
+		}
+		if len(cells) != len(Engines)+1 {
+			t.Fatalf("row %s has %d engine cells, want %d", cells[0], len(cells)-1, len(Engines))
+		}
+		seen[cells[0]] = true
+		r := ruleFrom(t, "sel:\n  "+detection+"\ncondition: sel\n")
+		for i, engine := range Engines {
+			cell := cells[i+1]
+			res, err := Convert(r, engine)
+			if err != nil {
+				t.Fatal(err)
+			}
+			noted := strings.Contains(strings.Join(res.Notes, " "), unverifiedNote)
+			unverified := strings.Contains(cell, "†")
+			switch {
+			case strings.HasPrefix(cell, "—") || strings.Contains(cell, "not converted"):
+				if res.Query != "" {
+					t.Errorf("%s on %s: Appendix A says %q, but convert writes %s", cells[0], engine, cell, res.Query)
+				}
+				continue
+			case res.Query == "":
+				t.Errorf("%s on %s: Appendix A says %q, but convert writes no query: %v", cells[0], engine, cell, res.Notes)
+			case unverified && (!noted || res.Fidelity == Exact):
+				t.Errorf("%s on %s: Appendix A marks %q with †, but convert gives [%s] %s, notes %v", cells[0], engine, cell, res.Fidelity, res.Query, res.Notes)
+			case !unverified && noted:
+				t.Errorf("%s on %s: convert calls the field unverified, but Appendix A has no † on %q", cells[0], engine, cell)
+			}
+			if unverified {
+				marked[engine+" "+strings.Trim(cells[0], "`")] = true
+			}
+		}
+	}
+	for row := range appendixRows {
+		if !seen[row] {
+			t.Errorf("Appendix A has no row %s", row)
+		}
+	}
+	// Every field a backend marks as unverified has a † cell.
+	for engine, fields := range fieldTables {
+		for field, spec := range fields {
+			if spec.unverified && !marked[engine+" "+field] {
+				t.Errorf("%s: %s is unverified in backends.go but has no † cell in Appendix A", engine, field)
+			}
+		}
+	}
 }
