@@ -220,6 +220,9 @@ func nmapBin(t *testing.T) string {
 	t.Helper()
 	bin, err := exec.LookPath("nmap")
 	if err != nil {
+		if os.Getenv("ATHAR_REQUIRE_SCANNERS") != "" {
+			t.Fatal("nmap not installed, but ATHAR_REQUIRE_SCANNERS is set")
+		}
 		t.Skip("nmap not installed")
 	}
 	if testing.Short() {

@@ -133,7 +133,7 @@ func (c *Compiled) FieldsUsed() map[string][]string {
 // Eval evaluates the rule against the responses of one service.
 func (c *Compiled) Eval(resp Responses) Result {
 	truth := make(map[string]bool, len(c.selections))
-	var res Result
+	res := Result{Matched: []string{}} // never nil: JSON output needs [], not null
 	for name, s := range c.selections {
 		if s.match(resp) {
 			truth[name] = true
