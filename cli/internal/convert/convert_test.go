@@ -397,3 +397,67 @@ condition: sel and not 1 of filter_*
 		"shodan": {`http.title:"Console" -http.title:"ARTEX"`, Approximate},
 	})
 }
+
+// target.tls is not part of an engine query, so the query also returns
+// services the rule can't match: an exact result becomes a superset, and
+// every result says so. A positive certificate condition already limits the
+// query to TLS services.
+func TestTargetTLS(t *testing.T) {
+	const required = "target.tls: required is not part of the query; it also returns plaintext services"
+	const none = "target.tls: none is not part of the query; it also returns TLS services"
+	title := "selection:\n  http.title: 'Console'\ncondition: selection\n"
+	cert := "selection:\n  tls.cert.subject.cn: 'acme'\ncondition: selection\n"
+	for _, c := range []struct {
+		name, detection, tls, engine, query string
+		fid                                 Fidelity
+		note                                string
+	}{
+		{"auto", title, "auto", "fofa", `title=="Console"`, Exact, ""},
+		{"required", title, "required", "fofa", `title=="Console"`, Superset, required},
+		{"none", title, "none", "fofa", `title=="Console"`, Superset, none},
+		{"required, zoomeye", title, "required", "zoomeye", `title=="Console"`, Approximate, required},
+		{"required, modat", title, "required", "modat", `http.title="Console"`, Superset, required},
+		{"required, already approximate", title, "required", "shodan", `http.title:"Console"`, Approximate, required},
+		{"none, already approximate", title, "none", "censys", `host.services: (endpoints.http.html_title = "Console")`, Approximate, none},
+		{"required, urlscan", title, "required", "urlscan", `page.title.keyword:"console"`, Superset, required},
+		{"required, already superset", "selection:\n  http.title: 'Console'\n  service.banner|contains: 'x-y'\ncondition: selection\n",
+			"required", "urlscan", `page.title.keyword:"console"`, Superset, required},
+		{"required, certificate", cert, "required", "fofa", `cert.subject.cn=="acme"`, Exact, ""},
+		{"none, certificate", cert, "none", "fofa", `cert.subject.cn=="acme"`, Superset, none},
+		{"required, title and certificate", "selection:\n  http.title: 'Console'\n  tls.cert.subject.cn: 'acme'\ncondition: selection\n",
+			"required", "fofa", `title=="Console" && cert.subject.cn=="acme"`, Exact, ""},
+		{"required, title or certificate", "a:\n  http.title: 'Console'\nb:\n  tls.cert.subject.cn: 'acme'\ncondition: a or b\n",
+			"required", "fofa", `title=="Console" || cert.subject.cn=="acme"`, Superset, required},
+		{"required, certificate names", "selection:\n  tls.cert.subject.cn|contains: ['acme', 'panel']\ncondition: selection\n",
+			"required", "shodan", `ssl.cert.subject.cn:"acme","panel"`, Approximate, ""},
+		{"required, negated certificate", "a:\n  http.title: 'Console'\nb:\n  tls.cert.subject.cn|contains: 'acme'\ncondition: a and not b\n",
+			"required", "fofa", `title=="Console" && cert.subject.cn!="acme"`, Superset, required},
+	} {
+		r := ruleFrom(t, c.detection)
+		r.Target.TLS = c.tls
+		res, err := Convert(r, c.engine)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if res.Query != c.query || res.Fidelity != c.fid {
+			t.Errorf("%s:\n got  [%s] %s\nwant [%s] %s\nnotes: %v", c.name, res.Fidelity, res.Query, c.fid, c.query, res.Notes)
+		}
+		noted := false
+		for _, n := range res.Notes {
+			noted = noted || strings.HasPrefix(n, "target.tls")
+			if strings.HasPrefix(n, "target.tls") && n != c.note {
+				t.Errorf("%s: note %q, want %q", c.name, n, c.note)
+			}
+		}
+		if noted != (c.note != "") {
+			t.Errorf("%s: notes %q, want %q", c.name, res.Notes, c.note)
+		}
+	}
+
+	// Nothing to qualify when there is no query.
+	r := ruleFrom(t, "selection:\n  service.banner|re: '^x'\ncondition: selection\n")
+	r.Target.TLS = "required"
+	if res, _ := Convert(r, "shodan"); res.Fidelity != Unsupported || strings.Contains(strings.Join(res.Notes, " "), "target.tls") {
+		t.Errorf("unsupported: [%s] %v", res.Fidelity, res.Notes)
+	}
+}

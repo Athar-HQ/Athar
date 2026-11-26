@@ -829,6 +829,11 @@ func convertNuclei(r *rule.Rule) (Result, error) {
 	}
 	multi := len(reqs) > 1
 	httpBlock := len(reqs) > 0
+	if !httpBlock && r.Target.TLS == "none" {
+		res.Fidelity = Unsupported
+		res.Notes = append(res.Notes, "target.tls is none, but the rule only reads the certificate, which nuclei gets over TLS")
+		return res, nil
+	}
 	index := map[string]int{}
 	for i, q := range reqs {
 		index[q.probe] = i + 1
@@ -873,6 +878,14 @@ func convertNuclei(r *rule.Rule) (Result, error) {
 	})
 	if multi {
 		expr = "status_code_" + strconv.Itoa(len(reqs)) + " > 0 && (" + expr + ")"
+	}
+	// target.tls: the matcher only holds for the scheme the request used. An
+	// ssl block on its own matches only over TLS and needs no guard.
+	if scheme := map[string]string{"required": "https", "none": "http"}[r.Target.TLS]; scheme != "" && httpBlock {
+		if !multi {
+			expr = "(" + expr + ")"
+		}
+		expr = "Scheme == " + dslQuote(scheme) + " && " + expr
 	}
 
 	t := nucleiTemplate{ID: NucleiID(r), Info: nucleiInfoFor(r, len(reqs), httpBlock)}
