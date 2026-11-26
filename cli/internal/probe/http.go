@@ -191,17 +191,12 @@ func (r *httpResponse) fields(f eval.Fields) {
 	f["service.protocol"] = "http"
 	f["http.status_code"] = r.status
 	f["http.headers_raw"] = string(r.headerRaw)
-	for name, values := range r.header {
-		key := "http.headers." + strings.ToLower(name)
+	for key, values := range rawHeaders(r.headerRaw) {
 		if len(values) == 1 {
 			f[key] = values[0]
 			continue
 		}
-		list := make([]any, len(values))
-		for i, v := range values {
-			list[i] = v
-		}
-		f[key] = list
+		f[key] = values
 	}
 	f["http.body"] = string(r.body)
 	if r.complete {
@@ -211,6 +206,36 @@ func (r *httpResponse) fields(f eval.Fields) {
 	if t, ok := title(r.body); ok {
 		f["http.title"] = t
 	}
+}
+
+// rawHeaders returns the values of every header in a raw header block, in
+// order, keyed by field name (http.headers.<lowercase name>). net/http's own
+// header map is not used: it drops Transfer-Encoding, Trailer and
+// "Connection: close", merges repeated Content-Length headers and adds a
+// Cache-Control to "Pragma: no-cache". Lines are read as net/http reads them:
+// spaces and tabs around a value are removed, and a folded line is joined to
+// the one before with a single space. The block has passed http.ReadResponse,
+// so every header line has a name and a colon.
+func rawHeaders(raw []byte) map[string][]any {
+	var kvs []string
+	for _, line := range strings.Split(string(raw), "\n")[1:] { // [0] is the status line
+		line = strings.TrimSuffix(line, "\r")
+		if line == "" {
+			break
+		}
+		if (line[0] == ' ' || line[0] == '\t') && len(kvs) > 0 {
+			kvs[len(kvs)-1] += " " + strings.Trim(line, " \t")
+			continue
+		}
+		kvs = append(kvs, strings.Trim(line, " \t"))
+	}
+	headers := map[string][]any{}
+	for _, kv := range kvs {
+		name, value, _ := strings.Cut(kv, ":")
+		key := "http.headers." + strings.ToLower(name)
+		headers[key] = append(headers[key], strings.TrimLeft(value, " \t"))
+	}
+	return headers
 }
 
 var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
@@ -259,7 +284,8 @@ func faviconRef(body []byte) string {
 // faviconSource resolves a favicon reference. It returns either inline icon
 // bytes (data: URI) or a request path on the same service. References to
 // other hosts fall back to /favicon.ico, because the scanner only talks to
-// the target.
+// the target. So do references without a path, such as "#" or "?v=2": they
+// point at the page itself, which is not an icon.
 func faviconSource(ref, host string, port int) (path string, inline []byte) {
 	if ref == "" {
 		return "/favicon.ico", nil
@@ -271,7 +297,7 @@ func faviconSource(ref, host string, port int) (path string, inline []byte) {
 		return "/favicon.ico", nil
 	}
 	u, err := url.Parse(ref)
-	if err != nil {
+	if err != nil || u.Path == "" {
 		return "/favicon.ico", nil
 	}
 	if u.Host != "" {

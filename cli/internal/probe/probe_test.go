@@ -85,6 +85,14 @@ func TestParseTarget(t *testing.T) {
 		{"example.org", "example.org||0"},
 		{"example.org.", "example.org||0"},
 		{"example.org:8080", "example.org||8080"},
+		{"[::1]:80", "::1||80"},
+		{"host-1.internal", "host-1.internal||0"},
+		{"a.b.c.10gen.com", "a.b.c.10gen.com||0"},
+		{"10gen.com:80", "10gen.com||80"},
+		{"1.example.org", "1.example.org||0"},
+		{"0x10.example", "0x10.example||0"},
+		{"bücher.example", "bücher.example||0"},
+		{"xn--bcher-kva.example", "xn--bcher-kva.example||0"},
 	} {
 		tg, err := ParseTarget(tt.in)
 		if err != nil {
@@ -102,6 +110,59 @@ func TestParseTarget(t *testing.T) {
 	for _, bad := range []string{"", "http://example.org", "10.0.0.0/8", "10.0.0.0/33", "host:0", "host:http", "a b"} {
 		if _, err := ParseTarget(bad); err == nil {
 			t.Errorf("ParseTarget(%q): want error", bad)
+		}
+	}
+	// Numbers that are not IP addresses are not hostnames either: system
+	// resolvers read them as addresses, so 10.0.1 would scan 10.0.0.1.
+	for _, bad := range []string{
+		"10.0.1", "127.1", "2130706433", "0x7f.0.0.1", "0x7f000001", "0X7F000001", "1.2.3.0x4",
+		"1.2.3.4.5", "256.1.1.1", "127.1.", "1..2", ".", "host.123", "host.0x1f",
+		"10.0.1:80", "0x7f.0.0.1:80", "[127.1]:80", "2130706433:443",
+	} {
+		if tg, err := ParseTarget(bad); err == nil {
+			t.Errorf("ParseTarget(%q) = %+v, want error", bad, tg)
+		}
+	}
+}
+
+// Repeated and overlapping targets are checked once.
+func TestDedup(t *testing.T) {
+	ports := []int{80, 443}
+	for _, tt := range []struct {
+		in, want string
+	}{
+		{"1.2.3.4 1.2.3.4", "1.2.3.4"},
+		{"1.2.3.4 ::ffff:1.2.3.4 2001:db8::1 2001:DB8:0::1", "1.2.3.4 2001:db8::1"},
+		{"h.example H.Example h.example. other.example", "h.example other.example"},
+		{"10.0.0.5 10.0.0.0/30 10.0.0.1 10.0.0.2/32 10.0.0.9", "10.0.0.5 10.0.0.0/30 10.0.0.9"},
+		{"10.0.0.0/25 10.0.0.0/24 10.0.0.0/24 10.0.0.128/26 10.0.1.0/24", "10.0.0.0/24 10.0.1.0/24"},
+		{"2001:db8::/126 2001:db8::2 2001:db8::4", "2001:db8::/126 2001:db8::4"},
+		{"1.2.3.4:8080 1.2.3.4:8080 h.example:8080 H.example:8080", "1.2.3.4:8080 h.example:8080"},
+		// A host:port whose host is scanned on that port anyway.
+		{"1.2.3.4:80 1.2.3.4 1.2.3.4:8080", "1.2.3.4 1.2.3.4:8080"},
+		{"10.0.0.7:443 10.0.0.7:22 10.0.0.0/24 h.example:80 h.example", "10.0.0.7:22 10.0.0.0/24 h.example"},
+	} {
+		var targets []Target
+		for _, s := range strings.Fields(tt.in) {
+			tg, err := ParseTarget(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			targets = append(targets, tg)
+		}
+		var got []string
+		for _, tg := range Dedup(targets, ports) {
+			switch {
+			case tg.Prefix.IsValid():
+				got = append(got, tg.Prefix.String())
+			case tg.Port != 0:
+				got = append(got, net.JoinHostPort(tg.Host, strconv.Itoa(tg.Port)))
+			default:
+				got = append(got, tg.Host)
+			}
+		}
+		if g := strings.Join(got, " "); g != tt.want {
+			t.Errorf("Dedup(%s):\n got %s\nwant %s", tt.in, g, tt.want)
 		}
 	}
 }
@@ -289,7 +350,7 @@ func TestProbeHTTP(t *testing.T) {
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
 
-	p := testProber(Needs{TLS: true, HTTP: true, Favicon: true})
+	p := testProber(Needs{HTTP: true, Favicon: true})
 	svc := p.Probe(context.Background(), host, port)
 	if svc == nil {
 		t.Fatal("port reported closed")
@@ -329,7 +390,7 @@ func TestProbeTLS(t *testing.T) {
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
 
-	svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || !svc.TLS {
 		t.Fatalf("expected a TLS service, got %+v", svc)
 	}
@@ -350,6 +411,33 @@ func TestProbeTLS(t *testing.T) {
 	}
 	if _, ok := f["http.favicon.mmh3"]; ok {
 		t.Error("favicon fetched although not needed")
+	}
+}
+
+// Whether a service speaks TLS is found out whatever the rules need:
+// target.tls can't be honoured without it, and a plaintext request to a TLS
+// server gets a "400 Bad Request" that rules would match. No ALPN protocol
+// is offered, so tls.alpn is never set.
+func TestProbeAlwaysDetectsTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(panelHandler())
+	defer srv.Close()
+	host, port := hostPort(t, srv.URL)
+
+	for _, needs := range []Needs{{}, {HTTP: true}, {Banner: true, HTTP: true}} {
+		svc := testProber(needs).Probe(context.Background(), host, port)
+		if svc == nil || !svc.TLS {
+			t.Fatalf("needs %+v: expected a TLS service, got %+v", needs, svc)
+		}
+		f := svc.Fields
+		if f["tls.cert.subject.o"] != "Acme Co" || f["tls.version"] == nil || f["tls.cipher"] == nil {
+			t.Errorf("needs %+v: TLS fields = %#v", needs, f)
+		}
+		if needs.HTTP && f["http.status_code"] != 200 {
+			t.Errorf("needs %+v: http.status_code = %#v", needs, f["http.status_code"])
+		}
+		if v, ok := f["tls.alpn"]; ok {
+			t.Errorf("needs %+v: tls.alpn = %#v, but no protocol was offered", needs, v)
+		}
 	}
 }
 
@@ -379,7 +467,7 @@ func TestProbeBanner(t *testing.T) {
 		c.Write([]byte("SSH-2.0-OpenSSH_9.6\r\n"))
 		time.Sleep(500 * time.Millisecond)
 	})
-	svc := testProber(Needs{Banner: true, TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{Banner: true, HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil {
 		t.Fatal("port reported closed")
 	}
@@ -400,7 +488,7 @@ func TestProbeHTTPWithBannerWait(t *testing.T) {
 	srv := httptest.NewServer(panelHandler())
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
-	svc := testProber(Needs{Banner: true, TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{Banner: true, HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || svc.Fields["http.status_code"] != 200 {
 		t.Fatalf("got %+v", svc)
 	}
@@ -413,7 +501,7 @@ func TestProbeClosed(t *testing.T) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
-	if svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), "127.0.0.1", port); svc != nil {
+	if svc := testProber(Needs{HTTP: true}).Probe(context.Background(), "127.0.0.1", port); svc != nil {
 		t.Errorf("closed port reported open: %+v", svc)
 	}
 }
@@ -895,6 +983,146 @@ func TestInterimResponses(t *testing.T) {
 			}
 			if v, ok := f["http.headers.link"]; ok {
 				t.Errorf("http.headers.link = %v, a header of the interim response", v)
+			}
+		})
+	}
+}
+
+// rawPages answers each request with the page for its target, written
+// exactly as given, and records the targets.
+func rawPages(t *testing.T, pages map[string]string) (string, int, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	host, port := listen(t, func(c net.Conn) {
+		c.SetDeadline(time.Now().Add(2 * time.Second))
+		req, err := http.ReadRequest(bufio.NewReader(c))
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		seen = append(seen, req.RequestURI)
+		mu.Unlock()
+		page, ok := pages[req.RequestURI]
+		if !ok {
+			page = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+		}
+		c.Write([]byte(page))
+	})
+	return host, port, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+}
+
+func rawPage(body string) string {
+	return "HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(len(body)) + "\r\n\r\n" + body
+}
+
+// A favicon link without a path of its own points at the page itself. The
+// scanner must not hash the page as the icon; it asks for /favicon.ico.
+func TestFaviconLinkWithoutPath(t *testing.T) {
+	for _, tt := range []struct {
+		href, want string
+	}{
+		{"#", "/favicon.ico"},
+		{"", "/favicon.ico"},
+		{"?v=2", "/favicon.ico"},
+		{"#x", "/favicon.ico"},
+		{"javascript:void(0)", "/favicon.ico"},
+		{"/favicon.ico?v=2", "/favicon.ico?v=2"},
+		{"img/fav.ico?v=2#x", "/img/fav.ico?v=2"},
+	} {
+		t.Run(tt.href, func(t *testing.T) {
+			page := rawPage(`<html><head><title>Panel</title><link rel="icon" href="` + tt.href + `"></head></html>`)
+			host, port, seen := rawPages(t, map[string]string{"/": page, "/?v=2": page, tt.want: rawPage(string(icon))})
+			svc := testProber(Needs{HTTP: true, Favicon: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			if got := seen(); !reflect.DeepEqual(got, []string{"/", tt.want}) {
+				t.Errorf("requests = %q, want / and %s", got, tt.want)
+			}
+			if got := svc.Fields["http.favicon.md5"]; got != md5Hex(icon) {
+				t.Errorf("http.favicon.md5 = %v, want the icon's %s", got, md5Hex(icon))
+			}
+		})
+	}
+}
+
+// Every header of the raw block has its field. net/http's parsed header map
+// drops Transfer-Encoding, "Connection: close" and Trailer, merges repeated
+// Content-Length headers and adds a Cache-Control to "Pragma: no-cache".
+func TestHeaderFieldsFromRawBlock(t *testing.T) {
+	for _, tt := range []struct {
+		name, page string
+		want       map[string]any
+		absent     []string
+	}{
+		{
+			name: "chunked",
+			page: "HTTP/1.1 200 OK\r\nServer:  Acme  Web \r\nTransfer-Encoding: chunked\r\nconnection: close\r\nTrailer: X-Sum\r\n" +
+				"Pragma: no-cache\r\nX-Multi: a\r\nx-multi: b\r\nX-Fold: first\r\n\tsecond\r\nX-Empty:\r\n\r\n" +
+				"5\r\nhello\r\n0\r\nX-Sum: 1\r\n\r\n",
+			want: map[string]any{
+				"http.headers.server":            "Acme  Web",
+				"http.headers.transfer-encoding": "chunked",
+				"http.headers.connection":        "close",
+				"http.headers.trailer":           "X-Sum",
+				"http.headers.pragma":            "no-cache",
+				"http.headers.x-multi":           []any{"a", "b"},
+				"http.headers.x-fold":            "first second",
+				"http.headers.x-empty":           "",
+				"http.body":                      "hello",
+			},
+			absent: []string{"http.headers.cache-control", "http.headers.content-length", "http.headers.x-sum"},
+		},
+		{
+			name: "repeated Content-Length, bare LF",
+			page: "HTTP/1.1 200 OK\nContent-Length: 5\nContent-Length: 5\nConnection: Close\n\nhello",
+			want: map[string]any{
+				"http.headers.content-length": []any{"5", "5"},
+				"http.headers.connection":     "Close",
+				"http.body":                   "hello",
+			},
+		},
+		{
+			name: "HTTP/1.0",
+			page: "HTTP/1.0 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nhello",
+			want: map[string]any{
+				"http.headers.transfer-encoding": "chunked",
+				"http.headers.connection":        "close",
+				"http.body":                      "hello",
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port, _ := rawPages(t, map[string]string{"/": tt.page})
+			svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			f := svc.Fields
+			for k, want := range tt.want {
+				if !reflect.DeepEqual(f[k], want) {
+					t.Errorf("%s = %#v, want %#v", k, f[k], want)
+				}
+			}
+			for _, k := range tt.absent {
+				if v, ok := f[k]; ok {
+					t.Errorf("%s = %#v, but the response has no such header", k, v)
+				}
+			}
+			raw, _ := f["http.headers_raw"].(string)
+			for _, line := range strings.Split(raw, "\n")[1:] {
+				name, _, ok := strings.Cut(line, ":")
+				if !ok {
+					continue // the blank line or a folded one
+				}
+				if _, ok := f["http.headers."+strings.ToLower(name)]; !ok {
+					t.Errorf("http.headers_raw has %q, but http.headers.%s is not set", line, strings.ToLower(name))
+				}
 			}
 		})
 	}
