@@ -46,6 +46,9 @@ reports each rule that matched, with the rule's author, as the Detection Rule
 License 1.1 asks. A match of a rule whose conversion is not exact says so
 under "fidelity".
 
+Unlike athar scan, the script does not decode charsets: a page that is not
+UTF-8 is matched on its raw bytes.
+
 Custom probes declared by rules are only sent with the script argument
 athar.probes, like athar scan's -probes.
 ]]

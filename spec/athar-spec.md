@@ -136,6 +136,8 @@ The taxonomy is what makes a rule portable. Fields describe one service (IP and 
 | `ssh.hostkey.sha256` | hex | Host key fingerprint. |
 | `ssh.kex_algorithms` | list | Offered key-exchange algorithms. |
 
+`http.body` and `http.title` are UTF-8 text. A scanner decodes the body from the charset the response declares: in the `Content-Type` header, else in a `<meta>` tag within the first 1024 bytes (the HTML standard's prescan), else with a UTF-16 byte order mark. Without a declaration, or with a label the scanner doesn't know, the bytes are kept as received; the charset is never guessed from the content. The body hashes are over the raw body, before this decoding.
+
 Three rules keep the taxonomy portable:
 
 - **Hash fields name their algorithm** (`.mmh3`, `.md5`, `.sha256`). A scanner computes all of them; a backend uses the one its engine supports.
