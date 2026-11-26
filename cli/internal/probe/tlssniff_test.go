@@ -93,7 +93,7 @@ func TestProbeTLSNegativeSerial(t *testing.T) {
 	cert := certWithSerial(t, [8]byte{0x81, 2, 3, 4, 5, 6, 7, 8})
 	host, port := tlsPanel(t, cert, 0, 0)
 
-	svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || !svc.TLS {
 		t.Fatalf("expected a TLS service, got %+v", svc)
 	}
@@ -131,7 +131,7 @@ func TestProbeTLSUnparsableCertificate(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			host, port := tlsPanel(t, cert, tt.min, tt.max)
-			svc := testProber(Needs{TLS: true, HTTP: true, Favicon: true}).Probe(context.Background(), host, port)
+			svc := testProber(Needs{HTTP: true, Favicon: true}).Probe(context.Background(), host, port)
 			if svc == nil || !svc.TLS {
 				t.Fatalf("expected a TLS service, got %+v", svc)
 			}
@@ -159,7 +159,7 @@ func TestProbeTLSUnparsableChain(t *testing.T) {
 	cert.Certificate = append(cert.Certificate, certWithSerial(t, [8]byte{0, 2, 3, 4, 5, 6, 7, 8}).Certificate[0])
 	host, port := tlsPanel(t, cert, 0, 0)
 
-	svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || !svc.TLS {
 		t.Fatalf("expected a TLS service, got %+v", svc)
 	}
@@ -188,7 +188,7 @@ func TestProbeTLSAlert(t *testing.T) {
 		}
 		c.Write([]byte{21, 3, 3, 0, 2, 2, 40}) // fatal handshake_failure
 	})
-	svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || !svc.TLS {
 		t.Fatalf("expected a TLS service, got %+v", svc)
 	}

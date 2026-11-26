@@ -9,12 +9,18 @@ status: experimental
 description: |
   Favicon of the ARTEX console, matched on its own. It finds ARTEX deployments
   whose title no longer carries the family suffix, which the family and ARTEX
-  rules miss. Because it uses one signal, confirm hits with those rules. Linked
-  as similar rather than variant-of because it does not repeat the family title.
+  rules miss. Because it uses one signal, confirm hits with those rules. The
+  icon is the project's own, not a framework default: its SHA-256
+  (8b567c0244f2dbee787165aea9c4ddabaaafb0fdb3b29899ac898c60a589856b) differs
+  from the favicons create-next-app ships (checked against the Next.js
+  repository on 2026-11-26), and on that day it matched 15 of 15 live ARTEX
+  hosts. Linked as similar rather than variant-of because it does not repeat
+  the family title.
 references:
   - https://x.com/MalGamy12/status/2115089738403037207
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -32,10 +38,10 @@ identifies:
   product: ARTEX
   family: artex
   category: offensive-tool
-confidence: medium
+confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
-  - Unrelated sites using the same icon file, if it is a framework or template default
+  - Unrelated sites that reuse the same icon file
 tests:
   # Minimal samples built from the published favicon hash, not captured responses.
   - name: ARTEX console
