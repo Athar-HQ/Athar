@@ -1,6 +1,8 @@
 package convert
 
 import (
+	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -215,8 +217,64 @@ condition: sel
 	check(t, r, map[string]want{
 		"fofa":   {`title=="Say \"hi\"" && cert.subject.cn=".example.org"`, Approximate},
 		"modat":  {`http.title="Say \"hi\"" and tls.subject.common_name=~"\.example\.org$"`, Exact},
-		"censys": {`host.services: (endpoints.http.html_title = "Say \"hi\"" and cert.parsed.subject.common_name =~ "\.example\.org$")`, Approximate},
+		"censys": {`host.services: (endpoints.http.html_title = "Say \"hi\"" and cert.parsed.subject.common_name =~ "\\.example\\.org$")`, Approximate},
 	})
+
+	// A quote or a backslash in a value never ends the quoted string.
+	for _, c := range []struct {
+		detection string
+		want      map[string]want
+	}{
+		// Modat: a quote in a regex is the class ["], written [\"].
+		{`http.headers.www-authenticate|startswith: 'Basic realm="ARTEX"'`, map[string]want{
+			"modat": {`http.headers: (key = "Www-Authenticate" and value =~ "^Basic realm=[\"]ARTEX[\"]")`, Exact},
+		}},
+		{`http.headers.www-authenticate|re: '^Basic realm="[^"]+", a\"b$'`, map[string]want{
+			"modat": {`http.headers: (key = "Www-Authenticate" and value =~ "^Basic realm=[\"][^\"]+[\"], a[\"]b$")`, Approximate},
+		}},
+		// Censys: the regex escapes the quote, the string doubles the backslash.
+		{`http.title|re: 'foo\"bar'`, map[string]want{
+			"censys": {`host.services: (endpoints.http.html_title =~ "foo\\\"bar")`, Approximate},
+			"modat":  {`http.title=~"foo[\"]bar"`, Approximate},
+		}},
+		{`http.title|re: '^\d+ "x"$'`, map[string]want{
+			"censys": {`host.services: (endpoints.http.html_title =~ "^\\d+ \\\"x\\\"$")`, Approximate},
+			"modat":  {`http.title=~"^\d+ [\"]x[\"]$"`, Approximate},
+		}},
+		// Only regex operators are escaped: no \= or \-.
+		{`tls.cert.subject.cn|startswith: 'a=b-c,d.e@f'`, map[string]want{
+			"censys": {`host.services: (cert.parsed.subject.common_name =~ "^a=b-c,d\\.e@f")`, Approximate},
+			"modat":  {`tls.subject.common_name=~"^a=b-c,d\.e[@]f"`, Exact},
+		}},
+		// Modat has no documented way to write a backslash, so the value is
+		// dropped; a literal * or ? keeps its backslash.
+		{`http.title|endswith: 'abc*\'`, map[string]want{
+			"modat":   {"", Unsupported},
+			"urlscan": {`page.title.keyword:/.*abc.*[\\]/`, Exact},
+		}},
+		{`http.title|contains: 'C:\\Users'`, map[string]want{
+			"modat":   {"", Unsupported},
+			"fofa":    {`title="C:\\Users"`, Exact},
+			"censys":  {`host.services: (endpoints.http.html_title: "C:\\Users")`, Approximate},
+			"urlscan": {`page.title.keyword:/.*c\:[\\]users.*/`, Exact},
+		}},
+		{`http.title|contains: 'a\*b "c" \?'`, map[string]want{
+			"modat": {`http.title~"a\*b \"c\" \?"`, Exact},
+		}},
+		{`http.title: 'a\*b "c" d*'`, map[string]want{
+			"modat": {`http.title="a\*b \"c\" d*"`, Exact},
+		}},
+		// A line break can't be written in a one-line query.
+		{`http.headers_raw|contains: "Server: x\r\nX-Y: z"`, map[string]want{
+			"fofa": {"", Unsupported}, "zoomeye": {"", Unsupported}, "shodan": {"", Unsupported}, "modat": {"", Unsupported},
+		}},
+	} {
+		check(t, ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n"), c.want)
+	}
+	res, _ := Convert(ruleFrom(t, "sel:\n  http.title|endswith: 'abc*\\'\ncondition: sel\n"), "modat")
+	if !strings.Contains(strings.Join(res.Notes, " "), "backslash") {
+		t.Errorf("modat: notes don't explain the dropped backslash: %v", res.Notes)
+	}
 
 	// Values lists: OR by default, AND with |all.
 	r = ruleFrom(t, "sel:\n  http.title|contains|all: [a, b]\nalt:\n  http.title|contains: [c, d]\ncondition: sel or alt\n")
@@ -396,4 +454,255 @@ condition: sel and not 1 of filter_*
 		"fofa":   {`title="Console" && title!="ARTEX"`, Exact},
 		"shodan": {`http.title:"Console" -http.title:"ARTEX"`, Approximate},
 	})
+}
+
+// Values with quotes, backslashes and line breaks must stay inside their
+// quotes on every engine, and what the engine reads back must be the value.
+func TestHostileValuesStayQuoted(t *testing.T) {
+	// Values as written in a rule: \\ is one backslash, and so is a single \.
+	raws := []string{
+		`"`, `a"b`, `Basic realm="ARTEX"`, `a'b`, "a`b",
+		`\\`, `a\\`, `a\`, `a\b`, `\"`, `a\"b`, `a\\"b`, `a\\\"b`, `"\\`,
+		`a/b`, `a\/b`, `a\\/`, "a\nb", "a\r\nb\\",
+	}
+	fields := []string{
+		"", "http.title", "http.body", "http.headers_raw", "http.headers.x-test", "http.headers.server",
+		"tls.cert.subject.cn", "tls.cert.issuer.cn", "service.banner",
+	}
+	mods := []string{"", "|contains", "|startswith", "|endswith", "|cased", "|contains|cased", "|startswith|cased", "|endswith|cased"}
+	converted := map[string]int{}
+	for _, raw := range raws {
+		value, _ := unwildcard(raw)
+		y, _ := json.Marshal(raw)
+		for _, field := range fields {
+			for _, mod := range mods {
+				detection := "sel:\n  " + field + mod + ": " + string(y) + "\ncondition: sel\n"
+				if field == "" {
+					if mod != "" {
+						continue
+					}
+					detection = "sel:\n  - " + string(y) + "\ncondition: sel\n"
+				}
+				op := strings.TrimSuffix(strings.TrimPrefix(mod, "|"), "|cased")
+				r := ruleFrom(t, detection)
+				for _, engine := range Engines {
+					res, err := Convert(r, engine)
+					if err != nil {
+						t.Fatalf("%s: %v", engine, err)
+					}
+					if res.Query == "" {
+						continue
+					}
+					converted[engine]++
+					if msg := checkLiteral(engine, res.Query, op, value, value); msg != "" {
+						t.Errorf("%s %s%s %q:\n  %s\n  %s", engine, field, mod, raw, res.Query, msg)
+					}
+				}
+			}
+		}
+	}
+	for _, engine := range Engines {
+		if converted[engine] == 0 {
+			t.Errorf("%s: no value converted", engine)
+		}
+	}
+
+	// Regular expressions, with a text each one matches.
+	regexes := [][2]string{
+		{`foo\"bar`, `foo"bar`},
+		{`a"b`, `a"b`},
+		{`^x[^"]+"$`, `xy"`},
+		{`^x[[:alpha:]"]+$`, `xy"`},
+		{`[]"]"`, `""`},
+		{`a\\b`, `a\b`},
+		{`a\\"b`, `a\"b`},
+		{`a\\`, `a\`},
+		{`a/b\.c`, `a/b.c`},
+		{`\d+\.\d"`, `1.2"`},
+	}
+	for _, re := range regexes {
+		y, _ := json.Marshal(re[0])
+		for _, field := range []string{"http.title", "http.headers.x-test", "tls.cert.subject.cn", "service.banner"} {
+			for _, mod := range []string{"|re", "|re|cased"} {
+				r := ruleFrom(t, "sel:\n  "+field+mod+": "+string(y)+"\ncondition: sel\n")
+				for _, engine := range Engines {
+					res, _ := Convert(r, engine)
+					if res.Query == "" {
+						continue
+					}
+					if msg := checkLiteral(engine, res.Query, "re", re[0], re[1]); msg != "" {
+						t.Errorf("%s %s%s %q:\n  %s\n  %s", engine, field, mod, re[0], res.Query, msg)
+					}
+				}
+			}
+		}
+	}
+}
+
+var literalHead = regexp.MustCompile(`^(value |[A-Za-z_.]+)? ?(=~|==~|==|=|~~|~|:)? ?$`)
+
+// checkLiteral reads a one-term query as the engine does: first the quoting
+// of the value, then, for a regex, the regex itself. It returns what is wrong
+// with the query, or "". op is the rule's operator, value the rule's value
+// and sample a text the value matches.
+func checkLiteral(engine, q, op, value, sample string) string {
+	if strings.ContainsFunc(q, func(r rune) bool { return r < ' ' || r == 0x7f }) {
+		return "control character in the query"
+	}
+	switch engine {
+	case "censys":
+		inner, ok := strings.CutPrefix(q, "host.services: (")
+		if !ok || !strings.HasSuffix(inner, ")") {
+			return "not wrapped in host.services: ( )"
+		}
+		q = strings.TrimSuffix(inner, ")")
+	case "modat":
+		if inner, ok := strings.CutPrefix(strings.Replace(q, `"Server"`, `"X-Test"`, 1), `http.headers: (key = "X-Test" and value `); ok {
+			if !strings.HasSuffix(inner, ")") {
+				return "the header group is not closed"
+			}
+			q = "value " + strings.TrimSuffix(inner, ")")
+		}
+	}
+	var (
+		i       = strings.Index(q, `"`)
+		unquote = unquotePairs
+		isRegex bool
+	)
+	switch engine {
+	case "modat":
+		unquote = unquoteModat
+	case "urlscan":
+		i = strings.Index(q, ":") + 1
+		switch {
+		case strings.HasPrefix(q[i:], "/"):
+			unquote, isRegex = unquoteSlashes, true
+		case !strings.HasPrefix(q[i:], `"`):
+			unquote = unquoteBare
+		}
+		value, sample = strings.ToLower(value), strings.ToLower(sample)
+	}
+	if i < 0 {
+		return "no quoted value"
+	}
+	head := strings.TrimSpace(q[:i])
+	if !literalHead.MatchString(head) {
+		return "unexpected text in front of the value: " + head
+	}
+	got, rest, ok := unquote(q[i:])
+	if !ok {
+		return "the value's quotes are not closed, or it has an escape the engine does not document"
+	}
+	if rest != "" {
+		return "text after the value: " + rest
+	}
+	if !isRegex && !strings.HasSuffix(head, "=~") {
+		if engine == "urlscan" {
+			got = strings.ToLower(got) // page.server is a text field
+		}
+		if got != value && got != "X-Test: "+value && got != "Server: "+value {
+			return "the engine reads the value " + got
+		}
+		return ""
+	}
+	flags := "(?s)"
+	if engine == "modat" && !strings.HasSuffix(head, "==~") {
+		flags = "(?is)" // =~ ignores case
+	}
+	if engine == "urlscan" {
+		got = "^(?:" + got + ")$" // Lucene anchors a regex at both ends
+	}
+	re, err := regexp.Compile(flags + got)
+	if err != nil {
+		return "the engine reads the regex " + got + ": " + err.Error()
+	}
+	texts := map[string][2][]string{ // operator: texts that match, texts that don't
+		"":           {{sample}, {"zz" + sample, sample + "zz"}},
+		"cased":      {{sample}, {"zz" + sample, sample + "zz"}},
+		"contains":   {{"zz" + sample + "zz"}, nil},
+		"startswith": {{sample + "zz"}, {"zz" + sample}},
+		"endswith":   {{"zz" + sample}, {sample + "zz"}},
+		"re":         {{sample}, nil},
+	}[op]
+	for _, s := range texts[0] {
+		if !re.MatchString(s) {
+			return "the engine reads the regex " + got + ", which does not match " + s
+		}
+	}
+	for _, s := range texts[1] {
+		if re.MatchString(s) {
+			return "the engine reads the regex " + got + ", which matches " + s
+		}
+	}
+	return ""
+}
+
+// unquotePairs reads a double-quoted value in which \\ is a backslash and \"
+// a quote, as on FOFA, ZoomEye, Shodan, Censys and in an Elasticsearch
+// query string. Any other backslash is an error.
+func unquotePairs(s string) (val, rest string, ok bool) {
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			return b.String(), s[i+1:], true
+		case '\\':
+			if i++; i == len(s) || (s[i] != '\\' && s[i] != '"') {
+				return "", "", false
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return "", "", false
+}
+
+// unquoteModat reads a double-quoted Modat value. Modat documents \" for a
+// quote and hands \. and \* on to the regex or wildcard search; it does not
+// say what \\ is. So \\ is an error, and so is a backslash in front of the
+// closing quote, which is read as \".
+func unquoteModat(s string) (val, rest string, ok bool) {
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		switch {
+		case s[i] == '"':
+			return b.String(), s[i+1:], true
+		case s[i] == '\\' && i+1 < len(s) && s[i+1] == '\\':
+			return "", "", false
+		case s[i] == '\\' && i+1 < len(s) && s[i+1] == '"':
+			i++
+		}
+		b.WriteByte(s[i])
+	}
+	return "", "", false
+}
+
+// unquoteSlashes reads a /regex/ of the Elasticsearch query string. Its lexer
+// takes \/ for a slash inside the regex and the longest text that ends in a
+// slash, so the regex must end at the first slash that has no backslash in
+// front: /a\\/ OR b:/c/ would be read as one regex.
+func unquoteSlashes(s string) (val, rest string, ok bool) {
+	for i := 1; i < len(s); i++ {
+		if s[i] == '/' && s[i-1] != '\\' {
+			return s[1:i], s[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+// unquoteBare reads an unquoted prefix term of the Elasticsearch query
+// string, such as gts\ ca*: reserved characters and spaces need a backslash.
+func unquoteBare(s string) (val, rest string, ok bool) {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '*':
+			return b.String(), s[i+1:], true
+		case s[i] == '\\' && i+1 < len(s):
+			i++
+		case strings.ContainsRune("+-=&|><!(){}[]^\"~?:/ ", rune(s[i])):
+			return "", "", false
+		}
+		b.WriteByte(s[i])
+	}
+	return "", "", false
 }
