@@ -351,8 +351,21 @@ func (c *converter) lower(e expr) expr {
 		if !ok {
 			return c.drop(note)
 		}
+		if how := caseLost(c.engine, x); how != "" {
+			// A search that ignores case finds more than the term, so its
+			// negation finds less.
+			if x.negated {
+				return c.drop(widenedNote(x, how))
+			}
+			f, note = max(f, Approximate), joinNote(note, how)
+		}
 		if note != "" {
 			c.notes = append(c.notes, note)
+		}
+		if fieldTables[c.engine][x.field].unverified {
+			// Nobody checked that the engine field holds what the rule
+			// field holds, so the query can't be called exact.
+			c.worse(Approximate)
 		}
 		c.worse(f)
 		l := lit{s: s, neg: x.negated}

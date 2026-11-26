@@ -2,6 +2,7 @@ package convert
 
 import (
 	"encoding/json"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -295,6 +296,22 @@ condition: sel
 		"fofa":    {`app=="ARTEX" && port="8443"`, Exact},
 		"zoomeye": {`port="8443"`, Superset},
 	})
+}
+
+// A value YAML reads as a number reaches the engines as the author wrote it.
+func TestValuesAsWritten(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title: 0100\n  http.body|contains: 2.0\n  tls.cert.subject.cn|contains: 1_000\nicon:\n  http.favicon.mmh3: -576220750\ncondition: sel and icon\n")
+	check(t, r, map[string]want{
+		"fofa":  {`body="2.0" && title=="0100" && cert.subject.cn="1_000" && icon_hash="-576220750"`, Exact},
+		"modat": {`http.body~"2.0" and http.title="0100" and tls.subject.common_name~"1_000" and http.files.mmh3=-576220750`, Approximate},
+	})
+	// Only the values matter here, not the form of the matcher around them.
+	tmpl := nucleiFor(t, "sel:\n  http.title: 0100\n  http.body|contains: 2.0\ncondition: sel\n")
+	wantIn(t, tmpl, `"2.0")`)
+	wantIn(t, tmpl, `== "0100"`)
+	wantData(t, nseFor(t, "sel:\n  http.title: 0100\n  service.banner|hex|startswith: 0016\ncondition: sel\n"),
+		`{f = "http.title", m = "eq", v = "0100"}`,
+		`{f = "service.banner", m = "startswith", v = "\x00\x16", c = true}`)
 }
 
 func TestUnknownEngine(t *testing.T) {
@@ -705,4 +722,255 @@ func unquoteBare(s string) (val, rest string, ok bool) {
 		b.WriteByte(s[i])
 	}
 	return "", "", false
+}
+
+const unverifiedNote = "is not verified against the"
+
+// Fields marked † in spec Appendix A are not checked against the engine's
+// documentation. A query that uses one is approximate at best and says so.
+func TestUnverifiedFields(t *testing.T) {
+	cases := []struct {
+		engine, detection, query string
+	}{
+		{"fofa", `http.headers.server|contains: nginx`, `server="nginx"`},
+		{"fofa", `http.status_code: 200`, `status_code="200"`},
+		{"fofa", `tls.cert.issuer.cn|contains: 'PentAGI CA'`, `cert.issuer.cn="PentAGI CA"`},
+		{"shodan", `http.body.mmh3: 123`, `http.html_hash:123`},
+		{"censys", `http.status_code: 200`, `host.services: (endpoints.http.status_code = "200")`},
+		{"censys", `tls.cert.subject.cn|cased: Cairn`, `host.services: (cert.parsed.subject.common_name = "Cairn")`},
+		{"censys", `tls.cert.issuer.cn|cased: 'PentAGI CA'`, `host.services: (cert.parsed.issuer.common_name = "PentAGI CA")`},
+		{"modat", `http.body.mmh3: 123`, `http.body_mmh3=123`},
+	}
+	for _, c := range cases {
+		r := ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n")
+		check(t, r, map[string]want{c.engine: {c.query, Approximate}})
+		res, _ := Convert(r, c.engine)
+		if !strings.Contains(strings.Join(res.Notes, " "), unverifiedNote+" "+c.engine+" docs") {
+			t.Errorf("%s %s: no note that the field is unverified: %v", c.engine, c.detection, res.Notes)
+		}
+	}
+
+	// Fields whose meaning on the engine is not recorded are not converted:
+	// FOFA's body_hash (algorithm undocumented, docs/decisions.md), Shodan's
+	// ssl.cert.fingerprint (hash not recorded), Censys headers and keywords.
+	dropped := []struct{ engine, detection string }{
+		{"fofa", "http.body.mmh3: 123"},
+		{"shodan", "tls.cert.sha256: " + strings.Repeat("ab", 32)},
+		{"censys", "http.headers.server|contains: nginx"},
+		{"censys", "- ARTEX"},
+	}
+	for _, c := range dropped {
+		r := ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n")
+		check(t, r, map[string]want{c.engine: {"", Unsupported}})
+	}
+}
+
+// appendixRows gives a condition for every row of spec Appendix A.
+var appendixRows = map[string]string{
+	"`http.title`":          "http.title: x",
+	"`http.body`":           "http.body: x",
+	"`http.headers.server`": "http.headers.server: x",
+	"other headers":         "http.headers.x-athar: x",
+	"`http.status_code`":    "http.status_code: 200",
+	"`http.favicon.mmh3`":   "http.favicon.mmh3: 123",
+	"`http.favicon.md5`":    "http.favicon.md5: " + strings.Repeat("ab", 16),
+	"`http.favicon.sha256`": "http.favicon.sha256: " + strings.Repeat("ab", 32),
+	"`http.body.mmh3`":      "http.body.mmh3: 123",
+	"`http.body.sha256`":    "http.body.sha256: " + strings.Repeat("ab", 32),
+	"`tls.cert.subject.cn`": "tls.cert.subject.cn: x",
+	"`tls.cert.issuer.cn`":  "tls.cert.issuer.cn: x",
+	"`tls.cert.sha256`":     "tls.cert.sha256: " + strings.Repeat("ab", 32),
+	"`tls.jarm`":            "tls.jarm: " + strings.Repeat("ab", 31),
+	"`tls.ja3s`":            "tls.ja3s: " + strings.Repeat("ab", 16),
+	"`service.banner`":      "service.banner: x",
+	"`service.port`":        "service.port: 443",
+	"`keywords`":            "- x",
+}
+
+// Spec Appendix A and the backends agree. A cell that starts with a dash or
+// says "not converted" is a field no query uses; a cell marked † is a field
+// the query uses with the unverified note and never as exact; every other
+// cell is a field the query uses without that note.
+func TestAppendixAMatchesBackends(t *testing.T) {
+	spec, err := os.ReadFile("../../../spec/athar-spec.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, table, ok := strings.Cut(string(spec), "## Appendix A: Engine field mapping")
+	if !ok {
+		t.Fatal("spec has no Appendix A")
+	}
+	seen := map[string]bool{}   // rows found in the table
+	marked := map[string]bool{} // engine and field of the † cells
+	for _, line := range strings.Split(table, "\n") {
+		cells := strings.Split(strings.Trim(line, "| "), " | ")
+		detection, ok := appendixRows[cells[0]]
+		if !ok {
+			continue
+		}
+		if len(cells) != len(Engines)+1 {
+			t.Fatalf("row %s has %d engine cells, want %d", cells[0], len(cells)-1, len(Engines))
+		}
+		seen[cells[0]] = true
+		r := ruleFrom(t, "sel:\n  "+detection+"\ncondition: sel\n")
+		for i, engine := range Engines {
+			cell := cells[i+1]
+			res, err := Convert(r, engine)
+			if err != nil {
+				t.Fatal(err)
+			}
+			noted := strings.Contains(strings.Join(res.Notes, " "), unverifiedNote)
+			unverified := strings.Contains(cell, "†")
+			switch {
+			case strings.HasPrefix(cell, "—") || strings.Contains(cell, "not converted"):
+				if res.Query != "" {
+					t.Errorf("%s on %s: Appendix A says %q, but convert writes %s", cells[0], engine, cell, res.Query)
+				}
+				continue
+			case res.Query == "":
+				t.Errorf("%s on %s: Appendix A says %q, but convert writes no query: %v", cells[0], engine, cell, res.Notes)
+			case unverified && (!noted || res.Fidelity == Exact):
+				t.Errorf("%s on %s: Appendix A marks %q with †, but convert gives [%s] %s, notes %v", cells[0], engine, cell, res.Fidelity, res.Query, res.Notes)
+			case !unverified && noted:
+				t.Errorf("%s on %s: convert calls the field unverified, but Appendix A has no † on %q", cells[0], engine, cell)
+			}
+			if unverified {
+				marked[engine+" "+strings.Trim(cells[0], "`")] = true
+			}
+		}
+	}
+	for row := range appendixRows {
+		if !seen[row] {
+			t.Errorf("Appendix A has no row %s", row)
+		}
+	}
+	// Every field a backend marks as unverified has a † cell.
+	for engine, fields := range fieldTables {
+		for field, spec := range fields {
+			if spec.unverified && !marked[engine+" "+field] {
+				t.Errorf("%s: %s is unverified in backends.go but has no † cell in Appendix A", engine, field)
+			}
+		}
+	}
+}
+
+// An engine search that ignores case finds more than a |cased term. Under
+// not it would exclude services the rule matches, so the term is dropped;
+// case-sensitive operators (Modat's ~~ and ==, Censys =) stay.
+func TestNegatedCasedTerms(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|contains|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+		"shodan":  {`http.title:"Console"`, Superset},
+		"censys":  {`host.services: (endpoints.http.html_title: "Console")`, Superset},
+		"urlscan": {`page.title.keyword:/.*console.*/`, Superset},
+		"modat":   {`http.title~"Console" and not http.title~~"ARTEX"`, Exact},
+	})
+	for _, engine := range []string{"fofa", "zoomeye", "shodan", "censys", "urlscan"} {
+		res, _ := Convert(r, engine)
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, `not http.title|contains "ARTEX"`) || !strings.Contains(notes, "case") || !strings.Contains(notes, "would also exclude services the rule matches") {
+			t.Errorf("%s: notes don't explain the dropped filter: %v", engine, res.Notes)
+		}
+	}
+
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.headers_raw|contains|cased: Nginx\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+	})
+
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console" and not endpoints.http.html_title = "ARTEX")`, Approximate},
+		"modat":  {`http.title~"Console" and not http.title=="ARTEX"`, Exact},
+	})
+
+	// Censys does not document whether its regex ignores case.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|startswith|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console")`, Superset},
+		"modat":  {`http.title~"Console" and not http.title==~"^ARTEX"`, Exact},
+	})
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|startswith: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console" and not endpoints.http.html_title =~ "^ARTEX")`, Approximate},
+	})
+}
+
+// A positive |cased term on an operator that ignores case over-matches, so
+// it is approximate, with a note.
+func TestCasedTerms(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title|contains|cased: ARTEX\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="ARTEX"`, Approximate},
+		"zoomeye": {`title="ARTEX"`, Approximate},
+		"shodan":  {`http.title:"ARTEX"`, Approximate},
+		"censys":  {`host.services: (endpoints.http.html_title: "ARTEX")`, Approximate},
+		"urlscan": {`page.title.keyword:/.*artex.*/`, Approximate},
+		"modat":   {`http.title~~"ARTEX"`, Exact},
+	})
+	for _, engine := range []string{"fofa", "zoomeye", "shodan", "censys", "urlscan"} {
+		res, _ := Convert(r, engine)
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "case") {
+			t.Errorf("%s: no note on the lost |cased: %v", engine, res.Notes)
+		}
+	}
+
+	// ZoomEye's == and Censys's = are case-sensitive.
+	r = ruleFrom(t, "sel:\n  http.title|cased: ARTEX\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title=="ARTEX"`, Approximate},
+		"zoomeye": {`title=="ARTEX"`, Exact},
+		"censys":  {`host.services: (endpoints.http.html_title = "ARTEX")`, Exact},
+		"modat":   {`http.title=="ARTEX"`, Exact},
+	})
+
+	// Hashes are searched with =, which only Censys matches by case.
+	r = ruleFrom(t, "sel:\n  tls.jarm|cased: ab12\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"zoomeye": {`ssl.jarm="ab12"`, Approximate},
+		"modat":   {`tls.jarm="ab12"`, Approximate},
+		"censys":  {`host.services: (jarm.fingerprint = "ab12")`, Exact},
+	})
+}
+
+// A field the engine maps loosely matches more than the taxonomy field, so
+// its negation would exclude services the rule matches and is dropped.
+func TestNegatedLooseFields(t *testing.T) {
+	for _, field := range []string{"http.body.sha256", "http.favicon.sha256"} {
+		r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  "+field+": ABCDEF01\ncondition: sel and not filter\n")
+		check(t, r, map[string]want{"urlscan": {`page.title.keyword:/.*console.*/`, Superset}})
+		res, _ := Convert(r, "urlscan")
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "not "+field) || !strings.Contains(notes, "would also exclude services the rule matches") {
+			t.Errorf("urlscan: notes don't explain the dropped filter: %v", res.Notes)
+		}
+	}
+
+	// Modat has a field for the body hash alone, so the filter stays.
+	r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.body.sha256: abcdef01\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{"modat": {`http.title~"Console" and not http.body_sha256="abcdef01"`, Exact}})
+
+	// No backend negates a loose field.
+	for engine, fields := range map[string]map[string]fieldSpec{
+		"fofa": fofaFields, "shodan": shodanFields, "censys": censysFields,
+		"zoomeye": zoomeyeFields, "modat": modatFields, "urlscan": urlscanFields,
+	} {
+		for field, spec := range fields {
+			if !spec.loose {
+				continue
+			}
+			if s, _, _, ok := backends[engine].term(term{field: field, op: "eq", value: "ab12", raw: "ab12", probe: "default", negated: true}); ok {
+				t.Errorf("%s: negated %s converts to %s", engine, field, s)
+			}
+		}
+	}
+
+	// One header searched in the whole header block, or as full text.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.headers.x-powered-by|contains: Express\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+		"shodan":  {`http.title:"Console"`, Superset},
+	})
 }

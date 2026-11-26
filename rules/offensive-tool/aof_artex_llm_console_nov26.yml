@@ -6,15 +6,19 @@ related:
 status: experimental
 description: |
   Web console that describes itself as an "LLM-driven autonomous penetration
-  testing system console" (LLM 驱动的自主渗透测试系统控制台) in a meta tag of the
-  landing page. The wording is close to the ARTEX family title suffix
+  testing system console" (LLM 驱动的自主渗透测试系统控制台) in the meta description
+  of the landing page. The wording is close to the ARTEX family title suffix
   (自主渗透测试控制台) but adds 系统 ("system"), so the family rule does not match it.
-  Linked to the family as similar: the link is inferred from the wording and not
-  yet confirmed from a captured response.
+  The phrase belongs to the ARTEX family: on 2026-11-26 athar scan found it on
+  all 14 consoles with the family title in a sample of 15 ARTEX hosts, and the
+  OPX rebrand keeps it under a different title. So the rule also finds rebrands
+  that changed the title. Linked to the family as similar rather than variant-of
+  because it does not repeat the family title.
 references:
   - https://en.fofa.info/result?qbase64=IkxMTSDpqbHliqjnmoToh6rkuLvmuJfpgI%2FmtYvor5Xns7vnu5%2FmjqfliLblj7Ai
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -30,17 +34,24 @@ detection:
 identifies:
   family: artex
   category: offensive-tool
-confidence: medium
+confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
   - Articles or product pages that quote the phrase
 tests:
-  # Minimal samples built from the published meta tag, not captured responses.
+  # The first test is the head of a console's landing page, captured on
+  # 2026-11-26. The others are minimal samples, not captured responses.
+  - name: ARTEX console, captured landing page
+    expect: match
+    response:
+      http.status_code: 200
+      http.title: 'ARTEX — 自主渗透测试控制台'
+      http.body: '<link rel="preload" href="/_next/static/chunks/4384baud_6ozc.css" as="style"/><title>ARTEX — 自主渗透测试控制台</title><meta name="description" content="LLM 驱动的自主渗透测试系统控制台"/><link rel="icon" href="/favicon.ico?favicon.1uboyqwm7-s27.ico" sizes="48x48" type="image/x-icon"/>'
   - name: Phrase in a meta tag
     expect: match
     response:
       http.body: '<meta name="description" content="LLM 驱动的自主渗透测试系统控制台"/><link rel="icon" href="/favicon.ico">'
-  - name: ARTEX family page without the phrase
+  - name: Family title without the phrase
     expect: no_match
     response:
       http.title: 'ARTEX — 自主渗透测试控制台'

@@ -20,6 +20,10 @@ import (
 // maxBanner is how many bytes of a banner are kept.
 const maxBanner = 8 << 10
 
+// bannerTail is how long after the wait for its first bytes a banner may
+// still arrive.
+const bannerTail = time.Second
+
 // Needs says which parts of the baseline probe the loaded rules use, so the
 // prober only does work that can change a result.
 type Needs struct {
@@ -110,7 +114,7 @@ func (p *Prober) baseline(ctx context.Context, svc *Service, conn net.Conn) {
 
 	// 1. Server-first protocols send a banner before the client says anything.
 	if p.Needs.Banner {
-		if b := readBanner(conn, p.BannerWait); len(b) > 0 {
+		if b := readBanner(ctx, conn, p.BannerWait, p.Timeout); len(b) > 0 {
 			bannerFields(f, b)
 			conn.Close()
 			return
@@ -125,7 +129,7 @@ func (p *Prober) baseline(ctx context.Context, svc *Service, conn net.Conn) {
 			svc.TLS = true
 			tlsFields(f, tc.ConnectionState())
 			if p.Needs.Banner {
-				if b := readBanner(tc, p.BannerWait); len(b) > 0 {
+				if b := readBanner(ctx, tc, p.BannerWait, p.Timeout); len(b) > 0 {
 					bannerFields(f, b)
 					tc.Close()
 					return
@@ -222,7 +226,8 @@ func (p *Prober) custom(ctx context.Context, svc *Service, pr rule.Probe) eval.F
 			if r.MaxBytes > 0 {
 				maxBytes = min(r.MaxBytes, maxBanner)
 			}
-			if r.TimeoutMs > 0 {
+			// A rule may shorten the read, not extend it past the timeout.
+			if r.TimeoutMs > 0 && int64(r.TimeoutMs) < p.Timeout.Milliseconds() {
 				wait = time.Duration(r.TimeoutMs) * time.Millisecond
 			}
 		}
@@ -235,7 +240,7 @@ func (p *Prober) custom(ctx context.Context, svc *Service, pr rule.Probe) eval.F
 				return nil
 			}
 		}
-		b := readBanner(conn, wait)
+		b := readBanner(ctx, conn, wait, p.Timeout)
 		if len(b) > maxBytes {
 			b = b[:maxBytes]
 		}
@@ -321,13 +326,22 @@ func hostHeader(svc *Service) string {
 }
 
 // readBanner waits up to wait for the first bytes, then collects what follows
-// shortly after.
-func readBanner(conn net.Conn, wait time.Duration) []byte {
+// shortly after. It ends at the latest bannerTail after wait, after limit or
+// when ctx is done, so a server that drips bytes can't hold it.
+func readBanner(ctx context.Context, conn net.Conn, wait, limit time.Duration) []byte {
+	start := time.Now()
+	end := start.Add(min(wait+bannerTail, limit))
 	buf := make([]byte, maxBanner)
-	conn.SetReadDeadline(time.Now().Add(wait))
+	conn.SetReadDeadline(start.Add(min(wait, limit)))
+	stop := context.AfterFunc(ctx, func() { conn.SetReadDeadline(time.Now()) })
+	defer stop()
 	n, _ := conn.Read(buf)
-	for n > 0 && n < len(buf) {
-		conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
+	for n > 0 && n < len(buf) && ctx.Err() == nil {
+		next := time.Now().Add(250 * time.Millisecond)
+		if next.After(end) {
+			next = end
+		}
+		conn.SetReadDeadline(next)
 		m, err := conn.Read(buf[n:])
 		n += m
 		if err != nil || m == 0 {
