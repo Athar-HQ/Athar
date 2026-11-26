@@ -413,3 +413,124 @@ condition: sel and not 1 of filter_*
 		"shodan": {`http.title:"Console" -http.title:"ARTEX"`, Approximate},
 	})
 }
+
+// An engine search that ignores case finds more than a |cased term. Under
+// not it would exclude services the rule matches, so the term is dropped;
+// case-sensitive operators (Modat's ~~ and ==, Censys =) stay.
+func TestNegatedCasedTerms(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|contains|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+		"shodan":  {`http.title:"Console"`, Superset},
+		"censys":  {`host.services: (endpoints.http.html_title: "Console")`, Superset},
+		"urlscan": {`page.title.keyword:/.*console.*/`, Superset},
+		"modat":   {`http.title~"Console" and not http.title~~"ARTEX"`, Exact},
+	})
+	for _, engine := range []string{"fofa", "zoomeye", "shodan", "censys", "urlscan"} {
+		res, _ := Convert(r, engine)
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, `not http.title|contains "ARTEX"`) || !strings.Contains(notes, "case") || !strings.Contains(notes, "would also exclude services the rule matches") {
+			t.Errorf("%s: notes don't explain the dropped filter: %v", engine, res.Notes)
+		}
+	}
+
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.headers_raw|contains|cased: Nginx\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+	})
+
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console" and not endpoints.http.html_title = "ARTEX")`, Approximate},
+		"modat":  {`http.title~"Console" and not http.title=="ARTEX"`, Exact},
+	})
+
+	// Censys does not document whether its regex ignores case.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|startswith|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console")`, Superset},
+		"modat":  {`http.title~"Console" and not http.title==~"^ARTEX"`, Exact},
+	})
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|startswith: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console" and not endpoints.http.html_title =~ "^ARTEX")`, Approximate},
+	})
+}
+
+// A positive |cased term on an operator that ignores case over-matches, so
+// it is approximate, with a note.
+func TestCasedTerms(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title|contains|cased: ARTEX\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="ARTEX"`, Approximate},
+		"zoomeye": {`title="ARTEX"`, Approximate},
+		"shodan":  {`http.title:"ARTEX"`, Approximate},
+		"censys":  {`host.services: (endpoints.http.html_title: "ARTEX")`, Approximate},
+		"urlscan": {`page.title.keyword:/.*artex.*/`, Approximate},
+		"modat":   {`http.title~~"ARTEX"`, Exact},
+	})
+	for _, engine := range []string{"fofa", "zoomeye", "shodan", "censys", "urlscan"} {
+		res, _ := Convert(r, engine)
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "case") {
+			t.Errorf("%s: no note on the lost |cased: %v", engine, res.Notes)
+		}
+	}
+
+	// ZoomEye's == and Censys's = are case-sensitive.
+	r = ruleFrom(t, "sel:\n  http.title|cased: ARTEX\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title=="ARTEX"`, Approximate},
+		"zoomeye": {`title=="ARTEX"`, Exact},
+		"censys":  {`host.services: (endpoints.http.html_title = "ARTEX")`, Exact},
+		"modat":   {`http.title=="ARTEX"`, Exact},
+	})
+
+	// Hashes are searched with =, which only Censys matches by case.
+	r = ruleFrom(t, "sel:\n  tls.jarm|cased: ab12\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"zoomeye": {`ssl.jarm="ab12"`, Approximate},
+		"modat":   {`tls.jarm="ab12"`, Approximate},
+		"censys":  {`host.services: (jarm.fingerprint = "ab12")`, Exact},
+	})
+}
+
+// A field the engine maps loosely matches more than the taxonomy field, so
+// its negation would exclude services the rule matches and is dropped.
+func TestNegatedLooseFields(t *testing.T) {
+	for _, field := range []string{"http.body.sha256", "http.favicon.sha256"} {
+		r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  "+field+": ABCDEF01\ncondition: sel and not filter\n")
+		check(t, r, map[string]want{"urlscan": {`page.title.keyword:/.*console.*/`, Superset}})
+		res, _ := Convert(r, "urlscan")
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "not "+field) || !strings.Contains(notes, "would also exclude services the rule matches") {
+			t.Errorf("urlscan: notes don't explain the dropped filter: %v", res.Notes)
+		}
+	}
+
+	// Modat has a field for the body hash alone, so the filter stays.
+	r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.body.sha256: abcdef01\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{"modat": {`http.title~"Console" and not http.body_sha256="abcdef01"`, Exact}})
+
+	// No backend negates a loose field.
+	for engine, fields := range map[string]map[string]fieldSpec{
+		"fofa": fofaFields, "shodan": shodanFields, "censys": censysFields,
+		"zoomeye": zoomeyeFields, "modat": modatFields, "urlscan": urlscanFields,
+	} {
+		for field, spec := range fields {
+			if !spec.loose {
+				continue
+			}
+			if s, _, _, ok := backends[engine].term(term{field: field, op: "eq", value: "ab12", raw: "ab12", probe: "default", negated: true}); ok {
+				t.Errorf("%s: negated %s converts to %s", engine, field, s)
+			}
+		}
+	}
+
+	// One header searched in the whole header block, or as full text.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.headers.x-powered-by|contains: Express\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+		"shodan":  {`http.title:"Console"`, Superset},
+	})
+}
