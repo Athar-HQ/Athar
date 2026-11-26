@@ -76,6 +76,8 @@ The `default` probe per protocol:
 
 Whether this matches how each engine actually crawls (redirects, SNI, favicon location) still has to be measured; see [decisions.md](../docs/decisions.md#open).
 
+**Redirects.** The baseline probe records the first response and follows nothing: not a `3xx` status, not a `<meta http-equiv="refresh">`, not a script. A service whose `/` only sends the browser elsewhere shows the redirect, not the page behind it. A rule can match what that first response holds: the target of a `3xx` in `http.headers.location`, or a refresh target in `http.body`. To match the page behind the redirect, a rule declares a custom probe for its path, which makes that selection active-only. A later version of the baseline probe will follow redirects on the same service; see [decisions.md](../docs/decisions.md#baseline-follows-redirects-on-the-same-service).
+
 Custom probes are declared once under `probes` and referenced by id. Selections bind to a probe with the reserved `probe` key. Selections without it use `default`. Illustrative example, not a real product:
 
 ```yaml
