@@ -722,6 +722,98 @@ func TestGzipBody(t *testing.T) {
 	}
 }
 
+// http.body and http.title are UTF-8 text: a body in a declared charset is
+// decoded. The declaration is looked for in the Content-Type header, then in
+// a <meta> in the first 1024 bytes, then in a UTF-16 byte order mark.
+// Without a known declaration, and for UTF-8, the bytes stay as received.
+// The body hashes are always over the bytes as received.
+func TestBodyCharset(t *testing.T) {
+	const (
+		gbk    = "\xb2\xe2\xca\xd4\xbf\xd8\xd6\xc6\xcc\xa8" // 测试控制台
+		big5   = "\xb4\xfa\xb8\xd5\xb1\xb1\xa8\xee\xa5\x78" // 測試控制台
+		euckr  = "\xc4\xdc\xbc\xd6"                         // 콘솔
+		sjis   = "\x83\x52\x83\x93\x83\x5c\x81\x5b\x83\x8b" // コンソール
+		cp1251 = "\xcf\xe0\xed\xe5\xeb\xfc"                 // Панель
+		utf8   = "测试 \xff"                                  // not valid UTF-8: a decoder would change it
+	)
+	page := func(head, text string) string {
+		return "<html><head>" + head + "<title>" + text + "</title></head><body>" + text + " panel</body></html>"
+	}
+	utf16le := func(s string) string {
+		var b strings.Builder
+		for _, r := range s { // the test text is in the BMP
+			b.WriteByte(byte(r))
+			b.WriteByte(byte(r >> 8))
+		}
+		return b.String()
+	}
+	const (
+		equiv   = `<META content="text/html; charset=gb2312" http-equiv=Content-Type>`
+		skipped = `<!-- <meta charset=euc-kr> --><link rel=icon href="a>b"><meta name=x content="charset=big5"><meta charset=gb18030 />`
+	)
+	for _, tt := range []struct {
+		name  string
+		ctype string // Content-Type header; "" sends none
+		sent  string
+		body  string // http.body; "" means as sent
+		title string
+	}{
+		{"GBK in header", "text/html; charset=GBK", page("", gbk), page("", "测试控制台"), "测试控制台"},
+		{"GB2312 in quoted header", `text/html;Charset="gb2312"`, page("", gbk), page("", "测试控制台"), "测试控制台"},
+		{"GBK in meta charset", "text/html", page(`<meta charset="gbk">`, gbk), page(`<meta charset="gbk">`, "测试控制台"), "测试控制台"},
+		{"GB2312 in meta http-equiv", "", page(equiv, gbk), page(equiv, "测试控制台"), "测试控制台"},
+		{"GB18030 in the first meta that counts", "text/html", page(skipped, gbk), page(skipped, "测试控制台"), "测试控制台"},
+		{"EUC-KR in header", "text/html; charset=euc-kr", page("", euckr), page("", "콘솔"), "콘솔"},
+		{"Big5 in meta", "text/html", page("<meta charset=big5>", big5), page("<meta charset=big5>", "測試控制台"), "測試控制台"},
+		{"Shift_JIS in meta", "text/html", page("<meta charset='Shift_JIS'>", sjis), page("<meta charset='Shift_JIS'>", "コンソール"), "コンソール"},
+		{"windows-1251 in header", "text/html; charset=windows-1251", page("", cp1251), page("", "Панель"), "Панель"},
+		{"header before meta", "text/html; charset=gbk", page("<meta charset=euc-kr>", gbk), page("<meta charset=euc-kr>", "测试控制台"), "测试控制台"},
+		{"unknown header label, then meta", "text/html; charset=x-nope", page("<meta charset=gbk>", gbk), page("<meta charset=gbk>", "测试控制台"), "测试控制台"},
+		{"UTF-16 byte order mark", "text/html", "\xff\xfe" + utf16le(page("", "测试")), string(rune(0xFEFF)) + page("", "测试"), "测试"},
+
+		{"unknown label", "text/html; charset=x-nope", page("", gbk), "", gbk},
+		{"unknown meta label", "text/html", page("<meta charset=x-nope>", gbk), "", gbk},
+		{"label of an encoding without a decoder", "text/html; charset=iso-2022-kr", page("", gbk), "", gbk},
+		{"nothing declared", "", page("", gbk), "", gbk},
+		{"meta past the first 1024 bytes", "text/html", page("<!--"+strings.Repeat("x", 1024)+"--><meta charset=gbk>", gbk), "", gbk},
+		{"meta content without http-equiv", "text/html", page(`<meta name=x content="text/html; charset=gbk">`, gbk), "", gbk},
+		{"UTF-16 in meta means UTF-8", "text/html", page("<meta charset=utf-16>", utf8), "", utf8},
+		{"UTF-8 in header", "text/html; charset=utf-8", page("", utf8), "", utf8},
+		{"UTF-8 in meta", "text/html", page("<meta charset=utf-8>", utf8), "", utf8},
+		{"UTF-8 byte order mark", "text/html", "\xef\xbb\xbf" + page("", utf8), "", utf8},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header()["Content-Type"] = nil // keep net/http from adding one
+				if tt.ctype != "" {
+					w.Header().Set("Content-Type", tt.ctype)
+				}
+				w.Write([]byte(tt.sent))
+			}))
+			defer srv.Close()
+			host, port := hostPort(t, srv.URL)
+			svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			body := tt.body
+			if body == "" {
+				body = tt.sent
+			}
+			for k, want := range map[string]any{
+				"http.body":        body,
+				"http.title":       tt.title,
+				"http.body.mmh3":   int(MMH3([]byte(tt.sent))),
+				"http.body.sha256": sha256Hex([]byte(tt.sent)),
+			} {
+				if !reflect.DeepEqual(svc.Fields[k], want) {
+					t.Errorf("%s = %q, want %q", k, svc.Fields[k], want)
+				}
+			}
+		})
+	}
+}
+
 // A body that never ends is read up to the hash limit and then left alone:
 // the probe must not go on reading it until the deadline.
 func TestEndlessBodyIsNotDrained(t *testing.T) {

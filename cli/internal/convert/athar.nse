@@ -47,6 +47,9 @@ License 1.1 asks. A match of a rule whose conversion is not exact says so
 under "fidelity". A family rule is left out when one of its variants matched;
 the variant then also shows what the family extracted.
 
+Unlike athar scan, the script does not decode charsets: a page that is not
+UTF-8 is matched on its raw bytes.
+
 Custom probes declared by rules are only sent with the script argument
 athar.probes, like athar scan's -probes.
 ]]

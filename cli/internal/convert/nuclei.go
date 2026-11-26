@@ -39,6 +39,8 @@ var refRe = regexp.MustCompile("\x00([^\x01]*)\x01")
 //
 //   - http.title: an internal extractor computes it as the scanner does,
 //     from the first <title>, entity-decoded and whitespace-collapsed.
+//     Nuclei decodes fewer charsets than the scanner, so the title and body
+//     of some pages that are not UTF-8 differ.
 //   - http.headers.<name>: read from the header block, one value per line.
 //   - certificate fields: an ssl block runs before the http block, whose
 //     matcher reads them as ssl_*.

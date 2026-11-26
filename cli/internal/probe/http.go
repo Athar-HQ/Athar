@@ -198,12 +198,14 @@ func (r *httpResponse) fields(f eval.Fields) {
 		}
 		f[key] = values
 	}
-	f["http.body"] = string(r.body)
+	// The text fields read the decoded body, the hashes the bytes as received.
+	text := decodeBody(r.header.Get("Content-Type"), r.body)
+	f["http.body"] = string(text)
 	if r.complete {
 		f["http.body.mmh3"] = int(r.mmh3)
 		f["http.body.sha256"] = r.sha256
 	}
-	if t, ok := title(r.body); ok {
+	if t, ok := title(text); ok {
 		f["http.title"] = t
 	}
 }
