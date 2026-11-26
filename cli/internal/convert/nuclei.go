@@ -69,6 +69,19 @@ func (n *nuclei) wrap(q string) string { return q }
 
 var nucleiHeaderRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
+// nucleiRewrittenHeaders are headers that Nuclei's header block can show
+// differently from the block as received, which is what the scanner matches:
+// Nuclei reads responses with Go's net/http and prints the block from what
+// that kept. It also asks for gzip, which the scanner does not.
+var nucleiRewrittenHeaders = map[string]string{
+	"transfer-encoding": "nuclei's header block writes Transfer-Encoding anew: chunked, in lower case",
+	"connection":        "nuclei's header block has Connection: close whenever the connection closes, also without the header, and then nothing else the header lists",
+	"trailer":           "nuclei's header block has Trailer only when the body is chunked",
+	"content-length":    "nuclei's header block has no Content-Length for a gzip body and writes the number anew",
+	"content-encoding":  "nuclei's header block has no Content-Encoding for a gzip body, which nuclei asks for and decodes",
+	"cache-control":     "nuclei's header block has Cache-Control: no-cache when the response only has Pragma: no-cache",
+}
+
 // faviconReq names the favicon request.
 const faviconReq = "#favicon"
 
@@ -146,8 +159,8 @@ func (n *nuclei) render(t term, probe string) (string, Fidelity, string, bool) {
 			return no("nuclei has no variable for this header name")
 		}
 		s, fid, note, ok := n.header(t, name, at)
-		if ok && name == "transfer-encoding" {
-			fid, note = Approximate, "nuclei's header block has Transfer-Encoding; the scanner's HTTP parser takes it out of the headers"
+		if why := nucleiRewrittenHeaders[name]; ok && why != "" {
+			fid, note = Approximate, why
 		}
 		return s, fid, note, ok
 	case f == "http.status_code":
@@ -313,8 +326,9 @@ func (n *nuclei) header(t term, name string, at func(string) string) (string, Fi
 	}
 	pat, why := headerRegexp(t, name)
 	switch {
-	case pat == "" && t.op == "re":
+	case pat == "" && t.op == "re" && nucleiRewrittenHeaders[name] == "":
 		// && skips its right side, so the variable is only read if set.
+		// The rewritten headers can be in the block without a variable.
 		pos := t
 		pos.negated = false
 		s, _, _, _ := n.match(pos, at("h:"+strings.ReplaceAll(name, "-", "_")), false)

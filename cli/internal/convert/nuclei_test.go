@@ -621,3 +621,24 @@ func TestNucleiTargetTLS(t *testing.T) {
 		t.Errorf("certificate only, tls: none: fidelity %s, notes %q, template %q", res.Fidelity, res.Notes, res.Template)
 	}
 }
+
+// The scanner matches headers as received. Nuclei's header block comes from
+// Go's net/http, which rewrites a few of them, and from a request for gzip.
+func TestNucleiHeadersNetHTTPRewrites(t *testing.T) {
+	for _, name := range []string{"transfer-encoding", "connection", "trailer", "content-length", "content-encoding", "cache-control"} {
+		res := nucleiFor(t, "selection:\n  http.headers."+name+"|contains: 'x'\ncondition: selection\n")
+		if res.Fidelity != Approximate || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "header block") {
+			t.Errorf("%s: fidelity %s, notes %q", name, res.Fidelity, res.Notes)
+		}
+		wantIn(t, res, `regex("(?mi)^`+name+`: .*x", header)`)
+	}
+	// Their variables can be undefined while the block has the header, so
+	// an expression that needs the variable is left out.
+	res := nucleiFor(t, "selection:\n  http.title|contains: 'x'\n  http.headers.connection|re: '(^|,)close'\ncondition: selection\n")
+	if res.Fidelity != Superset || strings.Contains(dslOf(t, res), "connection") {
+		t.Errorf("connection|re: fidelity %s:\n%s", res.Fidelity, res.Template)
+	}
+	if res = nucleiFor(t, "selection:\n  http.headers.server|contains: 'x'\ncondition: selection\n"); res.Fidelity != Exact {
+		t.Errorf("server: fidelity %s, notes %q", res.Fidelity, res.Notes)
+	}
+}
