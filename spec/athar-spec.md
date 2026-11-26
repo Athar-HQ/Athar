@@ -71,7 +71,8 @@ The `default` probe per protocol:
 
 - **TCP:** connect and read the first bytes (the banner) for up to N ms.
 - **TLS** (when `tls` is `auto` and the handshake succeeds, or `required`): record the certificate chain, negotiated parameters, JARM and JA3S.
-- **HTTP:** `GET /` with `Host` set to the IP, no redirect following. The favicon comes from `<link rel="icon">` if present, else `/favicon.ico`.
+- **HTTP:** `GET /` with `Host` set to the IP, no redirect following.
+- **Favicon:** the first `<link>` of the page whose `rel` contains the word `icon`, which covers `rel="icon"` and `rel="shortcut icon"` but not `apple-touch-icon`. Further icon links are ignored. An inline `data:` icon is used as it is. If the page links no icon, the link has no path of its own (`href="#"`), or the icon is on another host, the scanner requests `/favicon.ico` from the service instead; it never contacts another host. Only a `200` response counts as an icon. Engines differ on which icon they hash when a page links several, so a rule for such a page lists the hash of every icon it links.
 
 Whether this matches how each engine actually crawls (redirects, SNI, favicon location) still has to be measured; see [decisions.md](../docs/decisions.md#open).
 
