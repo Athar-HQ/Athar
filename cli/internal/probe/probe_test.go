@@ -640,8 +640,12 @@ func TestEndlessBodyIsNotDrained(t *testing.T) {
 	var sent atomic.Int64
 	done := make(chan struct{})
 	host, port := listen(t, func(c net.Conn) {
+		// Only the HTTP request gets the endless body, not a TLS attempt
+		// that may come first on a connection of its own.
+		if line, _ := bufio.NewReader(c).ReadString('\n'); !strings.HasPrefix(line, "GET ") {
+			return
+		}
 		defer close(done)
-		bufio.NewReader(c).ReadString('\n')
 		c.Write([]byte("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"))
 		chunk := []byte("10000\r\n" + strings.Repeat("a", 64<<10) + "\r\n")
 		for {
