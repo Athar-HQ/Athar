@@ -67,7 +67,7 @@ func TestCheckRaw(t *testing.T) {
 	tests := []struct{ with, want string }{
 		{"", "missing response"},
 		{"    raw: ''", "missing response"},
-		{"    probes: { css: { raw: 200 } }", `probe "css": raw must be a string`},
+		{"    probes: { css: { raw: [200] } }", `probe "css": raw must be a string`},
 		{"    probes: { hello: { raw: \"HTTP/1.1 200 OK\\n\" } }", `probe "hello": raw needs an http probe`},
 		{"    probes: { css: { raw: \"HTTP/1.1 200 OK\\n\" } }", ""},
 	}
