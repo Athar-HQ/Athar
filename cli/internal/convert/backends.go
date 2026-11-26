@@ -611,8 +611,10 @@ func censysPattern(t term) (string, Fidelity, string, bool) {
 	lit := escapeRunes(t.value, censysSpecial)
 	if t.wild {
 		// Censys dropped * and ? as wildcards outside regex, so a Sigma
-		// wildcard becomes its regex equivalent.
-		lit = censysWildcard(t.value)
+		// wildcard becomes its regex equivalent. This reads the raw value:
+		// t.value has already resolved Sigma's \* and \? escapes, which
+		// leaves a literal asterisk indistinguishable from a wildcard.
+		lit = censysWildcard(t.raw)
 	}
 	switch t.op {
 	case "eq":
@@ -628,21 +630,34 @@ func censysPattern(t term) (string, Fidelity, string, bool) {
 	return flag + lit, Exact, "", true
 }
 
-// censysWildcard turns a value with Sigma wildcards into a regex: * is any
-// run of characters, ? is one, and the rest is escaped.
-func censysWildcard(v string) string {
+// censysWildcard turns a raw Sigma value into a regex: an unescaped * is any
+// run of characters and an unescaped ? is one, while \*, \? and \\ stand for
+// those characters themselves. Everything else is escaped. It takes the raw
+// value, as modatPattern does, because the resolved value no longer says
+// which asterisk was a wildcard and which was escaped.
+func censysWildcard(raw string) string {
 	var b strings.Builder
-	for _, r := range v {
-		switch r {
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if c == '\\' && i+1 < len(raw) {
+			if n := raw[i+1]; n == '*' || n == '?' || n == '\\' {
+				// A Sigma escape: the character is a literal.
+				b.WriteByte('\\')
+				b.WriteByte(n)
+				i++
+				continue
+			}
+		}
+		switch c {
 		case '*':
 			b.WriteString(".*")
 		case '?':
 			b.WriteByte('.')
 		default:
-			if strings.ContainsRune(censysSpecial, r) {
+			if strings.IndexByte(censysSpecial, c) >= 0 {
 				b.WriteByte('\\')
 			}
-			b.WriteRune(r)
+			b.WriteByte(c)
 		}
 	}
 	return b.String()

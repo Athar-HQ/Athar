@@ -268,9 +268,13 @@ condition: sel
 		}},
 		{`http.title|contains: 'a\*b "c" \?'`, map[string]want{
 			"modat": {`http.title~"a\*b \"c\" \?"`, Exact},
+			// No unescaped wildcard, so the value is searched as it reads.
+			"censys": {`host.services: (endpoints.http.html_title: "a*b \"c\" ?")`, Approximate},
 		}},
 		{`http.title: 'a\*b "c" d*'`, map[string]want{
 			"modat": {`http.title="a\*b \"c\" d*"`, Exact},
+			// Only the unescaped * is a wildcard: \* stays a literal asterisk.
+			"censys": {`host.services: (endpoints.http.html_title =~ "(?i)^a\\*b \\\"c\\\" d.*$")`, Exact},
 		}},
 		// A line break can't be written in a one-line query.
 		{`http.headers_raw|contains: "Server: x\r\nX-Y: z"`, map[string]want{
@@ -290,11 +294,20 @@ condition: sel
 		"fofa": {`(title="a" && title="b") || title="c" || title="d"`, Exact},
 	})
 
-	// Sigma wildcards: Modat has them, the others drop the condition.
-	r = ruleFrom(t, "sel:\n  http.title: 'AR*X Console'\nport:\n  service.port: 443\ncondition: sel and port\n")
+	// Sigma wildcards: Modat has them natively, Censys as a regex, and the
+	// others drop the condition.
+	r = ruleFrom(t, "sel:\n  http.title: 'AR*X C?nsole'\nport:\n  service.port: 443\ncondition: sel and port\n")
 	check(t, r, map[string]want{
-		"modat": {`http.title="AR*X Console" and port=443`, Exact},
-		"fofa":  {`port="443"`, Superset},
+		"modat":  {`http.title="AR*X C?nsole" and port=443`, Exact},
+		"censys": {`host.services: (endpoints.http.html_title =~ "(?i)^AR.*X C.nsole$" and port = "443")`, Exact},
+		"fofa":   {`port="443"`, Superset},
+	})
+
+	// A negated wildcard must not widen: \* is a literal asterisk, so the
+	// regex may not turn it into .* and exclude services the rule matches.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title: 'a\\* b*'\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console" and not endpoints.http.html_title =~ "(?i)^a\\* b.*$")`, Approximate},
 	})
 
 	// Engine-specific fields only reach their own engine.
