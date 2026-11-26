@@ -221,7 +221,8 @@ var confidenceRank = map[string]int{"certain": 4, "high": 3, "medium": 2, "low":
 
 // Evaluate runs every rule on one observed service and returns the records,
 // most specific first. A family rule is dropped when one of its variants
-// matched the same service (spec section 7).
+// matched the same service; the variant's record then also carries the
+// values the family extracted (spec section 7).
 func (s *Scanner) Evaluate(svc *probe.Service) []output.Record {
 	type hit struct {
 		c      *eval.Compiled
@@ -264,6 +265,14 @@ func (s *Scanner) Evaluate(svc *probe.Service) []output.Record {
 		}
 	}
 
+	// What the dropped family rules extracted, for their variants' records.
+	family := map[string]map[string]string{}
+	for _, h := range hits {
+		if superseded[h.c.Rule.ID] {
+			family[h.c.Rule.ID] = h.res.Extracted
+		}
+	}
+
 	target := net.JoinHostPort(svc.Host, strconv.Itoa(svc.Port))
 	ip := ""
 	if svc.IP != svc.Host {
@@ -275,6 +284,21 @@ func (s *Scanner) Evaluate(svc *probe.Service) []output.Record {
 		r := h.c.Rule
 		if superseded[r.ID] {
 			continue
+		}
+		extracted := h.res.Extracted
+		for _, rel := range r.Related {
+			if rel.Type != "variant-of" {
+				continue
+			}
+			for k, v := range family[rel.ID] {
+				if _, own := extracted[k]; own {
+					continue
+				}
+				if extracted == nil {
+					extracted = map[string]string{}
+				}
+				extracted[k] = v
+			}
 		}
 		out = append(out, output.Record{
 			Target:     target,
@@ -288,7 +312,7 @@ func (s *Scanner) Evaluate(svc *probe.Service) []output.Record {
 			Family:     r.Identifies.Family,
 			Category:   r.Identifies.Category,
 			CPE:        r.Identifies.CPE,
-			Extracted:  h.res.Extracted,
+			Extracted:  extracted,
 			Confidence: r.Confidence,
 			Matched:    h.res.Matched,
 			Probes:     h.probes,

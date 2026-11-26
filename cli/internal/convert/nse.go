@@ -396,6 +396,17 @@ func convertNSE(r *rule.Rule) (Result, error) {
 			add(kv[0], luaString(kv[1]))
 		}
 	}
+	// The families this rule is a variant of. athar.nse leaves a family out
+	// when one of its variants matched, as athar scan does.
+	var families []string
+	for _, rel := range r.Related {
+		if rel.Type == "variant-of" {
+			families = append(families, luaString(rel.ID))
+		}
+	}
+	if len(families) > 0 {
+		add("variant_of", "{"+strings.Join(families, ", ")+"}")
+	}
 	tls := strings.ToLower(r.Target.TLS)
 	if tls == "" {
 		tls = "auto"

@@ -44,7 +44,8 @@ collects what athar scan collects: a banner if a rule needs one, the TLS
 certificate, GET / without following redirects, and the favicon. It then
 reports each rule that matched, with the rule's author, as the Detection Rule
 License 1.1 asks. A match of a rule whose conversion is not exact says so
-under "fidelity".
+under "fidelity". A family rule is left out when one of its variants matched;
+the variant then also shows what the family extracted.
 
 Custom probes declared by rules are only sent with the script argument
 athar.probes, like athar scan's -probes.
@@ -1698,6 +1699,45 @@ action = function(host, port)
     end
   end
   if #hits == 0 then return nil end
+
+  -- As athar scan: a family is left out when one of its variants matched,
+  -- and the variant's entry then also carries what the family extracted.
+  -- The variant's own values win.
+  local by_id, superseded = {}, {}
+  for _, h in ipairs(hits) do
+    if h.rule.id then by_id[h.rule.id] = h end
+  end
+  for _, h in ipairs(hits) do
+    for _, id in ipairs(h.rule.variant_of or {}) do
+      if by_id[id] then superseded[id] = true end
+    end
+  end
+  local kept = {}
+  for _, h in ipairs(hits) do
+    if not superseded[h.rule.id] then
+      local own, names, values = h.extracted or {}, {}, {}
+      for _, id in ipairs(h.rule.variant_of or {}) do
+        for k, v in pairs(superseded[id] and by_id[id].extracted or {}) do
+          if own[k] == nil and values[k] == nil then
+            names[#names + 1] = k
+            values[k] = v
+          end
+        end
+      end
+      if #names > 0 then
+        for k, v in pairs(own) do
+          names[#names + 1] = k
+          values[k] = v
+        end
+        table.sort(names, bytewise_less)
+        h.extracted = stdnse.output_table()
+        for _, k in ipairs(names) do h.extracted[k] = values[k] end
+      end
+      kept[#kept + 1] = h
+    end
+  end
+  hits = kept
+
   table.sort(hits, function(a, b)
     local x, y = CONFIDENCE[a.rule.confidence] or 0, CONFIDENCE[b.rule.confidence] or 0
     if x ~= y then return x > y end

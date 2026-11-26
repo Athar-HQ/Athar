@@ -232,7 +232,7 @@ What a scanner emits for one matched service:
 
 `author` comes from the rule. Rules in the Athar repository are licensed under the [Detection Rule License 1.1](../LICENSE.Detection.Rules.md), which asks every message based on a rule's match to name the rule's author, so a scanner should always include it.
 
-When several rules match one service, the most specific wins: a variant over its family, then higher `confidence`. This mirrors Nmap's hard match over soft match.
+When several rules match one service, every matching rule yields one record, with one exception: the record of a family rule is left out when one of its variants (section 8) matched the same service. Each such variant's record then also carries the values the family extracted; a value the variant extracts itself wins. Records are ordered by `confidence`, highest first. This mirrors Nmap's hard match over soft match. A scanner that runs one template per rule, such as Nuclei, cannot leave a record out and reports both the family and the variant.
 
 ## 8. Families and variants
 
