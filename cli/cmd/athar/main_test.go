@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -310,6 +312,67 @@ func TestScanCommand(t *testing.T) {
 	}
 }
 
+// Repeated and overlapping targets are checked and reported once.
+func TestScanDuplicateTargets(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<title>NKW — Autonomous Penetration Testing Console</title><a href="/function/tasks">`))
+	}))
+	defer srv.Close()
+	target := strings.TrimPrefix(srv.URL, "http://")
+	host, port, _ := net.SplitHostPort(target)
+
+	code, out, errOut := runCLI("scan", "-r", "../../../rules", "-p", port, target, host, target, host, host+"/32")
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 1 {
+		t.Errorf("%d output lines, want 1:\n%s", n, out)
+	}
+	if want := "1 host, 1 check, 1 open, 1 match"; !strings.Contains(errOut, want) {
+		t.Errorf("stderr misses %q:\n%s", want, errOut)
+	}
+}
+
+// A hostname that does not resolve is named in one warning and skipped. The
+// scan fails only when no target is left.
+func TestScanUnresolvedHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<title>NKW — Autonomous Penetration Testing Console</title><a href="/function/tasks">`))
+	}))
+	defer srv.Close()
+	target := strings.TrimPrefix(srv.URL, "http://")
+
+	old := lookupHost
+	lookupHost = func(_ context.Context, host string) ([]string, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	t.Cleanup(func() { lookupHost = old })
+
+	code, out, errOut := runCLI("scan", "-r", "../../../rules", target, "gone.example", "gone.example:8443", "GONE.example")
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 1 {
+		t.Errorf("%d output lines, want 1:\n%s", n, out)
+	}
+	if n := strings.Count(strings.ToLower(errOut), "gone.example"); n != 1 || !strings.Contains(errOut, "warning: gone.example does not resolve") {
+		t.Errorf("want one warning that names gone.example:\n%s", errOut)
+	}
+	if want := "1 host, 1 check, 1 open, 1 match"; !strings.Contains(errOut, want) {
+		t.Errorf("stderr misses %q:\n%s", want, errOut)
+	}
+
+	code, out, errOut = runCLI("scan", "-r", "../../../rules", "gone.example", "lost.example:80")
+	if code != exitUsage || out != "" {
+		t.Errorf("no target resolves: exit %d, want %d; stdout %q\n%s", code, exitUsage, out, errOut)
+	}
+	for _, want := range []string{"gone.example does not resolve", "lost.example does not resolve"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr misses %q:\n%s", want, errOut)
+		}
+	}
+}
+
 func TestScanUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"scan", "127.0.0.1"},            // no rules
@@ -323,6 +386,15 @@ func TestScanUsageErrors(t *testing.T) {
 	} {
 		if code, _, errOut := runCLI(args...); code != exitUsage {
 			t.Errorf("%v: exit %d, want %d\n%s", args, code, exitUsage, errOut)
+		}
+	}
+
+	// Numbers that are not IP addresses: the system resolver would read
+	// them as addresses (10.0.1 as 10.0.0.1), so they are refused.
+	for _, target := range []string{"10.0.1", "127.1", "2130706433", "0x7f.0.0.1", "127.1:80"} {
+		code, _, errOut := runCLI("scan", "-r", "../../../rules", "-p", "1", "127.0.0.1", target)
+		if code != exitUsage || !strings.Contains(errOut, `"`+target+`"`) {
+			t.Errorf("target %s: exit %d, want %d and an error naming it\n%s", target, code, exitUsage, errOut)
 		}
 	}
 
