@@ -82,6 +82,21 @@ func Convert(r *rule.Rule, engine string) (Result, error) {
 		return res, nil
 	}
 	res.Query = b.wrap(c.render(out, false))
+	// target.tls is not part of a query. Leaving it out can only add
+	// results, so an exact query becomes a superset.
+	note := ""
+	switch {
+	case r.Target.TLS == "required" && !overTLS(out):
+		note = "target.tls: required is not part of the query; it also returns plaintext services"
+	case r.Target.TLS == "none":
+		note = "target.tls: none is not part of the query; it also returns TLS services"
+	}
+	if note != "" {
+		if res.Fidelity == Exact {
+			res.Fidelity = Superset
+		}
+		res.Notes = append(res.Notes, note)
+	}
 	if n, ok := b.(engineNoter); ok {
 		res.Notes = append(res.Notes, n.notes()...)
 	}
@@ -128,10 +143,34 @@ type term struct {
 
 // lit is a term an engine could express, already rendered. key and val are
 // set by engines that can OR several values of one field (see keyer); neg
-// is set when the term is negated.
+// is set when the term is negated, tls when it only holds for a service
+// that spoke TLS.
 type lit struct {
 	s, key, val string
-	neg         bool
+	neg, tls    bool
+}
+
+// overTLS reports whether everything a lowered expression matches spoke TLS,
+// because it asks for a certificate or handshake value.
+func overTLS(e expr) bool {
+	switch x := e.(type) {
+	case lit:
+		return x.tls
+	case andExpr:
+		for _, ch := range x {
+			if overTLS(ch) {
+				return true
+			}
+		}
+	case orExpr:
+		for _, ch := range x {
+			if !overTLS(ch) {
+				return false
+			}
+		}
+		return len(x) > 0
+	}
+	return false
 }
 
 // keyer is implemented by engines without a general OR that can still list
@@ -368,7 +407,7 @@ func (c *converter) lower(e expr) expr {
 			c.worse(Approximate)
 		}
 		c.worse(f)
-		l := lit{s: s, neg: x.negated}
+		l := lit{s: s, neg: x.negated, tls: !x.negated && strings.HasPrefix(x.field, "tls.")}
 		if k, ok := c.b.(keyer); ok {
 			l.key, l.val = k.key(x)
 		}
@@ -442,6 +481,7 @@ func (c *converter) sameField(alts orExpr) (expr, bool) {
 	}
 	var key string
 	var vals []string
+	tls := true
 	for _, a := range alts {
 		l, ok := a.(lit)
 		if !ok || l.key == "" || (key != "" && l.key != key) {
@@ -449,9 +489,10 @@ func (c *converter) sameField(alts orExpr) (expr, bool) {
 		}
 		key = l.key
 		vals = append(vals, l.val)
+		tls = tls && l.tls
 	}
 	s := k.list(key, vals)
-	return lit{s: s, key: key, val: strings.Join(vals, ",")}, true
+	return lit{s: s, key: key, val: strings.Join(vals, ","), tls: tls}, true
 }
 
 func (c *converter) render(e expr, nested bool) string {

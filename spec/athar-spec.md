@@ -327,6 +327,8 @@ A backend turns a rule into one engine's query and labels the result with its fi
 
 **Superset rule.** Replace each unconvertible selection with TRUE where it sits under an even number of `not`s, and with FALSE under an odd number, then simplify. The result can only return more services, never fewer, and the scanner confirms the rest. If the query collapses to TRUE, the backend refuses.
 
+**`target.tls`.** Engine queries leave out `tls: required` and `tls: none`, so an `exact` query becomes a `superset` with a note, unless a certificate or handshake condition already limits a `required` rule to TLS; scanner templates keep the constraint.
+
 **Operators do not line up across engines:**
 
 - `contains` is native on FOFA and ZoomEye (`=`) and on Modat (`~`) for fields such as `http.title`. It is approximate on Shodan and Censys (`:`), which tokenize text, and on Modat's `http.body`, `http.headers` and `banner`, which only match whole words.

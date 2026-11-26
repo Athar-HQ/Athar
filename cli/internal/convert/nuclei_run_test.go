@@ -88,6 +88,43 @@ func TestNucleiTemplateFeatures(t *testing.T) {
 		{rule: "athar-features-no-favicon", test: "no favicon: empty answer", target: serveIconPage(t, nil), expect: true},
 		{rule: "athar-features-no-favicon", test: "no favicon: an icon", target: serveIconPage(t, icon), expect: false},
 	}
+	// target.tls: the same page over TLS and in plaintext.
+	for i, mode := range []string{"required", "none"} {
+		rules = append(rules, parse(t, "features_tls_"+mode+".yml", `
+title: tls `+mode+`
+id: 55555555-5555-4555-8555-55555555555`+fmt.Sprint(i)+`
+target: {protocol: http, tls: `+mode+`}
+detection:
+  selection:
+    http.title: 'Hash test'
+  condition: selection
+`))
+		// The scheme guard around an OR and a guarded title.
+		rules = append(rules, parse(t, "features_tls_"+mode+"_fields.yml", `
+title: tls `+mode+` with fields
+id: 55555555-5555-4555-8555-55555555556`+fmt.Sprint(i)+`
+target: {protocol: http, tls: `+mode+`}
+detection:
+  selection_title:
+    http.title|startswith: 'Hash'
+  selection_header:
+    http.headers.x-none|exists: true
+  filter_empty:
+    http.title: ''
+  condition: (selection_title or selection_header) and not filter_empty
+`))
+	}
+	plain, secure := serveIconPage(t, icon), servePageTLS(t)
+	extra = append(extra,
+		nucleiCase{rule: "athar-features-tls-required-fields", test: "tls required, fields: over TLS", target: secure, expect: true},
+		nucleiCase{rule: "athar-features-tls-required-fields", test: "tls required, fields: plaintext", target: plain, expect: false},
+		nucleiCase{rule: "athar-features-tls-none-fields", test: "tls none, fields: plaintext", target: plain, expect: true},
+		nucleiCase{rule: "athar-features-tls-none-fields", test: "tls none, fields: over TLS", target: secure, expect: false},
+		nucleiCase{rule: "athar-features-tls-required", test: "tls required: over TLS", target: secure, expect: true},
+		nucleiCase{rule: "athar-features-tls-required", test: "tls required: plaintext", target: plain, expect: false},
+		nucleiCase{rule: "athar-features-tls-none", test: "tls none: plaintext", target: plain, expect: true},
+		nucleiCase{rule: "athar-features-tls-none", test: "tls none: over TLS", target: secure, expect: false},
+	)
 	for _, mode := range []struct {
 		name  string
 		flags []string
@@ -665,6 +702,15 @@ func serveIconPage(t *testing.T, ico []byte) string {
 			w.Write(ico)
 			return
 		}
+		fmt.Fprint(w, featurePage)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// servePageTLS serves featurePage at / over TLS.
+func servePageTLS(t *testing.T) string {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, featurePage)
 	}))
 	t.Cleanup(srv.Close)
