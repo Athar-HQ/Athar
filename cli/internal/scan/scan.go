@@ -48,8 +48,11 @@ type Stats struct {
 	Interrupted   bool
 }
 
-// unsupported are taxonomy fields the scanner does not collect yet.
+// unsupported are taxonomy fields the scanner does not collect yet. tls.alpn
+// is one of them because the prober offers no ALPN protocol, so the server
+// selects none.
 var unsupported = map[string]bool{
+	"tls.alpn": true,
 	"tls.jarm": true, "tls.ja3s": true, "tls.ja4s": true, "tls.cert.ja4x": true,
 	"ssh.hostkey.sha256": true, "ssh.kex_algorithms": true,
 }
@@ -100,21 +103,23 @@ func New(rules []*eval.Compiled, opts Options) *Scanner {
 		} else {
 			needs.Banner = true
 		}
-		if r.Target.TLS != "none" {
-			needs.TLS = true
-		}
 		var missing []string
-		for _, fields := range used {
+		for id, fields := range used {
 			for _, f := range fields {
+				// A rule gets what it reads whatever its protocol says, so
+				// that its result does not depend on the other rules loaded.
 				switch {
 				case strings.HasPrefix(f, "http.favicon."):
 					needs.HTTP, needs.Favicon = true, true
 				case strings.HasPrefix(f, "http."):
 					needs.HTTP = true
-				case strings.HasPrefix(f, "tls."):
-					needs.TLS = true
 				case strings.HasPrefix(f, "ssh."):
 					needs.Banner = true
+				case f == "service.banner" && id == eval.DefaultProbe:
+					needs.Banner = true
+				case f == "service.protocol" && id == eval.DefaultProbe:
+					// Set from the banner (ssh) or the HTTP response (http).
+					needs.Banner, needs.HTTP = true, true
 				}
 				if unsupported[f] || strings.HasPrefix(f, "x-") {
 					missing = append(missing, f)
@@ -429,9 +434,7 @@ func (s *Scanner) tried() string {
 	if n.Banner {
 		t = append(t, "banner")
 	}
-	if n.TLS {
-		t = append(t, "TLS")
-	}
+	t = append(t, "TLS")
 	if n.HTTP {
 		t = append(t, "HTTP")
 	}

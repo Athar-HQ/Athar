@@ -19,6 +19,8 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -142,6 +144,60 @@ func TestNSEMatchesScan(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestNSERuleAloneMatchesScan loads one rule at a time: what a rule matches
+// must not depend on the other rules loaded. Alone, a tls: none rule used to
+// keep both scanners from trying TLS, so it matched the plaintext "400 Bad
+// Request" of a TLS server, and an http rule never got the banner it reads.
+func TestNSERuleAloneMatchesScan(t *testing.T) {
+	bin := nmapBin(t)
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	tlsPort, _ := strconv.Atoi(u.Port())
+	ftpPort := rawServer(t, nil, nil, "220 Acme FTP ready\r\n")
+
+	for _, tt := range []struct {
+		src  string
+		port int // where the rule must match; 0 for nowhere
+	}{{`
+title: alone TLS none
+id: 10000000-0000-4000-8000-0000000000a1
+target: {protocol: http, tls: none}
+detection:
+  selection:
+    http.status_code|exists: true
+  condition: selection
+`, 0}, {`
+title: alone banner
+id: 10000000-0000-4000-8000-0000000000a2
+target: {protocol: http}
+detection:
+  selection:
+    service.banner|contains: 'Acme FTP'
+  condition: selection
+`, ftpPort}, {`
+title: alone keyword
+id: 10000000-0000-4000-8000-0000000000a3
+target: {protocol: http}
+detection:
+  keywords:
+    - 'acme ftp'
+  condition: keywords
+`, ftpPort}} {
+		r := parse(t, "alone.yml", tt.src)
+		rules, ports := []*rule.Rule{r}, []int{tlsPort, ftpPort}
+		want := scanRecords(t, rules, ports)
+		got := runNSE(t, bin, rules, ports, "athar.timeout=1s")
+		for _, port := range ports {
+			_, wok := want[port][r.ID]
+			_, gok := got[port][r.ID]
+			if expected := port == tt.port; wok != expected || gok != expected {
+				t.Errorf("%s, port %d: athar scan matched=%v, athar.nse matched=%v, want %v", r.Title, port, wok, gok, expected)
+			}
+		}
 	}
 }
 
