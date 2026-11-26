@@ -48,6 +48,9 @@ var (
 	relatedTypes = set("derived", "obsolete", "merged", "renamed", "similar", "variant-of")
 )
 
+// probeProtocols are the probes a scanner can send (spec section 4).
+var probeProtocols = set("http", "tcp")
+
 var uuidV4 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func set(values ...string) map[string]bool {
@@ -66,6 +69,7 @@ func Check(r *Rule) []Problem {
 	for _, k := range r.unknownKeys {
 		p = append(p, warnf("unknown top-level key %q", k))
 	}
+	p = append(p, r.nested...)
 
 	if r.Title == "" {
 		p = append(p, errorf("missing title"))
@@ -107,13 +111,26 @@ func Check(r *Rule) []Problem {
 	if r.Target.TLS != "" && !tlsModes[r.Target.TLS] {
 		p = append(p, errorf("target.tls %q is not one of %s", r.Target.TLS, keys(tlsModes)))
 	}
+	for _, port := range r.Target.Ports {
+		if port < 1 || port > 65535 {
+			p = append(p, errorf("target.ports: %d is not a port (1-65535)", port))
+		}
+	}
 
 	for id, pr := range r.Probes {
 		if id == "default" {
 			p = append(p, errorf("probe id %q is reserved for the baseline probe", id))
 		}
-		if pr.Protocol == "" {
+		switch strings.ToLower(pr.Protocol) {
+		case "":
 			p = append(p, errorf("probe %q: missing protocol", id))
+		case "http":
+		case "tcp":
+			if _, err := Unescape(pr.Send); err != nil {
+				p = append(p, errorf("probe %q: send: %v", id, err))
+			}
+		default:
+			p = append(p, errorf("probe %q: protocol %q is not one of %s", id, pr.Protocol, keys(probeProtocols)))
 		}
 		for _, why := range pr.Unsafe() {
 			p = append(p, errorf("probe %q: %s", id, why))
@@ -133,6 +150,20 @@ func Check(r *Rule) []Problem {
 		p = append(p, errorf("missing identifies.category"))
 	case !categories[id.Category]:
 		p = append(p, errorf("identifies.category %q is not one of %s", id.Category, keys(categories)))
+	}
+	if id.Category != "" {
+		var tagged bool
+		for _, tag := range r.Tags {
+			if c, ok := strings.CutPrefix(tag, "category."); ok {
+				tagged = true
+				if c != id.Category {
+					p = append(p, errorf("tag %q does not repeat identifies.category %q", tag, id.Category))
+				}
+			}
+		}
+		if !tagged {
+			p = append(p, warnf("no category.* tag; add category.%s", id.Category))
+		}
 	}
 
 	var positive, negative bool

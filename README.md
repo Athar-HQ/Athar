@@ -40,6 +40,8 @@ id: e16df89b-108c-4364-8b69-d5bc6ef04b5f
 status: experimental
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
+tags:
+  - category.offensive-tool
 target:
   protocol: http
 detection:
@@ -298,7 +300,7 @@ Other scanners and formats that rules could convert to are listed in [docs/conve
 
 ### Verify rules
 
-`athar verify` takes rule files or folders. It checks every rule against the spec (required fields, field names, modifiers, the condition) and runs the rule's `tests`:
+`athar verify` takes rule files or folders. It checks every rule against the spec (required fields, unknown keys, value ranges, field names, modifiers, the condition) and runs the rule's `tests`:
 
 ```bash
 git clone https://github.com/Athar-HQ/Athar.git
@@ -359,7 +361,7 @@ c2/example_panel.yml  FAIL  0/1 tests passed
 
 | Flag | Effect |
 | --- | --- |
-| `-strict` | Warnings fail too: a missing positive or negative test, an unused selection, an unknown top-level key. This repository's CI runs `athar verify -strict rules`. |
+| `-strict` | Warnings fail too: a missing positive or negative test, an unused selection, an unknown top-level key, a missing `category.*` tag. This repository's CI runs `athar verify -strict rules`. |
 | `-q` | Print only rules with problems, plus the summary. |
 | `-no-color` | No colours, as for `scan`. |
 

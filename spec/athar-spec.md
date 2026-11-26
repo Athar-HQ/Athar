@@ -61,7 +61,7 @@ Fields marked *Sigma* behave exactly as in the [Sigma specification](https://git
 | `protocol` | yes | Application protocol: `http`, `ssh`, `ftp`, `smtp`, … Use `tcp` for rules that only look at a raw banner. |
 | `transport` | no | `tcp` (default) or `udp`. |
 | `tls` | no | `auto` (default): try TLS, fall back to plaintext. `required`: only match over TLS. `none`: only match plaintext. |
-| `ports` | no | Typical ports. A hint for scanners and backends, never a match condition: when the operator gives no port list, a scanner adds these ports to the ones it checks. To require a port, use `service.port` in a selection. |
+| `ports` | no | Typical ports, each from 1 to 65535. A hint for scanners and backends, never a match condition: when the operator gives no port list, a scanner adds these ports to the ones it checks. To require a port, use `service.port` in a selection. |
 
 ## 4. Probes
 
@@ -101,6 +101,8 @@ detection:
     http.body|contains: '"product":"ExamplePanel"'
   condition: selection_api
 ```
+
+A probe's `protocol` is `http` or `tcp`. An `http` probe takes `request` with `method`, `path` and `headers`; it has no body. A `tcp` probe takes `send` and `read`. `read` limits the answer: `max_bytes` from 1 to 1048576 (1 MiB), `timeout_ms` from 1 to 30000 (30 s). A scanner may keep fewer bytes.
 
 Probes must be safe by construction: idempotent, unauthenticated, and without payloads that change state or try to exploit anything. Scanners must refuse non-safe HTTP methods unless an operator explicitly enables them. A shared probe library, like Nmap's, lets many rules reuse the same request, so a scanner sends it once per target.
 
@@ -214,7 +216,7 @@ For the title `ARTEX — 自主渗透测试控制台` the record gets `brand: AR
 
 Each `extract` entry is named after the value it produces and gives the `field` to read plus either an RE2 `regex` or a `jsonpath` for JSON bodies. The value is the regex group named like the entry (`(?P<brand>…)` for `brand`), else the first group, else the whole match. This is the same idea as Recog's `param` elements.
 
-**`category`** comes from a controlled list: `c2`, `offensive-tool`, `phishing-kit`, `malware-panel`, `remote-access`, `ai-infrastructure`, `network-appliance`, `ics`, `iot`, `cms`, `web-server`, `database`.
+**`category`** comes from a controlled list: `c2`, `offensive-tool`, `phishing-kit`, `malware-panel`, `remote-access`, `ai-infrastructure`, `network-appliance`, `ics`, `iot`, `cms`, `web-server`, `database`. The tag `category.<category>` repeats it.
 
 What a scanner emits for one matched service:
 

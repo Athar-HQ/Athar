@@ -42,6 +42,8 @@ type Rule struct {
 
 	// unknownKeys are top-level keys the spec does not define.
 	unknownKeys []string
+	// nested are the problems checkNested found below the top level.
+	nested []Problem
 }
 
 type Related struct {
@@ -128,6 +130,10 @@ func Parse(data []byte, path string) (*Rule, error) {
 		}
 	}
 	sort.Strings(r.unknownKeys)
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err == nil && len(doc.Content) == 1 {
+		r.nested = checkNested(doc.Content[0])
+	}
 	return r, nil
 }
 

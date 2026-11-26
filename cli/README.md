@@ -132,7 +132,7 @@ At start, scan warns about rules it can't fully evaluate. Not collected yet: `tl
 
 Defaults that keep scanning polite and safe:
 
-- Baseline probe only. Custom probes run only with `-probes`, and only if they are safe: GET, HEAD or OPTIONS, a path that starts with `/`, no line breaks in the path or headers, and no credential, body or method-override headers (`Authorization`, `Cookie`, `Content-Length`, `X-HTTP-Method-Override`, …). A `tcp` probe whose payload contains an HTTP request that breaks these rules isn't sent either. `athar verify` reports such probes as errors, so `athar scan` refuses to load the rule.
+- Baseline probe only. Custom probes run only with `-probes`, and only if they are safe: GET, HEAD or OPTIONS, a path that starts with `/`, no line breaks in the path or headers, and no credential, body or method-override headers (`Authorization`, `Cookie`, `Content-Length`, `X-HTTP-Method-Override`, …). A `tcp` probe whose payload contains an HTTP request that breaks these rules isn't sent either, nor is a probe whose protocol is not `http` or `tcp` or whose payload can't be decoded. `athar verify` reports such probes as errors, so `athar scan` refuses to load the rule.
 - At most 200 new connections per second (`-rate`), 500 parallel checks (`-c`), 8 per host (`-per-host`).
 - The HTTP `User-Agent` names the tool: `Mozilla/5.0 (compatible; athar/<version>; +https://github.com/Athar-HQ/Athar)`.
 - Ranges larger than /16 are refused; split them.
