@@ -140,6 +140,16 @@ condition: selection
 	}
 }
 
+// athar scan hashes only a complete body; Nuclei hashes whatever it read.
+func TestNucleiBodyHashIsApproximate(t *testing.T) {
+	for _, field := range []string{"http.body.sha256: ff75", "http.body.mmh3: 123"} {
+		res := nucleiFor(t, "selection:\n  "+field+"\ncondition: selection\n")
+		if res.Fidelity != Approximate || len(res.Notes) != 1 || !strings.Contains(res.Notes[0], "cut short") {
+			t.Errorf("%s: fidelity %s, notes %q", field, res.Fidelity, res.Notes)
+		}
+	}
+}
+
 func TestNucleiQuoting(t *testing.T) {
 	res := nucleiFor(t, `
 selection:
