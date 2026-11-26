@@ -92,6 +92,8 @@ func probeRef(id string) string { return "probe:" + hex.EncodeToString([]byte(id
 
 const nucleiFaviconNote = "the favicon is fetched from /favicon.ico; the scanner first follows <link rel=\"icon\">"
 
+const nucleiBodyHashNote = "nuclei hashes what it read of a body, also one that was cut short or is longer than it reads (10 MB by default); the scanner only hashes a complete body"
+
 // term renders one condition as a DSL expression with field references.
 func (n *nuclei) term(t term) (string, Fidelity, string, bool) {
 	return n.render(t, "default")
@@ -166,9 +168,9 @@ func (n *nuclei) render(t term, probe string) (string, Fidelity, string, bool) {
 	case f == "http.status_code":
 		return n.number(t, at("status_code"))
 	case f == "http.body.mmh3":
-		return n.hash(t, "mmh3("+at("body")+")", Exact, "")
+		return n.hash(t, "mmh3("+at("body")+")", Approximate, nucleiBodyHashNote)
 	case f == "http.body.sha256":
-		return n.hash(t, "sha256("+at("body")+")", Exact, "")
+		return n.hash(t, "sha256("+at("body")+")", Approximate, nucleiBodyHashNote)
 	case strings.HasPrefix(f, "http.favicon."):
 		if probe != "default" {
 			return no("favicons of a custom probe are not converted for nuclei")

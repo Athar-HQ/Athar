@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -715,6 +717,272 @@ func TestGzipBody(t *testing.T) {
 			}
 			if title := svc.Fields["http.title"]; title != "Fake Gzip Panel" {
 				t.Errorf("http.title = %#v", title)
+			}
+		})
+	}
+}
+
+// A body that never ends is read up to the hash limit and then left alone:
+// the probe must not go on reading it until the deadline.
+func TestEndlessBodyIsNotDrained(t *testing.T) {
+	var sent atomic.Int64
+	done := make(chan struct{})
+	host, port := listen(t, func(c net.Conn) {
+		// Only the HTTP request gets the endless body, not a TLS attempt
+		// that may come first on a connection of its own.
+		if line, _ := bufio.NewReader(c).ReadString('\n'); !strings.HasPrefix(line, "GET ") {
+			return
+		}
+		defer close(done)
+		c.Write([]byte("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"))
+		chunk := []byte("10000\r\n" + strings.Repeat("a", 64<<10) + "\r\n")
+		for {
+			n, err := c.Write(chunk)
+			sent.Add(int64(n))
+			if err != nil {
+				return
+			}
+		}
+	})
+	svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+	if svc == nil {
+		t.Fatal("port reported closed")
+	}
+	<-done
+	if n := sent.Load(); n > maxHashBody+(8<<20) {
+		t.Errorf("the server could send %d MiB; the probe should stop after %d MiB", n>>20, maxHashBody>>20)
+	}
+	if body, _ := svc.Fields["http.body"].(string); body != strings.Repeat("a", MaxBody) {
+		t.Errorf("http.body = %d bytes, want the first %d", len(body), MaxBody)
+	}
+	for _, k := range []string{"http.body.sha256", "http.body.mmh3"} {
+		if v, ok := svc.Fields[k]; ok {
+			t.Errorf("%s = %v for a body without an end", k, v)
+		}
+	}
+}
+
+// The body hashes cover the complete body, not the first MaxBody bytes that
+// http.body keeps. A body that is too long or cut short has no hashes.
+func TestBodyHashes(t *testing.T) {
+	big := make([]byte, 3<<20)
+	rand.New(rand.NewSource(1)).Read(big)
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	zw.Write(big)
+	zw.Close()
+	atLimit := make([]byte, maxHashBody)
+	head := func(n int) string { return "HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(n) + "\r\n\r\n" }
+	gzHead := func(n int) string {
+		return "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(n) + "\r\n\r\n"
+	}
+	chunked := func(c net.Conn, b []byte) {
+		c.Write([]byte("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"))
+		for ; len(b) > 0; b = b[min(len(b), 1<<20):] {
+			piece := b[:min(len(b), 1<<20)]
+			c.Write([]byte(strconv.FormatInt(int64(len(piece)), 16) + "\r\n"))
+			c.Write(piece)
+			c.Write([]byte("\r\n"))
+		}
+		c.Write([]byte("0\r\n\r\n"))
+	}
+	for _, tt := range []struct {
+		name   string
+		serve  func(c net.Conn)
+		body   []byte // the decoded body; nil if what arrives of it varies
+		hashed bool
+	}{
+		{"content-length", func(c net.Conn) { c.Write([]byte(head(len(big)))); c.Write(big) }, big, true},
+		{"chunked", func(c net.Conn) { chunked(c, big) }, big, true},
+		{"gzip", func(c net.Conn) { c.Write([]byte(gzHead(gz.Len()))); c.Write(gz.Bytes()) }, big, true},
+		{"until close", func(c net.Conn) { c.Write([]byte("HTTP/1.0 200 OK\r\n\r\n")); c.Write(big) }, big, true},
+		{"at the limit", func(c net.Conn) { chunked(c, atLimit) }, atLimit, true},
+		{"over the limit", func(c net.Conn) { chunked(c, append(atLimit, 0)) }, atLimit, false},
+		{"content-length over the limit", func(c net.Conn) { c.Write([]byte(head(len(atLimit) + 1))); c.Write(append(atLimit, 0)) }, atLimit, false},
+		{"cut short", func(c net.Conn) { c.Write([]byte(head(len(big)))); c.Write(big[:2<<20]) }, big, false},
+		{"gzip cut short", func(c net.Conn) { c.Write([]byte(gzHead(gz.Len() - 8))); c.Write(gz.Bytes()[:gz.Len()-8]) }, big, false}, // no CRC and size
+		{"stalled", func(c net.Conn) {
+			c.Write([]byte(head(len(big))))
+			c.Write(big[:2<<20])
+			time.Sleep(time.Second)
+		}, big, false},
+		{"reset", func(c net.Conn) {
+			c.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
+			c.Write(big[:2<<20])
+			time.Sleep(100 * time.Millisecond)
+			c.(*net.TCPConn).SetLinger(0)
+		}, nil, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port := listen(t, func(c net.Conn) {
+				bufio.NewReader(c).ReadString('\n')
+				tt.serve(c)
+			})
+			p := testProber(Needs{HTTP: true})
+			if tt.name == "stalled" {
+				p.Timeout = 300 * time.Millisecond
+			}
+			svc := p.Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			f := svc.Fields
+			if body, _ := f["http.body"].(string); tt.body != nil && body != string(tt.body[:MaxBody]) {
+				t.Errorf("http.body = %d bytes, want the first %d", len(body), MaxBody)
+			}
+			if !tt.hashed {
+				for _, k := range []string{"http.body.sha256", "http.body.mmh3"} {
+					if v, ok := f[k]; ok {
+						t.Errorf("%s = %v for a body that was not read to its end", k, v)
+					}
+				}
+				return
+			}
+			if got, want := f["http.body.sha256"], sha256Hex(tt.body); got != want {
+				t.Errorf("http.body.sha256 = %v, want %s", got, want)
+			}
+			if got, want := f["http.body.mmh3"], int(MMH3(tt.body)); got != want {
+				t.Errorf("http.body.mmh3 = %v, want %d", got, want)
+			}
+		})
+	}
+}
+
+// A favicon is hashed whole, however large; one that is cut short is not
+// hashed at all.
+func TestLargeFavicon(t *testing.T) {
+	large := make([]byte, 2<<20+5)
+	rand.New(rand.NewSource(2)).Read(large)
+	const page = `<link rel="icon" href="/large.ico">`
+	for _, tt := range []struct {
+		name   string
+		sent   int
+		hashed bool
+	}{
+		{"complete", len(large), true},
+		{"cut short", len(large) - 1, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port := listen(t, func(c net.Conn) {
+				line, _ := bufio.NewReader(c).ReadString('\n')
+				if strings.HasPrefix(line, "GET / ") {
+					c.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(len(page)) + "\r\n\r\n" + page))
+					return
+				}
+				c.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(len(large)) + "\r\n\r\n"))
+				c.Write(large[:tt.sent])
+			})
+			svc := testProber(Needs{HTTP: true, Favicon: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			want := map[string]any{}
+			if tt.hashed {
+				want = map[string]any{
+					"http.favicon.mmh3":   int(FaviconMMH3(large)),
+					"http.favicon.md5":    md5Hex(large),
+					"http.favicon.sha256": sha256Hex(large),
+				}
+			}
+			for _, k := range []string{"http.favicon.mmh3", "http.favicon.md5", "http.favicon.sha256"} {
+				if got, ok := svc.Fields[k]; ok != tt.hashed || got != want[k] {
+					t.Errorf("%s = %v, want %v", k, got, want[k])
+				}
+			}
+		})
+	}
+}
+
+// Hashes over data written in pieces equal the hashes of the whole.
+func TestHashInPieces(t *testing.T) {
+	data := make([]byte, 1000)
+	rand.New(rand.NewSource(3)).Read(data)
+	for _, size := range []int{0, 1, 3, 4, 56, 57, 58, 114, 999, 1000} {
+		for _, step := range []int{1, 3, 5, 57, 64, 1000} {
+			var m mmh3Sum
+			icon := newIconSum()
+			for b := data[:size]; len(b) > 0; b = b[min(len(b), step):] {
+				m.Write(b[:min(len(b), step)])
+				icon.Write(b[:min(len(b), step)])
+			}
+			if got, want := m.Sum(), MMH3(data[:size]); got != want {
+				t.Errorf("%d bytes in pieces of %d: mmh3 = %d, want %d", size, step, got, want)
+			}
+			f := map[string]any{}
+			icon.fields(f)
+			want := map[string]any{}
+			if size > 0 {
+				want = map[string]any{
+					"http.favicon.mmh3":   int(FaviconMMH3(data[:size])),
+					"http.favicon.md5":    md5Hex(data[:size]),
+					"http.favicon.sha256": sha256Hex(data[:size]),
+				}
+			}
+			if !reflect.DeepEqual(f, want) {
+				t.Errorf("%d bytes in pieces of %d: icon hashes = %v, want %v", size, step, f, want)
+			}
+		}
+	}
+}
+
+// Interim 1xx responses such as 103 Early Hints come before the final
+// response and are skipped. 101 is final.
+func TestInterimResponses(t *testing.T) {
+	const final = "HTTP/1.1 200 OK\r\nServer: final\r\nContent-Length: 20\r\n\r\n<title>Final</title>"
+	const hints = "HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\n\r\n"
+	for _, tt := range []struct {
+		name   string
+		serve  func(c net.Conn)
+		status any
+	}{
+		{"103", func(c net.Conn) { c.Write([]byte(hints + final)) }, 200},
+		{"100, 102 and 103", func(c net.Conn) {
+			c.Write([]byte("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 102 Processing\r\n\r\n" + hints + final))
+		}, 200},
+		{"103 sent ahead", func(c net.Conn) {
+			c.Write([]byte(hints))
+			time.Sleep(100 * time.Millisecond)
+			c.Write([]byte(final))
+		}, 200},
+		{"101", func(c net.Conn) {
+			c.Write([]byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: other\r\n\r\n" + final))
+		}, 101},
+		{"only interim responses", func(c net.Conn) {
+			for {
+				if _, err := c.Write([]byte(hints)); err != nil {
+					return
+				}
+			}
+		}, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port := listen(t, func(c net.Conn) {
+				bufio.NewReader(c).ReadString('\n')
+				tt.serve(c)
+			})
+			start := time.Now()
+			svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			if d := time.Since(start); d > time.Second {
+				t.Errorf("took %v", d)
+			}
+			f := svc.Fields
+			if f["http.status_code"] != tt.status {
+				t.Fatalf("http.status_code = %v, want %v", f["http.status_code"], tt.status)
+			}
+			if tt.status != 200 {
+				return
+			}
+			if f["http.title"] != "Final" || f["http.headers.server"] != "final" {
+				t.Errorf("http.title = %v, http.headers.server = %v", f["http.title"], f["http.headers.server"])
+			}
+			if raw, _ := f["http.headers_raw"].(string); raw != final[:strings.Index(final, "<")] {
+				t.Errorf("http.headers_raw = %q", raw)
+			}
+			if v, ok := f["http.headers.link"]; ok {
+				t.Errorf("http.headers.link = %v, a header of the interim response", v)
 			}
 		})
 	}
