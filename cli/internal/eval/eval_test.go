@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -171,6 +172,16 @@ func TestMatchedSelections(t *testing.T) {
 	res := c.Eval(baseline(Fields{"http.title": "Console", "http.body": "/function/tasks"}))
 	if !res.Match || strings.Join(res.Matched, ",") != "selection_route,selection_title" {
 		t.Errorf("got match=%v matched=%v", res.Match, res.Matched)
+	}
+}
+
+// A condition that holds only through negation has no selection that held.
+// Matched is then empty, not nil, so the JSON record has "matched":[].
+func TestMatchedSelectionsEmpty(t *testing.T) {
+	c := compile(t, "filter:\n  http.title: nope\ncondition: not filter")
+	res := c.Eval(baseline(Fields{"http.title": "Console"}))
+	if b, _ := json.Marshal(res.Matched); !res.Match || string(b) != "[]" {
+		t.Errorf("got match=%v matched=%s, want true and []", res.Match, b)
 	}
 }
 
