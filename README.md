@@ -40,6 +40,8 @@ id: e16df89b-108c-4364-8b69-d5bc6ef04b5f
 status: experimental
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
+tags:
+  - category.offensive-tool
 target:
   protocol: http
 detection:
@@ -153,7 +155,7 @@ go install github.com/Athar-HQ/Athar/cli/cmd/athar@latest
 
 ### Scan
 
-Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames, CIDR ranges up to /16, or `host:port`. Flags can go before or after the targets.
+Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames, CIDR ranges up to /16, or `host:port`. Flags can go before or after the targets; `--` ends the flags.
 
 ```bash
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24
@@ -252,7 +254,7 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 | Fidelity | Meaning |
 | --- | --- |
 | `exact` | Same result set as the rule on the engine's data. |
-| `approximate` | Same intent, looser operator: tokenised text, a prefix searched as a substring, case-sensitive equality. |
+| `approximate` | Same intent, looser operator: tokenised text, a prefix searched as a substring, case-sensitive equality. Also a query on an engine field whose mapping is not verified yet; a note names it. |
 | `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. Shodan can OR several values of one filter (`http.title:"a","b"`) but not different filters, so the ARTEX rule's `title starts with ARTEX or ARTEX favicon` is dropped there. |
 | `unsupported` | Nothing meaningful is left, and no query is printed. |
 
@@ -298,7 +300,7 @@ Other scanners and formats that rules could convert to are listed in [docs/conve
 
 ### Verify rules
 
-`athar verify` takes rule files or folders. It checks every rule against the spec (required fields, field names, modifiers, the condition) and runs the rule's `tests`:
+`athar verify` takes rule files or folders. It checks every rule against the spec (required fields, unknown keys, value ranges, field names, modifiers, the condition) and runs the rule's `tests`:
 
 ```bash
 git clone https://github.com/Athar-HQ/Athar.git
@@ -314,6 +316,7 @@ rules/offensive-tool/aof_artex_basic_auth_nov26.yml              2/2 tests passe
 rules/offensive-tool/aof_artex_frontend_files_nov26.yml          6/6 tests passed
 rules/offensive-tool/aof_artex_llm_console_nov26.yml             3/3 tests passed
 rules/offensive-tool/aof_artex_nov26.yml                         7/7 tests passed
+rules/offensive-tool/aof_artex_opx_nov26.yml                     3/3 tests passed
 rules/offensive-tool/aof_artex_rebrands_nov26.yml                7/7 tests passed
 rules/offensive-tool/aof_artex_stylesheet_nov26.yml              4/4 tests passed
 rules/offensive-tool/aof_autocve_favicon_nov26.yml               2/2 tests passed
@@ -342,7 +345,7 @@ rules/offensive-tool/aof_strix_favicon_sha256_nov26.yml          2/2 tests passe
 rules/offensive-tool/aof_strix_nov26.yml                         2/2 tests passed
 rules/offensive-tool/aof_strix_server_nov26.yml                  2/2 tests passed
 
-34 rules, 0 failed; 104/104 tests passed; 0 errors, 0 warnings
+35 rules, 0 failed; 107/107 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:
@@ -358,7 +361,7 @@ c2/example_panel.yml  FAIL  0/1 tests passed
 
 | Flag | Effect |
 | --- | --- |
-| `-strict` | Warnings fail too: a missing positive or negative test, an unused selection, an unknown top-level key. This repository's CI runs `athar verify -strict rules`. |
+| `-strict` | Warnings fail too: a missing positive or negative test, an unused selection, an unknown top-level key, a missing `category.*` tag. This repository's CI runs `athar verify -strict rules`. |
 | `-q` | Print only rules with problems, plus the summary. |
 | `-no-color` | No colours, as for `scan`. |
 

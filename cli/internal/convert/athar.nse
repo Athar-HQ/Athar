@@ -97,6 +97,7 @@ local FORMAT = 1
 local MAX_BODY = 1 << 20      -- body bytes kept, as athar scan
 local MAX_HEADER = 64 << 10   -- header block limit
 local MAX_BANNER = 8 << 10    -- banner bytes kept
+local BANNER_TAIL = 1000      -- ms a banner may go on after the wait for it
 local MAX_RAW = 8 << 20       -- raw body bytes read at most
 local USER_AGENT = "Mozilla/5.0 (compatible; athar-nse; +https://github.com/Athar-HQ/Athar)"
 
@@ -626,9 +627,24 @@ local function json_value(s, path)
   return to_string(doc)
 end
 
+-- extracted_text prints the extracted values for Nmap's readable output.
+-- Nmap escapes control characters there, but not the line feed and the tab:
+-- a value from the service could add lines that read like another match.
+-- Both are shown the way Nmap shows the others, as \x0A and \x09. The XML
+-- output keeps the values. Six spaces is Nmap's indent at this depth.
+local function extracted_text(t)
+  local lines = {}
+  for k, v in pairs(t) do
+    lines[#lines + 1] = "\n      " .. k .. ": " ..
+      gsub(v, "[\n\t]", function(c) return string.format("\\x%02X", byte(c)) end)
+  end
+  return concat(lines)
+end
+
 local function run_extract(rule, f)
   if not rule.extract then return nil end
   local out, any = stdnse.output_table(), false
+  getmetatable(out).__tostring = extracted_text
   for _, x in ipairs(rule.extract) do
     local v = f[x.f]
     if v ~= nil then
@@ -1466,13 +1482,18 @@ local function dial(host, port, cfg)
   return sock
 end
 
-local function read_banner(sock, wait)
-  sock:set_timeout(wait)
+-- Ends at the latest BANNER_TAIL after wait or after limit, so a server that
+-- drips bytes can't hold it.
+local function read_banner(sock, wait, limit)
+  local stop = nmap.clock_ms() + math.min(wait + BANNER_TAIL, limit)
+  sock:set_timeout(math.min(wait, limit))
   local ok, data = sock:receive()
   if not ok then return "" end
   local parts, n = {data}, #data
   while n < MAX_BANNER do
-    sock:set_timeout(250)
+    local left = stop - nmap.clock_ms()
+    if left <= 0 then break end
+    sock:set_timeout(math.max(1, math.floor(math.min(250, left))))
     local ok2, more = sock:receive()
     if not ok2 then break end
     parts[#parts + 1] = more
@@ -1537,7 +1558,7 @@ local function baseline(host, port, needs, cfg)
   local f = svc.fields
 
   if needs.banner then
-    local b = read_banner(sock, cfg.banner)
+    local b = read_banner(sock, cfg.banner, cfg.timeout)
     if #b > 0 then
       banner_fields(f, b)
       sock:close()
@@ -1551,7 +1572,7 @@ local function baseline(host, port, needs, cfg)
       svc.tls = true
       cert_fields(f, sock:get_ssl_certificate())
       if needs.banner then
-        local b = read_banner(sock, cfg.banner)
+        local b = read_banner(sock, cfg.banner, cfg.timeout)
         if #b > 0 then
           banner_fields(f, b)
           sock:close()
@@ -1594,7 +1615,8 @@ local function custom_probe(host, port, svc, p, cfg)
       sock:close()
       return nil
     end
-    local b = read_banner(sock, p.wait or cfg.timeout)
+    -- A rule may shorten the read, not extend it past the timeout.
+    local b = read_banner(sock, math.min(p.wait or cfg.timeout, cfg.timeout), cfg.timeout)
     if #b > (p.max or MAX_BANNER) then b = sub(b, 1, p.max) end
     if #b > 0 then
       banner_fields(f, b)

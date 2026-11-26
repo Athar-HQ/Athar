@@ -169,10 +169,62 @@ func union(a, b map[string]string) map[string]bool {
 	return out
 }
 
+// TestNSEOutputLineFeed checks that an extracted value can't add lines to
+// Nmap's readable output. Nmap escapes other control characters itself but
+// prints a line feed as a new line, which could read like another match.
+// The XML output keeps the value.
+func TestNSEOutputLineFeed(t *testing.T) {
+	bin := nmapBin(t)
+	r := parse(t, "linefeed.yml", `
+title: line feed in extract
+id: 10000000-0000-4000-8000-0000000000f1
+target: {protocol: http}
+detection:
+  selection:
+    http.title: 'line feed test'
+  condition: selection
+extract:
+  ver: {field: http.body, regex: '(?s)ver=(.*)END'}
+`)
+	res, err := Convert(r, nseTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, NSERulesDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"athar.nse": NSEScript, filepath.Join(NSERulesDir, res.TemplateID+".lua"): res.Template} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	port := rawServer(t, map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\n",
+		"<title>line feed test</title>ver=1.0\n  Fake Rule:\n    rule:\tforgedEND")}, nil, "")
+	xmlFile := filepath.Join(dir, "nmap.xml")
+	text, err := exec.Command(bin, "-sT", "-Pn", "-n", "-p", strconv.Itoa(port), "--script", filepath.Join(dir, "athar.nse"), "-oX", xmlFile, "127.0.0.1").CombinedOutput()
+	if err != nil {
+		t.Fatalf("nmap: %v\n%s", err, text)
+	}
+	if want := `ver: 1.0\x0A  Fake Rule:\x0A    rule:\x09forged` + "\n"; !strings.Contains(string(text), want) || strings.Contains(string(text), "|   Fake Rule:") {
+		t.Errorf("readable output:\n%s\nwant a line with %q", text, want)
+	}
+	data, err := os.ReadFile(xmlFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `<elem key="ver">1.0&#xa;  Fake Rule:&#xa;    rule:&#x9;forged</elem>`; !strings.Contains(string(data), want) {
+		t.Errorf("XML output:\n%s\nwant %s", data, want)
+	}
+}
+
 func nmapBin(t *testing.T) string {
 	t.Helper()
 	bin, err := exec.LookPath("nmap")
 	if err != nil {
+		if os.Getenv("ATHAR_REQUIRE_SCANNERS") != "" {
+			t.Fatal("nmap not installed, but ATHAR_REQUIRE_SCANNERS is set")
+		}
 		t.Skip("nmap not installed")
 	}
 	if testing.Short() {

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/Athar-HQ/Athar/cli/internal/color"
 )
@@ -97,7 +98,7 @@ func (t *Text) Write(r Record) error {
 		sort.Strings(keys)
 		b.WriteString(" ")
 		for _, k := range keys {
-			b.WriteString(" " + c.Dim(k+"=") + c.Bold(c.Yellow(r.Extracted[k])))
+			b.WriteString(" " + c.Dim(k+"=") + c.Bold(c.Yellow(printable(r.Extracted[k]))))
 		}
 	}
 	if r.Author != "" {
@@ -107,6 +108,36 @@ func (t *Text) Write(r Record) error {
 	defer t.mu.Unlock()
 	_, err := fmt.Fprintln(t.w, b.String())
 	return err
+}
+
+// printable makes a value read from a scanned service safe to print on a
+// terminal. Control characters (C0, DEL, C1), bytes that are not UTF-8 and
+// the Unicode characters that reorder text or break lines become visible
+// escapes such as \x1b or \u202e, so the value can't send escape sequences
+// or forge a line. Other text, non-ASCII included, stays as it is.
+func printable(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		switch {
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < 0x20, r == 0x7f, r == utf8.RuneError && n == 1:
+			fmt.Fprintf(&b, `\x%02x`, s[i])
+		case r >= 0x80 && r <= 0x9f, // C1 controls
+			r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069, // bidi embeddings, overrides, isolates
+			r == 0x2028, r == 0x2029: // line and paragraph separators
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteString(s[i : i+n])
+		}
+		i += n
+	}
+	return b.String()
 }
 
 func confidence(c color.Palette, v string) string {
