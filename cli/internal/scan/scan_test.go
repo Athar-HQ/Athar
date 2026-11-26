@@ -127,6 +127,100 @@ func TestVariantSupersedesFamily(t *testing.T) {
 	}
 }
 
+// The AntiFox variant can match through its certificate name while the
+// title shows another brand. The family record is dropped, so the variant's
+// record carries the brand the family extracted.
+func TestVariantCarriesFamilyExtract(t *testing.T) {
+	svc := &probe.Service{Host: "192.0.2.10", IP: "192.0.2.10", Port: 443, TLS: true, Fields: eval.Fields{
+		"http.title":   "NKW — 自主渗透测试控制台",
+		"tls.cert.san": []any{"antifox.192.0.2.10.nip.io"},
+	}}
+	var got []string
+	for _, r := range New(repoRules(t), opts()).Evaluate(svc) {
+		if r.Rule == "0ce69e91-baee-4475-81ee-4b8eca1a6c3b" {
+			t.Errorf("the family record is still reported: %+v", r)
+		}
+		got = append(got, r.Product+" brand="+r.Extracted["brand"])
+	}
+	// The rebrands variant, sorted first by title, extracts the brand itself.
+	if want := []string{" brand=NKW", "AntiFox brand=NKW"}; strings.Join(got, "; ") != strings.Join(want, "; ") {
+		t.Errorf("records = %q, want %q", got, want)
+	}
+}
+
+const variantRules = `
+title: Acme family
+id: 30000000-0000-4000-8000-000000000001
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  condition: selection_title
+identifies: { family: acme, category: web-server }
+extract:
+  brand: { field: http.title, regex: '^(?P<brand>\w+) ' }
+  build: { field: http.headers.x-build, regex: '^(.+)$' }
+confidence: high
+---
+title: Acme by header
+id: 30000000-0000-4000-8000-000000000002
+related: [{ id: 30000000-0000-4000-8000-000000000001, type: variant-of }]
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  selection_header:
+    http.headers.x-build|exists: true
+  condition: selection_title and selection_header
+identifies: { product: Acme One, family: acme, category: web-server }
+confidence: high
+---
+title: Acme by server
+id: 30000000-0000-4000-8000-000000000003
+related: [{ id: 30000000-0000-4000-8000-000000000001, type: variant-of }]
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  selection_server:
+    http.headers.server|startswith: 'acme-two'
+  condition: selection_title and selection_server
+identifies: { product: Acme Two, family: acme, category: web-server }
+extract:
+  brand: { field: http.headers.server, regex: '^([a-z-]+)' }
+confidence: medium
+`
+
+// Values only the family extracts are added to every matching variant; a
+// value the variant extracts itself wins. Without a matching variant the
+// family record is reported as before.
+func TestVariantExtractWinsOverFamily(t *testing.T) {
+	var rules []*eval.Compiled
+	for _, src := range strings.Split(variantRules, "\n---\n") {
+		rules = append(rules, compileRule(t, src))
+	}
+	s := New(rules, opts())
+	fields := eval.Fields{"http.title": "Zeta Acme Console", "http.headers.x-build": "42", "http.headers.server": "acme-two/1.0"}
+	want := []map[string]string{
+		{"brand": "Zeta", "build": "42"},     // Acme by header: both from the family
+		{"brand": "acme-two", "build": "42"}, // Acme by server: its own brand
+	}
+	recs := s.Evaluate(&probe.Service{Host: "192.0.2.10", IP: "192.0.2.10", Port: 80, Fields: fields})
+	if len(recs) != 2 || recs[0].Title != "Acme by header" || recs[1].Title != "Acme by server" {
+		t.Fatalf("want the two variants, by confidence, got %+v", recs)
+	}
+	for i, r := range recs {
+		if !reflect.DeepEqual(r.Extracted, want[i]) {
+			t.Errorf("%s: extracted %v, want %v", r.Title, r.Extracted, want[i])
+		}
+	}
+
+	recs = s.Evaluate(&probe.Service{Host: "192.0.2.10", IP: "192.0.2.10", Port: 80, Fields: eval.Fields{"http.title": "Zeta Acme Console"}})
+	if len(recs) != 1 || recs[0].Title != "Acme family" || !reflect.DeepEqual(recs[0].Extracted, map[string]string{"brand": "Zeta"}) {
+		t.Errorf("want the family record with its brand, got %+v", recs)
+	}
+}
+
 const famRule = `
 title: Fam family
 id: 11111111-1111-4111-8111-111111111111

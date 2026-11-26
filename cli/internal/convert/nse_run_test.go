@@ -147,6 +147,81 @@ func TestNSEMatchesScan(t *testing.T) {
 	}
 }
 
+// TestNSEVariantCarriesFamilyExtract checks that athar.nse reports a family
+// and its variants as athar scan does: the family entry is left out when a
+// variant matched, and the variants carry the values the family extracted.
+func TestNSEVariantCarriesFamilyExtract(t *testing.T) {
+	bin := nmapBin(t)
+	const family, byHeader, byServer = "30000000-0000-4000-8000-000000000001", "30000000-0000-4000-8000-000000000002", "30000000-0000-4000-8000-000000000003"
+	var rules []*rule.Rule
+	for i, src := range []string{`
+title: Acme family
+id: ` + family + `
+target: {protocol: http}
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  condition: selection_title
+extract:
+  brand: {field: http.title, regex: '^(?P<brand>\w+) '}
+  build: {field: http.headers.x-build, regex: '^(.+)$'}
+confidence: high
+`, `
+title: Acme by header
+id: ` + byHeader + `
+related: [{id: ` + family + `, type: variant-of}]
+target: {protocol: http}
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  selection_header:
+    http.headers.x-build|exists: true
+  condition: selection_title and selection_header
+confidence: high
+`, `
+title: Acme by server
+id: ` + byServer + `
+related: [{id: ` + family + `, type: variant-of}]
+target: {protocol: http}
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  selection_server:
+    http.headers.server|startswith: 'acme-two'
+  condition: selection_title and selection_server
+extract:
+  brand: {field: http.headers.server, regex: '^([a-z-]+)'}
+confidence: medium
+`} {
+		rules = append(rules, parse(t, fmt.Sprintf("variant_%d.yml", i), src))
+	}
+	const body = "<title>Zeta Acme Console</title>"
+	variants := rawServer(t, map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\nServer: acme-two/1.0\r\nX-Build: 42\r\n", body)}, nil, "")
+	alone := rawServer(t, map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\n", body)}, nil, "")
+	want := map[int]map[string]map[string]string{
+		variants: {
+			byHeader: {"brand": "Zeta", "build": "42"},     // both from the family
+			byServer: {"brand": "acme-two", "build": "42"}, // its own brand wins
+		},
+		alone: {family: {"brand": "Zeta"}},
+	}
+	ports := []int{variants, alone}
+	for name, got := range map[string]map[int]map[string]nseMatch{
+		"athar scan": scanRecords(t, rules, ports),
+		"athar.nse":  runNSE(t, bin, rules, ports),
+	} {
+		for port, w := range want {
+			g := map[string]map[string]string{}
+			for id, m := range got[port] {
+				g[id] = m.extracted
+			}
+			if !reflect.DeepEqual(g, w) {
+				t.Errorf("%s, port %d:\ngot  %v\nwant %v", name, port, g, w)
+			}
+		}
+	}
+}
+
 // TestNSERuleAloneMatchesScan loads one rule at a time: what a rule matches
 // must not depend on the other rules loaded. Alone, a tls: none rule used to
 // keep both scanners from trying TLS, so it matched the plaintext "400 Bad
@@ -332,7 +407,17 @@ func nseCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nseCase, str
 		cases[i].fid = fids[cases[i].rule]
 		ports = append(ports, cases[i].port)
 	}
-	got := runNSE(t, bin, rules, ports, "athar.probes")
+	got := map[int]map[string]nseMatch{}
+	for _, group := range nseGroups(rules) {
+		for port, ms := range runNSE(t, bin, group, ports, "athar.probes") {
+			if got[port] == nil {
+				got[port] = map[string]nseMatch{}
+			}
+			for id, m := range ms {
+				got[port][id] = m
+			}
+		}
+	}
 	matches := 0
 	for _, c := range cases {
 		m, hit := got[c.port][c.rule]
@@ -358,6 +443,32 @@ func nseCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nseCase, str
 		t.Errorf("athar.nse matched nothing; the harness is broken")
 	}
 	t.Logf("%d test responses checked with nmap (%d matches), %d skipped", len(cases), matches, skipped)
+}
+
+// nseGroups splits rules so that no family runs together with its variants.
+// athar.nse leaves a family out when one of its variants matched, and a
+// rule's tests are about that rule alone.
+func nseGroups(rules []*rule.Rule) [][]*rule.Rule {
+	family := map[string]bool{}
+	for _, r := range rules {
+		for _, rel := range r.Related {
+			if rel.Type == "variant-of" {
+				family[rel.ID] = true
+			}
+		}
+	}
+	var rest, families []*rule.Rule
+	for _, r := range rules {
+		if family[r.ID] {
+			families = append(families, r)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	if len(families) == 0 || len(rest) == 0 {
+		return [][]*rule.Rule{rules}
+	}
+	return append([][]*rule.Rule{rest}, nseGroups(families)...)
 }
 
 // nseMatch is one rule athar.nse or athar scan reported on one port.
