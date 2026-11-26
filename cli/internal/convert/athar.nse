@@ -805,6 +805,10 @@ local function parse_head(head, method)
     end
     table.insert(header[name], v)
   end
+  -- The fields hold every header as received; what is removed below only
+  -- decides how the body is read.
+  local received = {}
+  for name, values in pairs(header) do received[name] = values end
 
   -- What net/http's readTransfer removes or rejects.
   local tmajor, tminor = major, minor
@@ -853,7 +857,7 @@ local function parse_head(head, method)
     end
     header["trailer"] = nil
   end
-  return {status = status, header = header, order = order, mode = mode, length = length}
+  return {status = status, header = header, received = received, order = order, mode = mode, length = length}
 end
 
 -- Decodes chunked data as it arrives, like Go's chunked reader.
@@ -1035,10 +1039,8 @@ local function http_fields(f, resp)
   f["http.status_code"] = resp.status
   f["http.headers_raw"] = resp.raw
   for _, name in ipairs(resp.order) do
-    local values = resp.header[name]
-    if values then
-      f["http.headers." .. name] = #values == 1 and values[1] or values
-    end
+    local values = resp.received[name]
+    f["http.headers." .. name] = #values == 1 and values[1] or values
   end
   f["http.body"] = resp.body
   f["http.body.mmh3"] = mmh3(resp.body)
@@ -1174,8 +1176,8 @@ end
 
 -- Where the favicon comes from, as athar scan's faviconSource: a path on the
 -- same service, or the icon bytes of a data: URI. References that url.Parse
--- rejects, or that point at another host or port, fall back to
--- /favicon.ico.
+-- rejects, that point at another host or port, or that have no path ("#",
+-- "?v=2") fall back to /favicon.ico.
 local function favicon_source(ref, hostname, portnum)
   local fallback = "/favicon.ico"
   if ref == "" then return fallback end
@@ -1195,7 +1197,7 @@ local function favicon_source(ref, hostname, portnum)
   local q = find(rest, "?", 1, true)
   if q then rest, query = sub(rest, 1, q - 1), sub(rest, q + 1) end
   if sub(rest, 1, 1) ~= "/" then
-    if scheme then return "/" .. (query ~= "" and "?" .. query or "") end -- opaque
+    if scheme then return fallback end -- opaque: no path
     local seg = rest:match("^[^/]*")
     if find(seg, ":", 1, true) then return fallback end
   end
@@ -1235,18 +1237,14 @@ local function favicon_source(ref, hostname, portnum)
       if lower(h) ~= lower(hostname) or (p ~= "" and p ~= tostring(portnum)) then return fallback end
     end
   end
+  if rest == "" then return fallback end -- no path: the page itself
   local path = unescape_pct(rest)
   if not path then return fallback end
   local escaped = rest
   if find(rest, PATH_OK) then
     escaped = gsub(path, PATH_KEEP, function(c) return string.format("%%%02X", byte(c)) end)
   end
-  local uri
-  if escaped == "" then
-    uri = "/"
-  else
-    uri = resolve_path(escaped)
-  end
+  local uri = resolve_path(escaped)
   if query ~= "" then uri = uri .. "?" .. query end
   return uri
 end

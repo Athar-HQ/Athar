@@ -692,3 +692,143 @@ func TestGzipBody(t *testing.T) {
 		})
 	}
 }
+
+// rawPages answers each request with the page for its target, written
+// exactly as given, and records the targets.
+func rawPages(t *testing.T, pages map[string]string) (string, int, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	host, port := listen(t, func(c net.Conn) {
+		c.SetDeadline(time.Now().Add(2 * time.Second))
+		req, err := http.ReadRequest(bufio.NewReader(c))
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		seen = append(seen, req.RequestURI)
+		mu.Unlock()
+		page, ok := pages[req.RequestURI]
+		if !ok {
+			page = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+		}
+		c.Write([]byte(page))
+	})
+	return host, port, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+}
+
+func rawPage(body string) string {
+	return "HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(len(body)) + "\r\n\r\n" + body
+}
+
+// A favicon link without a path of its own points at the page itself. The
+// scanner must not hash the page as the icon; it asks for /favicon.ico.
+func TestFaviconLinkWithoutPath(t *testing.T) {
+	for _, tt := range []struct {
+		href, want string
+	}{
+		{"#", "/favicon.ico"},
+		{"", "/favicon.ico"},
+		{"?v=2", "/favicon.ico"},
+		{"#x", "/favicon.ico"},
+		{"javascript:void(0)", "/favicon.ico"},
+		{"/favicon.ico?v=2", "/favicon.ico?v=2"},
+		{"img/fav.ico?v=2#x", "/img/fav.ico?v=2"},
+	} {
+		t.Run(tt.href, func(t *testing.T) {
+			page := rawPage(`<html><head><title>Panel</title><link rel="icon" href="` + tt.href + `"></head></html>`)
+			host, port, seen := rawPages(t, map[string]string{"/": page, "/?v=2": page, tt.want: rawPage(string(icon))})
+			svc := testProber(Needs{HTTP: true, Favicon: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			if got := seen(); !reflect.DeepEqual(got, []string{"/", tt.want}) {
+				t.Errorf("requests = %q, want / and %s", got, tt.want)
+			}
+			if got := svc.Fields["http.favicon.md5"]; got != md5Hex(icon) {
+				t.Errorf("http.favicon.md5 = %v, want the icon's %s", got, md5Hex(icon))
+			}
+		})
+	}
+}
+
+// Every header of the raw block has its field. net/http's parsed header map
+// drops Transfer-Encoding, "Connection: close" and Trailer, merges repeated
+// Content-Length headers and adds a Cache-Control to "Pragma: no-cache".
+func TestHeaderFieldsFromRawBlock(t *testing.T) {
+	for _, tt := range []struct {
+		name, page string
+		want       map[string]any
+		absent     []string
+	}{
+		{
+			name: "chunked",
+			page: "HTTP/1.1 200 OK\r\nServer:  Acme  Web \r\nTransfer-Encoding: chunked\r\nconnection: close\r\nTrailer: X-Sum\r\n" +
+				"Pragma: no-cache\r\nX-Multi: a\r\nx-multi: b\r\nX-Fold: first\r\n\tsecond\r\nX-Empty:\r\n\r\n" +
+				"5\r\nhello\r\n0\r\nX-Sum: 1\r\n\r\n",
+			want: map[string]any{
+				"http.headers.server":            "Acme  Web",
+				"http.headers.transfer-encoding": "chunked",
+				"http.headers.connection":        "close",
+				"http.headers.trailer":           "X-Sum",
+				"http.headers.pragma":            "no-cache",
+				"http.headers.x-multi":           []any{"a", "b"},
+				"http.headers.x-fold":            "first second",
+				"http.headers.x-empty":           "",
+				"http.body":                      "hello",
+			},
+			absent: []string{"http.headers.cache-control", "http.headers.content-length", "http.headers.x-sum"},
+		},
+		{
+			name: "repeated Content-Length, bare LF",
+			page: "HTTP/1.1 200 OK\nContent-Length: 5\nContent-Length: 5\nConnection: Close\n\nhello",
+			want: map[string]any{
+				"http.headers.content-length": []any{"5", "5"},
+				"http.headers.connection":     "Close",
+				"http.body":                   "hello",
+			},
+		},
+		{
+			name: "HTTP/1.0",
+			page: "HTTP/1.0 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nhello",
+			want: map[string]any{
+				"http.headers.transfer-encoding": "chunked",
+				"http.headers.connection":        "close",
+				"http.body":                      "hello",
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port, _ := rawPages(t, map[string]string{"/": tt.page})
+			svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			f := svc.Fields
+			for k, want := range tt.want {
+				if !reflect.DeepEqual(f[k], want) {
+					t.Errorf("%s = %#v, want %#v", k, f[k], want)
+				}
+			}
+			for _, k := range tt.absent {
+				if v, ok := f[k]; ok {
+					t.Errorf("%s = %#v, but the response has no such header", k, v)
+				}
+			}
+			raw, _ := f["http.headers_raw"].(string)
+			for _, line := range strings.Split(raw, "\n")[1:] {
+				name, _, ok := strings.Cut(line, ":")
+				if !ok {
+					continue // the blank line or a folded one
+				}
+				if _, ok := f["http.headers."+strings.ToLower(name)]; !ok {
+					t.Errorf("http.headers_raw has %q, but http.headers.%s is not set", line, strings.ToLower(name))
+				}
+			}
+		})
+	}
+}
