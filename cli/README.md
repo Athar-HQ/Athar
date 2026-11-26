@@ -125,7 +125,7 @@ athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 192.0.2.10 example.org
    - **TLS** on the same, still unused connection, unless every rule says `tls: none`: certificate fields, version and cipher. SNI is sent only for hostname targets.
    - **HTTP** `GET /` over TLS or plaintext, without following redirects. The `Host` header is the target as given. Body is kept up to 1 MiB, and the title, headers, raw header block and body hashes are computed.
    - **Favicon**, only when a rule uses `http.favicon.*`: from `<link rel="icon">` (also inline `data:` icons), else `/favicon.ico`; icons on other hosts are not fetched.
-   - **Custom probes** declared by rules, only with `-probes`. Each distinct probe is sent once per port, however many rules use it.
+   - **Custom probes** declared by rules, only with `-probes`. Each distinct probe is sent once per port, however many rules use it. A TCP probe's `read.timeout_ms` can shorten the read, not extend it past `-timeout`.
 5. **Match.** Every rule is evaluated on the responses, honouring `target.tls` (`required`, `none`). Each matching service is written as one line: a readable line with target, title, category, confidence and extracted values (coloured on a terminal), or with `-json` a JSON object that also has the rule id, product, family and matched selections. When a variant and its family both match, only the variant is written, if `athar verify` could check that the variant implies its family (spec section 8); otherwise both are.
 
 At start, scan warns about rules it can't fully evaluate. Not collected yet: `tls.jarm`, `tls.ja3s`, `tls.ja4s`, `tls.cert.ja4x`, `ssh.hostkey.sha256`, `ssh.kex_algorithms`, and `x-<engine>.` fields. UDP rules are skipped.
