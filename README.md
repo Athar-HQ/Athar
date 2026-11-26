@@ -7,7 +7,7 @@
 **Athar** is a service fingerprinting project built around a draft standard for portable YAML rules. Each rule describes one network service using observable signals such as HTTP headers, TLS certificates, or response banners.
 
 - **Rule standard.** Define service fingerprints in YAML with Sigma-style detection logic and test cases.
-- **Converter.** Turn the same rules into Nuclei templates or an Nmap script, to run them with the scanner you already use, or into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io, to find candidate services in indexed scan data.
+- **Converter.** Turn the same rules into Nuclei templates or an Nmap script, to run them with the scanner you already use, or into queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify, urlscan.io and Hunt.io, to find candidate services in indexed scan data.
 - **Scanner.** Apply those rules to live services on specified hosts or network ranges to identify products, families, and versions.
 
 <p align="center">
@@ -78,7 +78,7 @@ The rules are the only thing the commands share. Each command takes the rules pl
 
 | Command | Takes | Gives | Use it to |
 | --- | --- | --- | --- |
-| `athar convert` | Rules, and the targets to convert to (`-t`) | Nuclei templates, an Nmap script, and queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io, each labelled `exact`, `approximate`, `superset` or `unsupported` | Run the rules in Nuclei or Nmap, or find candidates on the internet without scanning yourself |
+| `athar convert` | Rules, and the targets to convert to (`-t`) | Nuclei templates, an Nmap script, and queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify, urlscan.io and Hunt.io, each labelled `exact`, `approximate`, `superset` or `unsupported` | Run the rules in Nuclei or Nmap, or find candidates on the internet without scanning yourself |
 | `athar scan` | Rules, hosts or CIDR ranges, and ports (`-p`, as in Nmap) | One line or JSON record per matching service: product, family, extracted brand or version, confidence and the rule's author | Check live services |
 | `athar match` (planned) | Rules, and data you already have: search-engine exports, recorded responses | The records that match, without sending a packet | Remove the over-matches of approximate queries |
 
@@ -140,7 +140,7 @@ One rule matches **one service**: one IP address and one port. Fingerprints that
 | --- | --- | --- |
 | `athar scan` | available | Checks hosts, CIDR ranges and ports for services that match the rules; writes the matches as JSONL. |
 | `athar verify` | available | Checks rules against the spec and runs every rule's tests. |
-| `athar convert` | available | Turns rules into Nuclei templates, an Nmap script or FOFA, Shodan, Censys, ZoomEye, Modat Magnify or urlscan.io queries, with fidelity and notes. |
+| `athar convert` | available | Turns rules into Nuclei templates, an Nmap script or FOFA, Shodan, Censys, ZoomEye, Modat Magnify, urlscan.io or Hunt.io queries, with fidelity and notes. |
 | `athar match` | planned | Evaluates rules against stored data (engine exports, recorded responses) without sending packets. |
 
 ### Install
@@ -202,7 +202,7 @@ Only scan hosts you are allowed to scan. The scanner identifies itself in its HT
 
 ### Convert
 
-`athar convert` turns rules into Nuclei templates, an Nmap script and queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify and urlscan.io. Give it rule files or folders; `-t` picks the targets.
+`athar convert` turns rules into Nuclei templates, an Nmap script and queries for FOFA, Shodan, Censys, ZoomEye, Modat Magnify, urlscan.io and Hunt.io. Give it rule files or folders; `-t` picks the targets.
 
 **Nuclei templates.** If you already scan with [Nuclei](https://github.com/projectdiscovery/nuclei), you don't need Athar's scanner: `-t nuclei` turns each rule into a Nuclei template. On its own it prints the template; `-o` writes one file per rule.
 
@@ -260,6 +260,8 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 
 urlscan.io is a different kind of source. It records pages that a browser loaded for URLs people submitted, not every service on the internet, and it has no field for the body, banner, port or any header but `Server`. Title rules convert exactly; most others become a superset. File hashes are the exception: urlscan stores the SHA-256 of every file a page loads, so a rule that checks a file's hash with a custom probe converts to a `hash:` search. The ARTEX frontend files rule finds 1,103 scans there, 60 of them rebrands without the family title.
 
+Hunt.io takes SQL. Its query is a whole statement, `SELECT ip, service.port FROM ip.current WHERE same_port( … )`, that runs as pasted into the portal's SQL editor; `same_port` keeps the conditions on one service. `LIKE` and `==` are case-sensitive there, so title and body conditions are approximate unless they use `|cased`, while favicon, hash, port and status conditions convert exactly. Regexes don't convert.
+
 **One converted query on the platforms.** On 25 November 2026, before the family rule learned the Chinese and Korean titles, it required the English title and the `/function/tasks` route. Its converted queries, run on each platform:
 
 | Platform | Result |
@@ -270,6 +272,7 @@ urlscan.io is a different kind of source. It records pages that a browser loaded
 | Shodan | No results. The route sits in an inline script near the end of a 12 KB page, which Shodan's `http.html` index does not reach. The title condition alone finds 292 hosts. |
 | FOFA | Not tested yet: searching `body` needs a registered FOFA account. |
 | urlscan.io | 157 scans in the last 365 days, for the title alone: urlscan doesn't index the body, so the route condition is dropped (superset). The current family query, with all three titles, finds 1,111. |
+| Hunt.io | 691 IPs in the last 30 days (26 November 2026). The current family query, with all three titles, finds about 5,900. |
 
 The localized titles matter: on Shodan the Chinese title alone finds 2,847 hosts, the English one 292, and the family rule's current query `http.title:"自主渗透测试控制台","자율 침투 테스트 콘솔","Autonomous Penetration Testing Console"` covers all three languages.
 
@@ -291,7 +294,7 @@ The searches as the platforms showed them:
 
 | Flag | Effect |
 | --- | --- |
-| `-t` | Targets, comma-separated: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`, `nuclei`, `nse`. Default: all search engines. |
+| `-t` | Targets, comma-separated: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`, `huntio`, `nuclei`, `nse`. Default: all search engines. |
 | `-o` | Write templates to this folder: each Nuclei template as `<template id>.yaml`; for `nse`, `athar.nse` and each rule's data as `athar-rules/<rule file name>.lua`. The output then lists the files. |
 | `-json` | One JSON object per rule and target: rule id, path, title, engine, query or template, fidelity and notes. |
 | `-no-color` | No colours, as for `scan`. |
@@ -371,7 +374,7 @@ Exit codes: `0` everything passed, `1` rule errors or failed tests, `2` usage or
 
 Rules live in [rules/](rules/), one folder per category. Every rule needs at least one positive and one negative test, a reference to the public source of the hunt, and no engine syntax outside the `native` section. [rules/README.md](rules/README.md) has the conventions and a template. By contributing a rule you license it under the [DRL 1.1](LICENSE.Detection.Rules.md).
 
-You don't have to write the YAML by hand. Most hunts start as a FOFA, Shodan, Censys, ZoomEye, Modat or urlscan.io query; give it to an AI coding agent in this repository together with a host it found, and ask for an Athar rule. [AGENTS.md](AGENTS.md) tells the agent how to map each engine's syntax to Athar fields, write the tests, and check the result with `athar verify` and `athar convert`.
+You don't have to write the YAML by hand. Most hunts start as a FOFA, Shodan, Censys, ZoomEye, Modat, urlscan.io or Hunt.io query; give it to an AI coding agent in this repository together with a host it found, and ask for an Athar rule. [AGENTS.md](AGENTS.md) tells the agent how to map each engine's syntax to Athar fields, write the tests, and check the result with `athar verify` and `athar convert`.
 
 ## Authors
 

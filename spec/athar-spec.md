@@ -336,7 +336,7 @@ tests:
         http.body.sha256: ff75f55ed6baeb22cee166fd7281a5f3b9243678b9b04ae41c8a84ae39cc02f5
 ```
 
-**`native`** keeps the original engine queries as provenance, keyed by engine name: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`. Converters never read it.
+**`native`** keeps the original engine queries as provenance, keyed by engine name: `fofa`, `shodan`, `censys`, `zoomeye`, `modat`, `urlscan`, `huntio`. Converters never read it.
 
 ## 10. Conversion
 
@@ -355,14 +355,15 @@ A backend turns a rule into one engine's query and labels the result with its fi
 
 **Operators do not line up across engines:**
 
-- `contains` is native on FOFA and ZoomEye (`=`) and on Modat (`~`) for fields such as `http.title`. It is approximate on Shodan and Censys (`:`), which tokenize text, and on Modat's `http.body`, `http.headers` and `banner`, which only match whole words.
-- Exact match is `==` on FOFA and ZoomEye and `=` on Censys and Modat; Shodan has none. Modat's `==` and `~~` are the case-sensitive forms, for `cased`. Where an engine's search ignores case, a `cased` match is approximate.
-- `startswith`, `endswith` and `re` only convert exactly on Censys and Modat (`=~` with anchors). On Modat this works on `http.title`, certificate names and single headers, not on the body or banner, and only for patterns its smaller regex dialect can express. Elsewhere they degrade to `contains`.
+- `contains` is native on FOFA and ZoomEye (`=`) and on Modat (`~`) for fields such as `http.title`. It is approximate on Shodan and Censys (`:`), which tokenize text, on Modat's `http.body`, `http.headers` and `banner`, which only match whole words, and on Hunt.io (`LIKE '%…%'`), which is case-sensitive.
+- Exact match is `==` on FOFA, ZoomEye and Hunt.io and `=` on Censys and Modat; Shodan has none. Modat's `==` and `~~` are the case-sensitive forms, for `cased`; Hunt.io's `==` and `LIKE` are always case-sensitive, so only `cased` matches convert exactly there. Where an engine's search ignores case, a `cased` match is approximate.
+- `startswith`, `endswith` and `re` only convert exactly on Censys and Modat (`=~` with anchors). On Modat this works on `http.title`, certificate names and single headers, not on the body or banner, and only for patterns its smaller regex dialect can express. Hunt.io's `LIKE` is anchored, so `startswith` and `endswith` convert there (`'value%'`, `'%value'`), but `re` does not. Elsewhere they degrade to `contains`.
 - Under `not` a looser operator excludes too much: `not startswith "ARTEX"` as FOFA's `title!="ARTEX"` would also hide titles that only contain ARTEX, which the rule matches. A negated exact, prefix or suffix match that an engine can only search as a substring or as words, a negated `cased` match that it can only search without regard to case, and a negated field that it maps to a wider one (a single header searched in the whole header block, a body or favicon SHA-256 as urlscan's `hash`) count as unconvertible and are dropped by the superset rule.
-- Quoting: a quote or backslash in a value is escaped as the engine documents it, in the quoted string and, for `=~`, in the regex inside it, so it can never end the string. A character an engine documents no spelling for is unconvertible: a backslash on Modat, and a control character such as a line break in any query.
+- Quoting: a quote or backslash in a value is escaped as the engine documents it, in the quoted string and, for `=~`, in the regex inside it, so it can never end the string. A character an engine documents no spelling for is unconvertible: a backslash on Modat and Hunt.io, and a control character such as a line break in any query.
 - Single headers: Modat searches one header by name and value, `http.headers: (key = "Server" and value ~ "nginx")`, which matches `http.headers.<name>` exactly. FOFA and ZoomEye search the raw header block and Shodan only full text.
-- Same service: Censys needs the nested form `host.services: ( … )`. Modat records are per service at service level; at host level the query goes into `same_service( … )`. FOFA, ZoomEye and Shodan records are already per service.
+- Same service: Censys needs the nested form `host.services: ( … )`. Modat records are per service at service level; at host level the query goes into `same_service( … )`. Hunt.io's `ip.current` has one row per IP with its services nested under it, so the condition goes into `same_port( … )`. FOFA, ZoomEye and Shodan records are already per service.
 - urlscan.io records pages, not services: what a browser showed for a URL someone submitted, after redirects. It has no field for the body, banner, port, certificate subject or any header but `Server`, so most rules convert to a superset. It indexes every value in lowercase and uses the Elasticsearch query string (`AND`, `OR`, `NOT`). `http.title` converts exactly with regexes on `page.title.keyword`, which urlscan anchors at both ends: `contains` becomes `/.*value.*/`, `startswith` becomes `/value.*/`. Regex searches need a signed-in account. `re` does not convert, because urlscan's regex dialect is not RE2. urlscan is the one engine that indexes more than the baseline probe: it stores the SHA-256 of every file a page loads, so the `http.body.sha256` of a custom probe that fetches a file converts to `hash:` (approximate: it finds the pages that loaded the file). No other engine searches custom probes. Lucene reads `a OR NOT b` as `a AND NOT b`, so a negation inside OR gets its own group: `a OR (NOT b)`.
+- Hunt.io is searched with HuntSQL, a read-only SQL dialect. A query is a complete statement on the `ip.current` table, `SELECT ip, service.port FROM ip.current WHERE same_port( … )`. `LIKE` follows SQL: anchored at both ends, `%` and `_` as wildcards, so Sigma's `*` and `?` become `%` and `_`, and a literal `%` or `_` in a value makes the match approximate. Negations become `NOT ( … )`. `RLIKE` is anchored at both ends too, and its regex dialect is not documented, so `re` does not convert. Values are written in single quotes, or in double quotes when they hold a single quote; HuntSQL documents no escapes, so a value with a backslash or with both kinds of quotes is unconvertible. Hunt.io has no full-text field and no JA3S. Without a timestamp condition it searches the rows of the last 30 days.
 
 **Body truncation.** Engines index only part of large bodies; Censys [searches the first 6 KB](https://docs.censys.com/changelog/august-24-2026) for name-based web endpoints. A `body` match deep in a page can be missed by the engine but found by the scanner.
 
@@ -389,6 +390,12 @@ Family, Modat at service level (exact):
 Family, urlscan.io (exact: values are lowercase, regexes are anchored):
   page.title.keyword:/.*自主渗透测试控制台.*/ OR page.title.keyword:/.*자율 침투 테스트 콘솔.*/
   OR page.title.keyword:/.*autonomous penetration testing console.*/
+
+Family, Hunt.io (approximate: LIKE is case-sensitive):
+  SELECT ip, service.port FROM ip.current
+  WHERE same_port(html.head.title LIKE '%自主渗透测试控制台%'
+                  OR html.head.title LIKE '%자율 침투 테스트 콘솔%'
+                  OR html.head.title LIKE '%Autonomous Penetration Testing Console%')
 ```
 
 The ARTEX rule adds `title starts with ARTEX or the ARTEX favicon`:
@@ -437,28 +444,28 @@ At Modat host level, a query goes into `same_service( … )`.
 
 ## Appendix A: Engine field mapping
 
-Informative. This is the first draft of the mapping backends use. Cells marked † come from secondary sources or are inferred and are not checked against the engine docs yet: a query that uses such a field is `approximate` at best and carries a note that says so. A dash means the engine has no such field. "Not converted" means the engine has the field but the backend leaves it out. Modat cells name the field only: `~` is contains, `=` exact, `=~` regex. urlscan cells name the field too; urlscan indexes values in lowercase and allows regexes only on `.keyword` fields.
+Informative. This is the first draft of the mapping backends use. Cells marked † come from secondary sources or are inferred and are not checked against the engine docs yet: a query that uses such a field is `approximate` at best and carries a note that says so. A dash means the engine has no such field. "Not converted" means the engine has the field but the backend leaves it out. Modat cells name the field only: `~` is contains, `=` exact, `=~` regex. urlscan cells name the field too; urlscan indexes values in lowercase and allows regexes only on `.keyword` fields. Hunt.io cells name columns of its `ip.current` table: text columns are searched with `LIKE`, the others with `==`.
 
-| Field | FOFA | Shodan | Censys Platform | ZoomEye | Modat Magnify | urlscan.io |
-| --- | --- | --- | --- | --- | --- | --- |
-| `http.title` | `title=` | `http.title:` | `host.services.endpoints.http.html_title` | `title=` | `http.title` | `page.title.keyword` (regex) |
-| `http.body` | `body=` | `http.html:` | `host.services.endpoints.http.body` | `http.body=` | `http.body` (whole words) | — |
-| `http.headers.server` | `server=`† | full text `"Server: …"` | `…http.headers` key/value† (not converted) | `http.header.server=` | `http.headers: (key = "Server" and value …)` | `page.server` (words) |
-| other headers | `header=` on raw block | full text | `…http.headers` key/value† (not converted) | `http.header=` on raw block | `http.headers: (key = "…" and value …)` | — |
-| `http.status_code` | `status_code=`† | `http.status:` | `…http.status_code`† | `http.header.status_code=` | `http.status_code` | `page.status` |
-| `http.favicon.mmh3` | `icon_hash=` | `http.favicon.hash:` | — | `iconhash=` | `http.files.mmh3` | — |
-| `http.favicon.md5` | — | — | — | `iconhash=` | — | — |
-| `http.favicon.sha256` | — | — | `…http.favicons.hash_sha256` | — | `http.files.sha256` | `hash` (any response) |
-| `http.body.mmh3` | `body_hash=`† (algorithm undocumented, not converted) | `http.html_hash:`† | — | — | `http.body_mmh3`† | — |
-| `http.body.sha256` | — | — | `…http.body_hash_sha256` | — | `http.body_sha256` | `hash` (any response) |
-| `tls.cert.subject.cn` | `cert.subject.cn=` | `ssl.cert.subject.cn:` | `host.services.cert.parsed.subject.common_name`† | `ssl.cert.subject.cn=` | `tls.subject.common_name` | — |
-| `tls.cert.issuer.cn` | `cert.issuer.cn=`† | `ssl.cert.issuer.cn:` | `host.services.cert.parsed.issuer.common_name`† | `ssl.cert.issuer.cn=` | `tls.issuer.common_name` | `page.tlsIssuer` |
-| `tls.cert.sha256` | —† | `ssl.cert.fingerprint:`† (hash algorithm unchecked, not converted) | `host.services.cert.fingerprint_sha256` | —† | `tls.fingerprint_sha256` | — |
-| `tls.jarm` | `jarm=` | `ssl.jarm:` | `host.services.jarm.fingerprint` | `ssl.jarm=` | `tls.jarm` | — |
-| `tls.ja3s` | —† | `ssl.ja3s:` | —† | `ssl.ja3s=` | `tls.ja3s` | — |
-| `service.banner` | `banner=` | full text | `host.services.banner` | `banner=` | `banner` (whole words) | — |
-| `service.port` | `port=` | `port:` | `host.services.port` | `port=` | `port` | — |
-| `keywords` | bare `"…"` | bare terms | full-document query (not converted: it can't be combined with `host.services`) | bare `"…"` | bare terms | — |
+| Field | FOFA | Shodan | Censys Platform | ZoomEye | Modat Magnify | urlscan.io | Hunt.io |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `http.title` | `title=` | `http.title:` | `host.services.endpoints.http.html_title` | `title=` | `http.title` | `page.title.keyword` (regex) | `html.head.title` |
+| `http.body` | `body=` | `http.html:` | `host.services.endpoints.http.body` | `http.body=` | `http.body` (whole words) | — | `html.body.content` |
+| `http.headers.server` | `server=`† | full text `"Server: …"` | `…http.headers` key/value† (not converted) | `http.header.server=` | `http.headers: (key = "Server" and value …)` | `page.server` (words) | `http.headers.server` |
+| other headers | `header=` on raw block | full text | `…http.headers` key/value† (not converted) | `http.header=` on raw block | `http.headers: (key = "…" and value …)` | — | `http.headers.bytes.content` on raw block; `http.headers.x_powered_by`, `http.headers.etag` by name |
+| `http.status_code` | `status_code=`† | `http.status:` | `…http.status_code`† | `http.header.status_code=` | `http.status_code` | `page.status` | `http.headers.status.code` |
+| `http.favicon.mmh3` | `icon_hash=` | `http.favicon.hash:` | — | `iconhash=` | `http.files.mmh3` | — | `favicon.hash.mmh3` |
+| `http.favicon.md5` | — | — | — | `iconhash=` | — | — | `favicon.hash.md5` |
+| `http.favicon.sha256` | — | — | `…http.favicons.hash_sha256` | — | `http.files.sha256` | `hash` (any response) | `favicon.hash.sha256` |
+| `http.body.mmh3` | `body_hash=`† (algorithm undocumented, not converted) | `http.html_hash:`† | — | — | `http.body_mmh3`† | — | `html.body.hash.murmur3`† (variant undocumented, not converted) |
+| `http.body.sha256` | — | — | `…http.body_hash_sha256` | — | `http.body_sha256` | `hash` (any response) | `html.body.hash.sha256` |
+| `tls.cert.subject.cn` | `cert.subject.cn=` | `ssl.cert.subject.cn:` | `host.services.cert.parsed.subject.common_name`† | `ssl.cert.subject.cn=` | `tls.subject.common_name` | — | `tls.cert.subject.common_name` |
+| `tls.cert.issuer.cn` | `cert.issuer.cn=`† | `ssl.cert.issuer.cn:` | `host.services.cert.parsed.issuer.common_name`† | `ssl.cert.issuer.cn=` | `tls.issuer.common_name` | `page.tlsIssuer` | `tls.cert.issuer.common_name` |
+| `tls.cert.sha256` | —† | `ssl.cert.fingerprint:`† (hash algorithm unchecked, not converted) | `host.services.cert.fingerprint_sha256` | —† | `tls.fingerprint_sha256` | — | `tls.cert.hash.sha256` |
+| `tls.jarm` | `jarm=` | `ssl.jarm:` | `host.services.jarm.fingerprint` | `ssl.jarm=` | `tls.jarm` | — | `jarm.fingerprint` |
+| `tls.ja3s` | —† | `ssl.ja3s:` | —† | `ssl.ja3s=` | `tls.ja3s` | — | — |
+| `service.banner` | `banner=` | full text | `host.services.banner` | `banner=` | `banner` (whole words) | — | `protocol.data`† (probe undocumented, not converted) |
+| `service.port` | `port=` | `port:` | `host.services.port` | `port=` | `port` | — | `service.port` |
+| `keywords` | bare `"…"` | bare terms | full-document query (not converted: it can't be combined with `host.services`) | bare `"…"` | bare terms | — | — |
 
 Engine references:
 
@@ -474,4 +481,5 @@ Engine references:
 - [Modat Magnify: certificate and TLS fingerprint fields](https://magnify.modat.io/docs/certificate-search)
 - [Modat Magnify API (OpenAPI)](https://api.magnify.modat.io/docs)
 - [urlscan.io Search API reference: fields, types and query syntax](https://urlscan.io/docs/search/)
+- [Hunt.io HuntSQL](https://hunt.io/support/huntsql); the SQL docs and the `ip.current` schema are in the portal, behind a sign-in
 - [FOFA syntax reference (mirror, Chinese)](https://gitcode.csdn.net/6aa0d90a1a35784c842067d5.html)
