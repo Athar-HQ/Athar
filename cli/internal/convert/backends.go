@@ -496,17 +496,42 @@ func (censys) term(t term) (string, Fidelity, string, bool) {
 		if t.negated && t.cased {
 			return "", 0, widenedNote(t, "censys regex may ignore case"), false
 		}
-		re := t.raw
+		re := censysRegex(t.raw)
 		switch t.op {
 		case "startswith":
-			re = "^" + regexLiteral(t.value)
+			re = "^" + escapeRunes(t.value, censysSpecial)
 		case "endswith":
-			re = regexLiteral(t.value) + "$"
+			re = escapeRunes(t.value, censysSpecial) + "$"
 		}
-		return not + spec.name + " =~ " + quoteRegex(re), Approximate,
+		// Two layers: the regex, then the double-quoted string, in which
+		// Censys wants every backslash of the regex doubled ("\\.").
+		return not + spec.name + " =~ " + quote(re), Approximate,
 			joinNote(note, "case sensitivity of censys regex is not documented"), true
 	}
 	return "", 0, describe(t) + ": not supported on censys", false
+}
+
+// censysSpecial lists the characters the Censys regex docs say to escape
+// with a backslash, and | for alternatives.
+const censysSpecial = `\.+*?()[]{}|^$":/`
+
+// censysRegex escapes the quotes in a rule's regex that have no backslash
+// yet, as Censys asks for.
+func censysRegex(re string) string {
+	var b strings.Builder
+	for i := 0; i < len(re); i++ {
+		switch c := re[i]; {
+		case c == '\\' && i+1 < len(re):
+			b.WriteByte(c)
+			i++
+			b.WriteByte(re[i])
+		case c == '"':
+			b.WriteString(`\"`)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // ---- Modat Magnify ----
@@ -529,11 +554,19 @@ func (modat) term(t term) (string, Fidelity, string, bool) {
 		if t.negated || t.wild {
 			return "", 0, "modat can't negate or wildcard a keyword", false
 		}
-		return quote(t.value), Approximate, "modat searches a bare phrase in eleven fields, not only banner, headers and body", true
+		val, bad, ok := modatValue(t)
+		if !ok {
+			return "", 0, bad, false
+		}
+		return quoteRegex(val), Approximate, "modat searches a bare phrase in eleven fields, not only banner, headers and body", true
 	}
 	spec, note, ok := lookup("modat", modatFields, oneHeader, t)
 	if !ok {
 		return "", 0, note, false
+	}
+	val, bad, ok := modatValue(t)
+	if !ok {
+		return "", 0, bad, false
 	}
 
 	switch spec.kind {
@@ -543,7 +576,7 @@ func (modat) term(t term) (string, Fidelity, string, bool) {
 		}
 		v := t.value
 		if !modatBare.MatchString(v) {
-			v = quote(v)
+			v = quoteRegex(val)
 		}
 		return not + spec.name + "=" + v, Exact, note, true
 
@@ -556,14 +589,14 @@ func (modat) term(t term) (string, Fidelity, string, bool) {
 		f := Exact
 		switch {
 		case t.op == "re":
-			cond, f = "value =~ "+quoteRegex(t.raw), Approximate
+			cond, f = "value =~ "+quoteRegex(val), Approximate
 		case t.cased:
 			// Header values have no case-sensitive = or ~; use ==~.
 			cond = "value ==~ " + quoteRegex(anchor(t))
 		case t.op == "contains":
-			cond = "value ~ " + quote(t.value)
+			cond = "value ~ " + quoteRegex(val)
 		case t.op == "eq":
-			cond = "value = " + quote(t.value)
+			cond = "value = " + quoteRegex(val)
 		default:
 			cond = "value =~ " + quoteRegex(anchor(t))
 		}
@@ -579,19 +612,19 @@ func (modat) term(t term) (string, Fidelity, string, bool) {
 			if t.cased {
 				op = "=="
 			}
-			return not + spec.name + op + quote(t.value), Exact, note, true
+			return not + spec.name + op + quoteRegex(val), Exact, note, true
 		}
 		op := "~"
 		if t.cased {
 			op = "~~"
 		}
-		return not + spec.name + op + quote(t.value), Approximate,
+		return not + spec.name + op + quoteRegex(val), Approximate,
 			joinNote(note, fmt.Sprintf("modat matches whole words on %s", spec.name)), true
 	}
 
 	// Substring fields such as http.title.
 	if t.wild {
-		pattern := t.raw
+		pattern := val
 		switch t.op {
 		case "contains":
 			pattern = "*" + pattern + "*"
@@ -614,13 +647,13 @@ func (modat) term(t term) (string, Fidelity, string, bool) {
 		if t.cased {
 			op = "~~"
 		}
-		return not + spec.name + op + quote(t.value), Exact, note, true
+		return not + spec.name + op + quoteRegex(val), Exact, note, true
 	case "eq":
 		op := "="
 		if t.cased {
 			op = "=="
 		}
-		return not + spec.name + op + quote(t.value), Exact, note, true
+		return not + spec.name + op + quoteRegex(val), Exact, note, true
 	case "startswith", "endswith", "re":
 		if !spec.regex {
 			return "", 0, fmt.Sprintf("%s: no regex on %s", describe(t), spec.name), false
@@ -630,7 +663,7 @@ func (modat) term(t term) (string, Fidelity, string, bool) {
 			op = "==~"
 		}
 		if t.op == "re" {
-			return not + spec.name + op + quoteRegex(t.raw), Approximate,
+			return not + spec.name + op + quoteRegex(val), Approximate,
 				joinNote(note, "modat's regex dialect is smaller than RE2"), true
 		}
 		return not + spec.name + op + quoteRegex(anchor(t)), Exact, note, true
@@ -640,7 +673,7 @@ func (modat) term(t term) (string, Fidelity, string, bool) {
 
 // anchor turns a literal condition into an anchored regex.
 func anchor(t term) string {
-	lit := regexLiteral(t.value)
+	lit := modatLiteral(t.value)
 	switch t.op {
 	case "eq":
 		return "^" + lit + "$"
@@ -650,6 +683,110 @@ func anchor(t term) string {
 		return lit + "$"
 	}
 	return lit
+}
+
+// Modat values have two layers. The outer one is the double-quoted string, in
+// which \" is a quote. Modat's examples hand other backslashes on to the
+// inner layer, the wildcard pattern ("\*") or the regex ("nginx/1\.(18|20)"),
+// but its docs don't say how a backslash itself is written, or whether \\ is
+// one backslash or two. So nothing is written with \\ or with a backslash in
+// front of a quote, and a value that holds a backslash is not converted.
+
+// modatValue returns a term's value as the inner layer, a Modat pattern or
+// regex. It is false, with a note, for a value Modat can't hold.
+func modatValue(t term) (val, note string, ok bool) {
+	if t.op == "re" {
+		val, ok = modatRegex(t.raw)
+	} else {
+		val, ok = modatPattern(t.raw)
+	}
+	if !ok {
+		note = describe(t) + ": modat does not document how to write a backslash in a value"
+	}
+	return val, note, ok
+}
+
+// modatPattern turns a rule value into a Modat pattern. Both write wildcards
+// as * and ? and the literal characters as \* and \?. Any other backslash in
+// a rule value is a literal backslash.
+func modatPattern(raw string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(raw); i++ {
+		if raw[i] == '\\' {
+			if i+1 == len(raw) || (raw[i+1] != '*' && raw[i+1] != '?') {
+				return "", false
+			}
+			b.WriteByte(raw[i])
+			i++
+		}
+		b.WriteByte(raw[i])
+	}
+	return b.String(), true
+}
+
+// modatLiteral turns a text without backslashes into a Modat regex. The
+// characters Modat's docs name are escaped as they say. Its regex also has
+// Lucene's operators ~ and &, where a quote starts a literal string and #, @,
+// < and > can be operators too. These are written as a class of one
+// character, ["], which is a literal in every regex dialect and needs no
+// backslash.
+func modatLiteral(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case strings.ContainsRune(`"~&#@<>`, r):
+			b.WriteString("[" + string(r) + "]")
+		case strings.ContainsRune(`.+*?()[]{}|^$:/`, r):
+			b.WriteString(`\` + string(r))
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// modatRegex rewrites a rule's regex so that no quote has a backslash in
+// front: \" and " become ["] outside a character class and " inside one. It
+// is false for a regex with an escaped backslash.
+func modatRegex(re string) (string, bool) {
+	var b strings.Builder
+	class := false
+	for i := 0; i < len(re); i++ {
+		c := re[i]
+		switch {
+		case c == '\\':
+			if i+1 == len(re) || re[i+1] == '\\' {
+				return "", false
+			}
+			i++
+			if c = re[i]; c != '"' {
+				b.WriteByte('\\')
+			}
+		case class && strings.HasPrefix(re[i:], "[:") && strings.Contains(re[i:], ":]"):
+			// A named class such as [:alpha:] inside a class.
+			end := i + strings.Index(re[i:], ":]") + 1
+			b.WriteString(re[i:end])
+			i, c = end, ']'
+		case c == '[' && !class:
+			class = true
+			// A ] right after [ or [^ is a literal.
+			for _, lit := range []byte("^]") {
+				if i+1 < len(re) && re[i+1] == lit {
+					b.WriteByte(c)
+					i++
+					c = lit
+				}
+			}
+		case c == ']':
+			class = false
+		}
+		if c == '"' && !class {
+			b.WriteString(`["]`)
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String(), true
 }
 
 // ---- urlscan.io ----
@@ -767,24 +904,31 @@ func (urlscan) probeTerm(t term) (string, Fidelity, string, bool) {
 // characters escaped, Sigma's * and ? as .* and .
 func luceneRegex(t term) string {
 	if !t.wild {
-		return regexLiteral(strings.ToLower(t.value))
+		return luceneLiteral(strings.ToLower(t.value))
 	}
 	var b strings.Builder
 	raw := []rune(strings.ToLower(t.raw))
 	for i := 0; i < len(raw); i++ {
 		switch c := raw[i]; {
 		case c == '\\' && i+1 < len(raw) && strings.ContainsRune(`*?\`, raw[i+1]):
-			b.WriteString(regexLiteral(string(raw[i+1])))
+			b.WriteString(luceneLiteral(string(raw[i+1])))
 			i++
 		case c == '*':
 			b.WriteString(".*")
 		case c == '?':
 			b.WriteString(".")
 		default:
-			b.WriteString(regexLiteral(string(c)))
+			b.WriteString(luceneLiteral(string(c)))
 		}
 	}
 	return b.String()
+}
+
+// luceneLiteral escapes a text for a /regex/ in the query string. A backslash
+// becomes the class [\\]: after \\ the query string's lexer reads a slash as
+// \/, part of the regex, also when it is the slash that ends the regex.
+func luceneLiteral(s string) string {
+	return strings.ReplaceAll(regexLiteral(s), `\\`, `[\\]`)
 }
 
 // luceneEscape escapes the query-string reserved characters and spaces in a
