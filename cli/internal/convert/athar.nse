@@ -98,6 +98,8 @@ local MAX_BODY = 1 << 20      -- body bytes kept, as athar scan
 local MAX_HEADER = 64 << 10   -- header block limit
 local MAX_BANNER = 8 << 10    -- banner bytes kept
 local MAX_RAW = 8 << 20       -- raw body bytes read at most
+local NSOCK_READ = 8192       -- bytes Nsock takes from a TLS record in one step
+local GZIP_SPAN = 4 << 10     -- first guess at the length of a later gzip member
 local USER_AGENT = "Mozilla/5.0 (compatible; athar-nse; +https://github.com/Athar-HQ/Athar)"
 
 local byte, char, find, sub, gsub = string.byte, string.char, string.find, string.sub, string.gsub
@@ -713,12 +715,38 @@ local function hex(b) return stdnse.tohex(b) end
 -- HTTP, as athar scan sends and reads it.
 ---------------------------------------------------------------------------
 
-local function recv(sock, deadline)
-  local left = deadline - nmap.clock_ms()
-  if left <= 0 then return nil end
-  sock:set_timeout(math.max(1, math.floor(left)))
-  local ok, data = sock:receive()
-  if not ok then return nil end
+-- Reads what comes next on rd.sock, until rd.deadline. rd.lost says that
+-- there may be more of the response than was read; http_fetch tells why and
+-- what rd.records and rd.total are for.
+local function recv(rd)
+  local left = rd.deadline - nmap.clock_ms()
+  local ok, data = false, nil
+  if left > 0 and not rd.done then
+    rd.sock:set_timeout(math.max(1, math.floor(left)))
+    if rd.total then
+      ok, data = rd.sock:receive_bytes(rd.total - 1)
+    elseif rd.records then
+      ok, data = rd.sock:receive_bytes(0)
+    else
+      ok, data = rd.sock:receive()
+    end
+  end
+  if not ok then
+    if rd.total then
+      rd.lost = true
+    elseif rd.records then
+      rd.lost = data ~= "ERROR" and data ~= "EOF"
+    else
+      rd.lost = data == "ERROR"
+    end
+    return nil
+  end
+  if rd.total then
+    rd.total = rd.total - #data
+    rd.done = rd.total <= 0
+  elseif rd.records then
+    rd.done = #data >= NSOCK_READ
+  end
   return data
 end
 
@@ -876,12 +904,12 @@ local function chunk_feed(st, data)
   end
 end
 
--- Where the deflate data of a gzip member starts, or nil where Go's
--- gzip.NewReader rejects the header (RFC 1952: magic, method, optional
+-- Where the deflate data of the gzip member at from starts, or nil where
+-- Go's gzip.NewReader rejects the header (RFC 1952: magic, method, optional
 -- extra field, name, comment and header CRC).
-local function gzip_data_start(data)
-  if #data < 10 or sub(data, 1, 3) ~= "\x1f\x8b\x08" then return nil end
-  local flags, pos = byte(data, 4), 11
+local function gzip_data_start(data, from)
+  if #data < from + 9 or sub(data, from, from + 2) ~= "\x1f\x8b\x08" then return nil end
+  local flags, pos = byte(data, from + 3), from + 10
   if flags & 4 ~= 0 then
     if #data < pos + 1 then return nil end
     pos = pos + 2 + (byte(data, pos) | (byte(data, pos + 1) << 8))
@@ -896,7 +924,7 @@ local function gzip_data_start(data)
   end
   if flags & 2 ~= 0 then
     if #data < pos + 1 then return nil end
-    if zlib.crc32(0, sub(data, 1, pos - 1)) & 0xffff ~= (byte(data, pos) | (byte(data, pos + 1) << 8)) then
+    if zlib.crc32(0, sub(data, from, pos - 1)) & 0xffff ~= (byte(data, pos) | (byte(data, pos + 1) << 8)) then
       return nil
     end
     pos = pos + 2
@@ -904,25 +932,58 @@ local function gzip_data_start(data)
   return pos
 end
 
--- Decodes a gzip body as athar scan does: without a valid gzip header it is
--- kept as sent (nil); otherwise it is what decodes, which is all of a
--- truncated body that arrived and nothing of corrupt data. The header is
--- parsed here and the deflate data inflated raw, so zlib's own header checks
--- don't apply. zlib.decompress never returns on truncated input, so the
--- stream interface is used.
-local function gunzip(data)
-  local start = gzip_data_start(data)
-  if not start then return nil end
-  local ok, stream = pcall(zlib.inflate, sub(data, start), -15)
+-- Inflates the raw deflate stream that data starts with, to at most room
+-- bytes. zlib.decompress never returns on truncated input, so the stream
+-- interface is used.
+local function inflate(data, room)
+  local ok, stream = pcall(zlib.inflate, data, -15)
   if not ok then return "" end
   local parts, n = {}, 0
-  while n < MAX_BODY do
+  while n < room do
     local ok2, piece = pcall(stream.read, stream, 65536)
     if not ok2 or not piece or piece == "" then break end
     parts[#parts + 1] = piece
     n = n + #piece
   end
   pcall(stream.close, stream)
+  return concat(parts)
+end
+
+-- Decodes a gzip body as athar scan does: without a valid gzip header it is
+-- kept as sent (nil); otherwise it is what decodes, which is all of a
+-- truncated body that arrived and nothing of corrupt data. The header is
+-- parsed here and the deflate data inflated raw, so zlib's own header checks
+-- don't apply.
+--
+-- A body can have several gzip members. Go reads the next one only after a
+-- member whose CRC-32 and length fit and a valid header. The zlib binding
+-- doesn't tell where a member ends, so its end is found by that trailer and
+-- the next header's first bytes. Later members are inflated from a piece of
+-- the data that grows until it holds the member, so that many short members
+-- don't each copy the rest of the body.
+local function gunzip(data)
+  local start = gzip_data_start(data, 1)
+  if not start then return nil end
+  local parts, n, span = {}, 0, #data
+  while true do
+    local piece = sub(data, start, start + span - 1)
+    local out = inflate(piece, MAX_BODY - n)
+    local full = n + #out >= MAX_BODY
+    local at = not full and
+      find(piece, string.pack("<I4I4", zlib.crc32(0, out), #out) .. "\x1f\x8b\x08", 1, true)
+    if at then
+      parts[#parts + 1] = out
+      n = n + #out
+      start = gzip_data_start(data, start + at + 7)
+      if not start then break end
+      span = GZIP_SPAN
+    elseif full or start + span > #data then
+      parts[#parts + 1] = out
+      break
+    else
+      span = span * 8
+    end
+  end
   return concat(parts)
 end
 
@@ -945,9 +1006,9 @@ local function check_request(method, path, headers)
   return true
 end
 
--- Sends one request on sock and reads the response, as athar scan's
+-- Sends one request on rd.sock and reads the response, as athar scan's
 -- httpExchange. Returns nil if there is no valid HTTP response.
-local function http_exchange(sock, hosthdr, method, path, headers, deadline)
+local function http_exchange(rd, hosthdr, method, path, headers)
   if not check_request(method, path, headers) then return nil end
   local req = {method, " ", path, " HTTP/1.1\r\nHost: ", hosthdr, "\r\nUser-Agent: ", USER_AGENT,
     "\r\nAccept: */*\r\nConnection: close\r\n"}
@@ -961,14 +1022,14 @@ local function http_exchange(sock, hosthdr, method, path, headers, deadline)
     end
   end
   req[#req + 1] = "\r\n"
-  if not sock:send(concat(req)) then return nil end
+  if not rd.sock:send(concat(req)) then return nil end
 
   local buf, from, hend = "", 1, nil
   while true do
     hend, from = head_end(buf, from)
     if hend then break end
     if #buf > MAX_HEADER then return nil end
-    local data = recv(sock, deadline)
+    local data = recv(rd)
     if not data then return nil end
     buf = buf .. data
   end
@@ -987,7 +1048,7 @@ local function http_exchange(sock, hosthdr, method, path, headers, deadline)
     chunk_feed(st, rest)
     local limit = gzip and MAX_RAW or MAX_BODY
     while not st.done and st.size < limit do
-      local data = recv(sock, deadline)
+      local data = recv(rd)
       if not data then break end
       chunk_feed(st, data)
     end
@@ -996,8 +1057,9 @@ local function http_exchange(sock, hosthdr, method, path, headers, deadline)
     local parts, have = {rest}, #rest
     local want = resp.mode == "length" and resp.length or math.huge
     local limit = math.min(want, gzip and MAX_RAW or MAX_BODY)
+    resp.size = hend + limit
     while have < limit do
-      local data = recv(sock, deadline)
+      local data = recv(rd)
       if not data then break end
       parts[#parts + 1] = data
       have = have + #data
@@ -1514,9 +1576,54 @@ local function reconnect(host, port, svc, cfg)
   return sock
 end
 
+-- Sends one request on sock and reads the response with http_exchange.
+--
+-- Many TLS servers close without a close_notify alert. Nsock reports that as
+-- a read error and drops what it read in the same step, often the whole
+-- response, where athar scan keeps all that arrived. After such an error the
+-- request is sent again on a new connection, and read with receive_bytes(0),
+-- which returns after one step, so that the error comes alone. A step takes
+-- at most NSOCK_READ bytes of one TLS record. After a full step the rest of
+-- the record may be waiting inside OpenSSL, and Nmap 7.97 fails an assertion
+-- on the next read of such a socket, so nothing more is read from it. If the
+-- response gives its length, the request is sent a third time and read with
+-- one receive_bytes that ends with the response's last byte.
+local function http_fetch(host, port, svc, cfg, sock, method, path, headers)
+  local hosthdr = host_header(host, port, svc.tls)
+  local function exchange(rd)
+    rd.deadline = nmap.clock_ms() + cfg.timeout
+    return http_exchange(rd, hosthdr, method, path, headers)
+  end
+  local function again(rd)
+    rd.sock = reconnect(host, port, svc, cfg)
+    if not rd.sock then
+      rd.lost = true
+      return nil
+    end
+    local resp = exchange(rd)
+    rd.sock:close()
+    return resp
+  end
+
+  local first = {sock = sock}
+  local resp = exchange(first)
+  if not (svc.tls and first.lost) then return resp end
+  local steps = {records = true}
+  local stepped = again(steps)
+  if not steps.lost then return stepped or resp end
+  local sized = stepped or resp
+  if sized and sized.mode == "length" then
+    local exact = {total = sized.size}
+    local whole = again(exact)
+    if whole and not exact.lost then return whole end
+  end
+  -- No read got it all: a response without a length, or one that changes.
+  if stepped and not (resp and #resp.body >= #stepped.body) then return stepped end
+  return resp
+end
+
 local function http_probe(host, port, svc, sock, cfg, needs)
-  local deadline = nmap.clock_ms() + cfg.timeout
-  local resp = http_exchange(sock, host_header(host, port, svc.tls), "GET", "/", nil, deadline)
+  local resp = http_fetch(host, port, svc, cfg, sock, "GET", "/", nil)
   if not resp then return end
   http_fields(svc.fields, resp)
   if not needs.favicon then return end
@@ -1527,7 +1634,7 @@ local function http_probe(host, port, svc, sock, cfg, needs)
   end
   local ic = reconnect(host, port, svc, cfg)
   if not ic then return end
-  local icon = http_exchange(ic, host_header(host, port, svc.tls), "GET", path, nil, nmap.clock_ms() + cfg.timeout)
+  local icon = http_fetch(host, port, svc, cfg, ic, "GET", path, nil)
   ic:close()
   if icon and icon.status == 200 then favicon_fields(svc.fields, icon.body) end
 end
@@ -1585,8 +1692,7 @@ local function custom_probe(host, port, svc, p, cfg)
   local f = {["service.port"] = port.number, ["service.transport"] = "tcp"}
   local ok = false
   if p.proto == "http" then
-    local resp = http_exchange(sock, host_header(host, port, svc.tls), p.method, p.path, p.headers,
-      nmap.clock_ms() + cfg.timeout)
+    local resp = http_fetch(host, port, svc, cfg, sock, p.method, p.path, p.headers)
     if resp then
       http_fields(f, resp)
       ok = true

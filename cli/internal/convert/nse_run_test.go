@@ -9,6 +9,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -91,15 +92,16 @@ func TestNSEMatchesScan(t *testing.T) {
 	}
 	// Where athar scan matches, so that agreement is not just both missing.
 	plain := []string{"entities and headers", "chunked gzip", "HTTP/1.0 until close", "bare LF", "no body", "escaped favicon path", "custom probe",
-		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC"}
+		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC", "gzip members", "gzip bad checksum"}
+	abrupt := []string{"TLS no close_notify", "TLS no close_notify, long", "TLS no close_notify, cut short", "TLS no close_notify, until close"}
 	expect := map[string][]string{
-		"diff lists":               {"entities and headers", "TLS"},
+		"diff lists":               append([]string{"entities and headers", "TLS"}, abrupt...),
 		"diff fold":                {"chunked gzip"},
 		"diff wildcard and regex":  {"entities and headers"},
 		"diff keyword and numbers": {"entities and headers", "chunked gzip", "bare LF"},
 		"diff absent title":        {"no body", "rejected header", "banner", "gzip corrupt"},
-		"diff custom probe":        {"custom probe"},
-		"diff TLS required":        {"TLS"},
+		"diff custom probe":        {"custom probe", "TLS no close_notify"},
+		"diff TLS required":        append([]string{"TLS"}, abrupt...),
 		"diff TLS none":            plain,
 		"diff banner":              {"banner"},
 	}
@@ -444,6 +446,13 @@ func scanRecords(t *testing.T, rules []*rule.Rule, ports []int) map[int]map[stri
 // first and answers nothing.
 func rawServer(t *testing.T, pages map[string]string, cert *tls.Certificate, banner string) int {
 	t.Helper()
+	return rawServerClose(t, pages, cert, banner, true)
+}
+
+// rawServerClose is rawServer. Without notify, a TLS server closes the
+// connection without a close_notify alert, as many servers do.
+func rawServerClose(t *testing.T, pages map[string]string, cert *tls.Certificate, banner string, notify bool) int {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -498,7 +507,7 @@ func rawServer(t *testing.T, pages map[string]string, cert *tls.Certificate, ban
 					resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
 				}
 				conn.Write([]byte(resp))
-				if tc, ok := conn.(*tls.Conn); ok {
+				if tc, ok := conn.(*tls.Conn); ok && notify {
 					tc.CloseWrite()
 				}
 			}(c)
@@ -580,6 +589,18 @@ func diffServers(t *testing.T) map[string]int {
 	gzipPage := func(body string) map[string]string {
 		return map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n", body)}
 	}
+	// Several gzip members: athar scan reads them all, up to a member whose
+	// checksum is wrong. The long member compresses badly.
+	var long strings.Builder
+	for i := range 600 {
+		fmt.Fprintf(&long, "<p>%x</p>\n", sha256.Sum256([]byte{byte(i), byte(i >> 8)}))
+	}
+	members := gzipped("<title>members</title>") + gzipped("") + gzipped(long.String()) + gzipped("<p>last member</p>")
+	badSum := []byte(gzipped("<title>checksum</title>"))
+	badSum[len(badSum)-8] ^= 0xff
+	// TLS servers that close without close_notify. The long page comes in
+	// TLS records of more than 8192 bytes, which Nmap reads in two steps.
+	longPage := "<title>long abrupt TLS</title>" + strings.Repeat(long.String(), 4)
 
 	return map[string]int{
 		"entities and headers": rawServer(t, map[string]string{
@@ -619,6 +640,23 @@ func diffServers(t *testing.T) map[string]int {
 		"gzip truncated":     rawServer(t, gzipPage(cut), nil, ""),
 		"gzip header fields": rawServer(t, gzipPage(named.String()), nil, ""),
 		"gzip header CRC":    rawServer(t, gzipPage(string(hcrc)), nil, ""),
+		"gzip members":       rawServer(t, gzipPage(members), nil, ""),
+		"gzip bad checksum":  rawServer(t, gzipPage(string(badSum)+gzipped("<p>not read</p>")), nil, ""),
+		"TLS no close_notify": rawServerClose(t, map[string]string{
+			"/":            httpResponse("HTTP/1.1 200 OK\r\n", "<title>abrupt TLS</title>"),
+			"/favicon.ico": httpResponse("HTTP/1.1 200 OK\r\n", "ICO3"),
+			"/api/health":  "HTTP/1.1 204 No Content\r\nX-Health: ok\r\n\r\n",
+		}, cert, "", false),
+		"TLS no close_notify, long": rawServerClose(t, map[string]string{
+			"/":            httpResponse("HTTP/1.1 200 OK\r\n", longPage),
+			"/favicon.ico": httpResponse("HTTP/1.1 200 OK\r\n", strings.Repeat("ICO4", 5000)),
+		}, cert, "", false),
+		"TLS no close_notify, cut short": rawServerClose(t, map[string]string{
+			"/": "HTTP/1.1 200 OK\r\nContent-Length: 500\r\n\r\n<title>cut abrupt TLS</title><p>the rest is missing",
+		}, cert, "", false),
+		"TLS no close_notify, until close": rawServerClose(t, map[string]string{
+			"/": "HTTP/1.0 200 OK\r\n\r\n<title>old abrupt TLS</title>",
+		}, cert, "", false),
 	}
 }
 
