@@ -20,11 +20,16 @@ import (
 // maxBanner is how many bytes of a banner are kept.
 const maxBanner = 8 << 10
 
+// bannerTail is how long after the wait for its first bytes a banner may
+// still arrive.
+const bannerTail = time.Second
+
 // Needs says which parts of the baseline probe the loaded rules use, so the
-// prober only does work that can change a result.
+// prober only does work that can change a result. A TLS handshake is not
+// among them: it is always tried, because every rule's target.tls depends on
+// whether the service speaks TLS.
 type Needs struct {
 	Banner  bool // wait for a server-first banner (SSH, FTP, SMTP, …)
-	TLS     bool // try a TLS handshake
 	HTTP    bool // send GET /
 	Favicon bool // fetch the favicon
 }
@@ -110,22 +115,23 @@ func (p *Prober) baseline(ctx context.Context, svc *Service, conn net.Conn) {
 
 	// 1. Server-first protocols send a banner before the client says anything.
 	if p.Needs.Banner {
-		if b := readBanner(conn, p.BannerWait); len(b) > 0 {
+		if b := readBanner(ctx, conn, p.BannerWait, p.Timeout); len(b) > 0 {
 			bannerFields(f, b)
 			conn.Close()
 			return
 		}
 	}
 
-	// 2. TLS on the same, still unused connection.
-	if p.Needs.TLS {
-		tc := tls.Client(conn, p.tlsConfig(svc.Host))
+	// 2. TLS on the same, still unused connection, whatever the rules need.
+	{
+		sc := &sniffConn{Conn: conn}
+		tc := tls.Client(sc, p.tlsConfig(svc.Host))
 		tc.SetDeadline(time.Now().Add(p.Timeout))
 		if err := tc.HandshakeContext(ctx); err == nil {
 			svc.TLS = true
 			tlsFields(f, tc.ConnectionState())
 			if p.Needs.Banner {
-				if b := readBanner(tc, p.BannerWait); len(b) > 0 {
+				if b := readBanner(ctx, tc, p.BannerWait, p.Timeout); len(b) > 0 {
 					bannerFields(f, b)
 					tc.Close()
 					return
@@ -140,6 +146,23 @@ func (p *Prober) baseline(ctx context.Context, svc *Service, conn net.Conn) {
 		// A failed handshake leaves the connection unusable.
 		conn.Close()
 		conn = nil
+		// A peer that answered in TLS is a TLS service, though crypto/tls
+		// refused its certificate or parameters. Plaintext HTTP would only
+		// get an error page from it, so the probe ends here, with what the
+		// certificate shows if it was sent in the clear.
+		if ok, leaf := sniffTLS(sc.buf); ok {
+			svc.TLS = true
+			if leaf == nil {
+				leaf = p.leafTLS12(ctx, svc)
+			}
+			if c, err := x509.ParseCertificate(leaf); err == nil {
+				certFields(f, c)
+			} else if leaf != nil {
+				f["tls.cert.sha256"] = sha256Hex(leaf)
+				f["tls.cert.sha1"] = sha1Hex(leaf)
+			}
+			return
+		}
 	}
 
 	// 3. Plaintext HTTP.
@@ -222,7 +245,8 @@ func (p *Prober) custom(ctx context.Context, svc *Service, pr rule.Probe) eval.F
 			if r.MaxBytes > 0 {
 				maxBytes = min(r.MaxBytes, maxBanner)
 			}
-			if r.TimeoutMs > 0 {
+			// A rule may shorten the read, not extend it past the timeout.
+			if r.TimeoutMs > 0 && int64(r.TimeoutMs) < p.Timeout.Milliseconds() {
 				wait = time.Duration(r.TimeoutMs) * time.Millisecond
 			}
 		}
@@ -235,7 +259,7 @@ func (p *Prober) custom(ctx context.Context, svc *Service, pr rule.Probe) eval.F
 				return nil
 			}
 		}
-		b := readBanner(conn, wait)
+		b := readBanner(ctx, conn, wait, p.Timeout)
 		if len(b) > maxBytes {
 			b = b[:maxBytes]
 		}
@@ -321,13 +345,22 @@ func hostHeader(svc *Service) string {
 }
 
 // readBanner waits up to wait for the first bytes, then collects what follows
-// shortly after.
-func readBanner(conn net.Conn, wait time.Duration) []byte {
+// shortly after. It ends at the latest bannerTail after wait, after limit or
+// when ctx is done, so a server that drips bytes can't hold it.
+func readBanner(ctx context.Context, conn net.Conn, wait, limit time.Duration) []byte {
+	start := time.Now()
+	end := start.Add(min(wait+bannerTail, limit))
 	buf := make([]byte, maxBanner)
-	conn.SetReadDeadline(time.Now().Add(wait))
+	conn.SetReadDeadline(start.Add(min(wait, limit)))
+	stop := context.AfterFunc(ctx, func() { conn.SetReadDeadline(time.Now()) })
+	defer stop()
 	n, _ := conn.Read(buf)
-	for n > 0 && n < len(buf) {
-		conn.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
+	for n > 0 && n < len(buf) && ctx.Err() == nil {
+		next := time.Now().Add(250 * time.Millisecond)
+		if next.After(end) {
+			next = end
+		}
+		conn.SetReadDeadline(next)
 		m, err := conn.Read(buf[n:])
 		n += m
 		if err != nil || m == 0 {
@@ -350,13 +383,13 @@ func bannerFields(f eval.Fields, b []byte) {
 func tlsFields(f eval.Fields, st tls.ConnectionState) {
 	f["tls.version"] = tls.VersionName(st.Version)
 	f["tls.cipher"] = tls.CipherSuiteName(st.CipherSuite)
-	if st.NegotiatedProtocol != "" {
-		f["tls.alpn"] = st.NegotiatedProtocol
-	}
 	if len(st.PeerCertificates) == 0 {
 		return
 	}
-	c := st.PeerCertificates[0]
+	certFields(f, st.PeerCertificates[0])
+}
+
+func certFields(f eval.Fields, c *x509.Certificate) {
 	setString(f, "tls.cert.subject.cn", c.Subject.CommonName)
 	setList(f, "tls.cert.subject.o", c.Subject.Organization)
 	setString(f, "tls.cert.subject.dn", c.Subject.String())

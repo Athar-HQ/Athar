@@ -420,25 +420,24 @@ func convertNSE(r *rule.Rule) (Result, error) {
 	} else {
 		needs["banner"] = true
 	}
-	if tls != "none" {
-		needs["tls"] = true
-	}
-	for _, fs := range compiled.FieldsUsed() {
+	for id, fs := range compiled.FieldsUsed() {
 		for _, f := range fs {
 			switch {
 			case strings.HasPrefix(f, "http.favicon."):
 				needs["http"], needs["favicon"] = true, true
 			case strings.HasPrefix(f, "http."):
 				needs["http"] = true
-			case strings.HasPrefix(f, "tls."):
-				needs["tls"] = true
 			case strings.HasPrefix(f, "ssh."):
 				needs["banner"] = true
+			case f == "service.banner" && id == eval.DefaultProbe:
+				needs["banner"] = true
+			case f == "service.protocol" && id == eval.DefaultProbe:
+				needs["banner"], needs["http"] = true, true
 			}
 		}
 	}
 	var nk []string
-	for _, k := range []string{"banner", "tls", "http", "favicon"} {
+	for _, k := range []string{"banner", "http", "favicon"} {
 		if needs[k] {
 			nk = append(nk, k+" = true")
 		}

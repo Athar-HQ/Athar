@@ -4,9 +4,11 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"github.com/Athar-HQ/Athar/cli/internal/eval"
 	"github.com/Athar-HQ/Athar/cli/internal/output"
 	"github.com/Athar-HQ/Athar/cli/internal/probe"
+	"github.com/Athar-HQ/Athar/cli/internal/rule"
 )
 
 // Options control a scan.
@@ -32,6 +35,9 @@ type Options struct {
 	UserAgent   string
 	Log         io.Writer     // receives one line per open port; nil for none
 	LogColor    color.Palette // colors for Log
+
+	// Lookup resolves a hostname for Resolve; nil means the system resolver.
+	Lookup func(ctx context.Context, host string) ([]string, error)
 }
 
 // Stats summarise a scan.
@@ -42,8 +48,11 @@ type Stats struct {
 	Interrupted   bool
 }
 
-// unsupported are taxonomy fields the scanner does not collect yet.
+// unsupported are taxonomy fields the scanner does not collect yet. tls.alpn
+// is one of them because the prober offers no ALPN protocol, so the server
+// selects none.
 var unsupported = map[string]bool{
+	"tls.alpn": true,
 	"tls.jarm": true, "tls.ja3s": true, "tls.ja4s": true, "tls.cert.ja4x": true,
 	"ssh.hostkey.sha256": true, "ssh.kex_algorithms": true,
 }
@@ -53,6 +62,8 @@ type Scanner struct {
 	rules  []*eval.Compiled
 	opts   Options
 	prober *probe.Prober
+	// families maps each variant to the ids of the family rules it implies.
+	families map[*eval.Compiled][]string
 	// custom maps each rule to its probe ids and their dedup keys.
 	custom   map[*eval.Compiled]map[string]string
 	warnings []string
@@ -62,6 +73,18 @@ type Scanner struct {
 // the rules need and which custom probes to send.
 func New(rules []*eval.Compiled, opts Options) *Scanner {
 	s := &Scanner{rules: rules, opts: opts, custom: map[*eval.Compiled]map[string]string{}}
+	s.families = map[*eval.Compiled][]string{}
+	byID := map[string]*rule.Rule{}
+	for _, c := range rules {
+		byID[c.Rule.ID] = c.Rule
+	}
+	for _, c := range rules {
+		for _, rel := range c.Rule.Related {
+			if f := byID[rel.ID]; rel.Type == "variant-of" && f != nil && rule.Implies(c.Rule, f) {
+				s.families[c] = append(s.families[c], rel.ID)
+			}
+		}
+	}
 	needs := probe.Needs{}
 	var customProbes []probe.CustomProbe
 	seenKey := map[string]bool{}
@@ -80,21 +103,23 @@ func New(rules []*eval.Compiled, opts Options) *Scanner {
 		} else {
 			needs.Banner = true
 		}
-		if r.Target.TLS != "none" {
-			needs.TLS = true
-		}
 		var missing []string
-		for _, fields := range used {
+		for id, fields := range used {
 			for _, f := range fields {
+				// A rule gets what it reads whatever its protocol says, so
+				// that its result does not depend on the other rules loaded.
 				switch {
 				case strings.HasPrefix(f, "http.favicon."):
 					needs.HTTP, needs.Favicon = true, true
 				case strings.HasPrefix(f, "http."):
 					needs.HTTP = true
-				case strings.HasPrefix(f, "tls."):
-					needs.TLS = true
 				case strings.HasPrefix(f, "ssh."):
 					needs.Banner = true
+				case f == "service.banner" && id == eval.DefaultProbe:
+					needs.Banner = true
+				case f == "service.protocol" && id == eval.DefaultProbe:
+					// Set from the banner (ssh) or the HTTP response (http).
+					needs.Banner, needs.HTTP = true, true
 				}
 				if unsupported[f] || strings.HasPrefix(f, "x-") {
 					missing = append(missing, f)
@@ -145,11 +170,80 @@ func (s *Scanner) Warnings() []string { return s.warnings }
 // Needs reports which parts of the baseline probe will run.
 func (s *Scanner) Needs() probe.Needs { return s.prober.Needs }
 
+// Resolve looks up every hostname among the targets once. It returns the
+// targets without those whose name does not resolve, and one warning per
+// such name. Without it, such a host only shows as closed ports.
+func (s *Scanner) Resolve(ctx context.Context, targets []probe.Target) ([]probe.Target, []string) {
+	lookup := s.opts.Lookup
+	if lookup == nil {
+		lookup = net.DefaultResolver.LookupHost
+	}
+	// index maps a name to its place in names, counted from 1.
+	key := func(host string) string { return strings.ToLower(strings.TrimSuffix(host, ".")) }
+	var names []string
+	index := map[string]int{}
+	for _, t := range targets {
+		if _, err := netip.ParseAddr(t.Host); err == nil || t.Host == "" {
+			continue
+		}
+		if k := key(t.Host); index[k] == 0 {
+			names = append(names, t.Host)
+			index[k] = len(names)
+		}
+	}
+	errs := make([]error, len(names))
+	sem := make(chan struct{}, min(max(1, s.opts.Concurrency), 32))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer func() { <-sem; wg.Done() }()
+			c := ctx
+			if s.opts.Timeout > 0 {
+				var cancel context.CancelFunc
+				c, cancel = context.WithTimeout(ctx, s.opts.Timeout)
+				defer cancel()
+			}
+			_, errs[i] = lookup(c, name)
+		}()
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		// Interrupted: the lookups failed for that reason. Run reports it.
+		return targets, nil
+	}
+	var warnings []string
+	for i, err := range errs {
+		if err == nil {
+			continue
+		}
+		reason := err.Error()
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) {
+			reason = dnsErr.Err
+		}
+		warnings = append(warnings, fmt.Sprintf("%s does not resolve (%s); target skipped", names[i], reason))
+	}
+	if len(warnings) == 0 {
+		return targets, nil
+	}
+	var out []probe.Target
+	for _, t := range targets {
+		if i := index[key(t.Host)]; i == 0 || errs[i-1] == nil {
+			out = append(out, t)
+		}
+	}
+	return out, warnings
+}
+
 // Run scans every host and port of the targets and writes one record per
-// matched service. It returns when all checks are done or ctx is cancelled.
+// matched service. Targets that repeat or overlap are checked once. It
+// returns when all checks are done or ctx is cancelled.
 func (s *Scanner) Run(ctx context.Context, targets []probe.Target, w output.Sink) Stats {
 	start := time.Now()
 	var st Stats
+	targets = probe.Dedup(targets, s.opts.Ports)
 	st.Hosts, st.Checks = probe.Count(targets, s.opts.Ports)
 
 	if s.opts.Rate > 0 {
@@ -221,8 +315,8 @@ var confidenceRank = map[string]int{"certain": 4, "high": 3, "medium": 2, "low":
 
 // Evaluate runs every rule on one observed service and returns the records,
 // most specific first. A family rule is dropped when one of its variants
-// matched the same service; the variant's record then also carries the
-// values the family extracted (spec section 7).
+// matched the same service, if the variant implies it; the variant's record
+// then also carries the values the family extracted (spec section 7).
 func (s *Scanner) Evaluate(svc *probe.Service) []output.Record {
 	type hit struct {
 		c      *eval.Compiled
@@ -258,9 +352,9 @@ func (s *Scanner) Evaluate(svc *probe.Service) []output.Record {
 	}
 	superseded := map[string]bool{}
 	for _, h := range hits {
-		for _, rel := range h.c.Rule.Related {
-			if rel.Type == "variant-of" && matched[rel.ID] {
-				superseded[rel.ID] = true
+		for _, id := range s.families[h.c] {
+			if matched[id] {
+				superseded[id] = true
 			}
 		}
 	}
@@ -364,9 +458,7 @@ func (s *Scanner) tried() string {
 	if n.Banner {
 		t = append(t, "banner")
 	}
-	if n.TLS {
-		t = append(t, "TLS")
-	}
+	t = append(t, "TLS")
 	if n.HTTP {
 		t = append(t, "HTTP")
 	}

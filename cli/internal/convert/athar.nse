@@ -98,6 +98,7 @@ local FORMAT = 1
 local MAX_BODY = 1 << 20      -- body bytes kept, as athar scan
 local MAX_HEADER = 64 << 10   -- header block limit
 local MAX_BANNER = 8 << 10    -- banner bytes kept
+local BANNER_TAIL = 1000      -- ms a banner may go on after the wait for it
 local MAX_RAW = 8 << 20       -- raw body bytes read at most
 local USER_AGENT = "Mozilla/5.0 (compatible; athar-nse; +https://github.com/Athar-HQ/Athar)"
 
@@ -627,9 +628,24 @@ local function json_value(s, path)
   return to_string(doc)
 end
 
+-- extracted_text prints the extracted values for Nmap's readable output.
+-- Nmap escapes control characters there, but not the line feed and the tab:
+-- a value from the service could add lines that read like another match.
+-- Both are shown the way Nmap shows the others, as \x0A and \x09. The XML
+-- output keeps the values. Six spaces is Nmap's indent at this depth.
+local function extracted_text(t)
+  local lines = {}
+  for k, v in pairs(t) do
+    lines[#lines + 1] = "\n      " .. k .. ": " ..
+      gsub(v, "[\n\t]", function(c) return string.format("\\x%02X", byte(c)) end)
+  end
+  return concat(lines)
+end
+
 local function run_extract(rule, f)
   if not rule.extract then return nil end
   local out, any = stdnse.output_table(), false
+  getmetatable(out).__tostring = extracted_text
   for _, x in ipairs(rule.extract) do
     local v = f[x.f]
     if v ~= nil then
@@ -790,6 +806,10 @@ local function parse_head(head, method)
     end
     table.insert(header[name], v)
   end
+  -- The fields hold every header as received; what is removed below only
+  -- decides how the body is read.
+  local received = {}
+  for name, values in pairs(header) do received[name] = values end
 
   -- What net/http's readTransfer removes or rejects.
   local tmajor, tminor = major, minor
@@ -838,7 +858,7 @@ local function parse_head(head, method)
     end
     header["trailer"] = nil
   end
-  return {status = status, header = header, order = order, mode = mode, length = length}
+  return {status = status, header = header, received = received, order = order, mode = mode, length = length}
 end
 
 -- Decodes chunked data as it arrives, like Go's chunked reader.
@@ -1020,10 +1040,8 @@ local function http_fields(f, resp)
   f["http.status_code"] = resp.status
   f["http.headers_raw"] = resp.raw
   for _, name in ipairs(resp.order) do
-    local values = resp.header[name]
-    if values then
-      f["http.headers." .. name] = #values == 1 and values[1] or values
-    end
+    local values = resp.received[name]
+    f["http.headers." .. name] = #values == 1 and values[1] or values
   end
   f["http.body"] = resp.body
   f["http.body.mmh3"] = mmh3(resp.body)
@@ -1159,8 +1177,8 @@ end
 
 -- Where the favicon comes from, as athar scan's faviconSource: a path on the
 -- same service, or the icon bytes of a data: URI. References that url.Parse
--- rejects, or that point at another host or port, fall back to
--- /favicon.ico.
+-- rejects, that point at another host or port, or that have no path ("#",
+-- "?v=2") fall back to /favicon.ico.
 local function favicon_source(ref, hostname, portnum)
   local fallback = "/favicon.ico"
   if ref == "" then return fallback end
@@ -1180,7 +1198,7 @@ local function favicon_source(ref, hostname, portnum)
   local q = find(rest, "?", 1, true)
   if q then rest, query = sub(rest, 1, q - 1), sub(rest, q + 1) end
   if sub(rest, 1, 1) ~= "/" then
-    if scheme then return "/" .. (query ~= "" and "?" .. query or "") end -- opaque
+    if scheme then return fallback end -- opaque: no path
     local seg = rest:match("^[^/]*")
     if find(seg, ":", 1, true) then return fallback end
   end
@@ -1220,18 +1238,14 @@ local function favicon_source(ref, hostname, portnum)
       if lower(h) ~= lower(hostname) or (p ~= "" and p ~= tostring(portnum)) then return fallback end
     end
   end
+  if rest == "" then return fallback end -- no path: the page itself
   local path = unescape_pct(rest)
   if not path then return fallback end
   local escaped = rest
   if find(rest, PATH_OK) then
     escaped = gsub(path, PATH_KEEP, function(c) return string.format("%%%02X", byte(c)) end)
   end
-  local uri
-  if escaped == "" then
-    uri = "/"
-  else
-    uri = resolve_path(escaped)
-  end
+  local uri = resolve_path(escaped)
   if query ~= "" then uri = uri .. "?" .. query end
   return uri
 end
@@ -1469,13 +1483,18 @@ local function dial(host, port, cfg)
   return sock
 end
 
-local function read_banner(sock, wait)
-  sock:set_timeout(wait)
+-- Ends at the latest BANNER_TAIL after wait or after limit, so a server that
+-- drips bytes can't hold it.
+local function read_banner(sock, wait, limit)
+  local stop = nmap.clock_ms() + math.min(wait + BANNER_TAIL, limit)
+  sock:set_timeout(math.min(wait, limit))
   local ok, data = sock:receive()
   if not ok then return "" end
   local parts, n = {data}, #data
   while n < MAX_BANNER do
-    sock:set_timeout(250)
+    local left = stop - nmap.clock_ms()
+    if left <= 0 then break end
+    sock:set_timeout(math.max(1, math.floor(math.min(250, left))))
     local ok2, more = sock:receive()
     if not ok2 then break end
     parts[#parts + 1] = more
@@ -1540,7 +1559,7 @@ local function baseline(host, port, needs, cfg)
   local f = svc.fields
 
   if needs.banner then
-    local b = read_banner(sock, cfg.banner)
+    local b = read_banner(sock, cfg.banner, cfg.timeout)
     if #b > 0 then
       banner_fields(f, b)
       sock:close()
@@ -1548,13 +1567,15 @@ local function baseline(host, port, needs, cfg)
     end
   end
 
-  if needs.tls then
+  -- TLS is tried whatever the rules need: every rule's target.tls depends
+  -- on whether the service speaks it.
+  do
     sock:set_timeout(cfg.timeout)
     if sock:reconnect_ssl() then
       svc.tls = true
       cert_fields(f, sock:get_ssl_certificate())
       if needs.banner then
-        local b = read_banner(sock, cfg.banner)
+        local b = read_banner(sock, cfg.banner, cfg.timeout)
         if #b > 0 then
           banner_fields(f, b)
           sock:close()
@@ -1597,7 +1618,8 @@ local function custom_probe(host, port, svc, p, cfg)
       sock:close()
       return nil
     end
-    local b = read_banner(sock, p.wait or cfg.timeout)
+    -- A rule may shorten the read, not extend it past the timeout.
+    local b = read_banner(sock, math.min(p.wait or cfg.timeout, cfg.timeout), cfg.timeout)
     if #b > (p.max or MAX_BANNER) then b = sub(b, 1, p.max) end
     if #b > 0 then
       banner_fields(f, b)

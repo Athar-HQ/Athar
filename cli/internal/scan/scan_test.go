@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -218,6 +222,56 @@ func TestVariantExtractWinsOverFamily(t *testing.T) {
 	}
 }
 
+const famRule = `
+title: Fam family
+id: 11111111-1111-4111-8111-111111111111
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: 'Fam Console'
+  condition: selection_title
+identifies: { family: fam, category: c2 }
+confidence: high
+`
+
+const famVariant = `
+title: Fam variant
+id: 22222222-2222-4222-8222-222222222222
+related:
+  - id: 11111111-1111-4111-8111-111111111111
+    type: variant-of
+status: experimental
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: 'Fam Console'
+  selection_status:
+    http.status_code: 200
+  condition: %s
+identifies: { product: Acme, family: fam, category: c2 }
+confidence: high
+`
+
+// A variant only replaces its family's record if it implies the family. A
+// link that could not be checked (a warning in athar verify) keeps both.
+func TestUncheckedVariantKeepsFamily(t *testing.T) {
+	srv := httptest.NewServer(page("X Fam Console"))
+	defer srv.Close()
+
+	for cond, want := range map[string]int{
+		"selection_title and selection_status": 1,
+		"selection_title or selection_status":  2,
+		"selection_status":                     2,
+	} {
+		rules := []*eval.Compiled{compileRule(t, famRule), compileRule(t, strings.Replace(famVariant, "%s", cond, 1))}
+		recs := scanOne(t, New(rules, opts()), srv.URL)
+		if len(recs) != want {
+			t.Errorf("condition %q: got %d records, want %d: %+v", cond, len(recs), want, recs)
+		}
+	}
+}
+
 func TestNoMatch(t *testing.T) {
 	srv := httptest.NewServer(page("Penetration Testing Services | Example Corp"))
 	defer srv.Close()
@@ -256,9 +310,144 @@ func TestTLSConstraint(t *testing.T) {
 	}
 }
 
+const plainRule = `
+title: Plain only
+id: 0c9e5b0a-6f0d-4c57-9a3e-5d1b6f2a8c11
+status: experimental
+target: { protocol: http, tls: none }
+detection:
+  sel:
+    http.status_code|exists: true
+  condition: sel
+identifies: { product: Plain, category: web-server }
+confidence: low
+`
+
+// ruleIDs returns the ids of the rules that matched, sorted.
+func ruleIDs(recs []output.Record) string {
+	var ids []string
+	for _, r := range recs {
+		ids = append(ids, r.Rule)
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, " ")
+}
+
+// A tls: none rule is never evaluated on a service that speaks TLS, whether
+// or not another loaded rule needs TLS. Loaded alone it used to skip the
+// handshake and match the server's plaintext "400 Bad Request".
+func TestTLSNoneWhateverElseIsLoaded(t *testing.T) {
+	tlsSrv := httptest.NewTLSServer(page("whatever"))
+	defer tlsSrv.Close()
+	plainSrv := httptest.NewServer(page("whatever"))
+	defer plainSrv.Close()
+
+	none := compileRule(t, plainRule)
+	auto := compileRule(t, strings.Replace(tlsRule, "%s", "auto", 1))
+	for name, rules := range map[string][]*eval.Compiled{"alone": {none}, "with a TLS rule": {none, auto}} {
+		s := New(rules, opts())
+		for _, r := range scanOne(t, s, tlsSrv.URL) {
+			if r.Rule == none.Rule.ID {
+				t.Errorf("%s: tls: none rule matched a TLS service", name)
+			}
+		}
+		if got := ruleIDs(scanOne(t, s, plainSrv.URL)); got != none.Rule.ID {
+			t.Errorf("%s: plaintext service matched %q, want the tls: none rule", name, got)
+		}
+	}
+}
+
+// bannerServer speaks first, like SSH or FTP, and answers nothing.
+func bannerServer(t *testing.T, banner string) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				c.Write([]byte(banner))
+				c.SetReadDeadline(time.Now().Add(3 * time.Second))
+				c.Read(make([]byte, 1024))
+			}()
+		}
+	}()
+	return "http://" + ln.Addr().String()
+}
+
+const fieldRule = `
+title: Field rule
+id: %s
+status: experimental
+target: { protocol: %s }
+detection:
+  sel:
+    %s
+  condition: sel
+identifies: { product: X, category: web-server }
+confidence: low
+`
+
+// A rule gets the fields it reads whatever its target.protocol says and
+// whatever else is loaded: the banner for an http rule, GET / for a tcp rule.
+func TestFieldsCollectedWhateverElseIsLoaded(t *testing.T) {
+	ftp := bannerServer(t, "220 Acme FTP ready\r\n")
+	ssh := bannerServer(t, "SSH-2.0-AcmeSSH_1.0\r\n")
+	web := httptest.NewServer(page("whatever"))
+	defer web.Close()
+
+	// A rule of the other kind that never matches.
+	const otherID = "5a1d3c7e-2b4f-4a6d-8e9f-0a1b2c3d4e5f"
+	other := map[string]*eval.Compiled{
+		"http": compileRule(t, fmt.Sprintf(fieldRule, otherID, "tcp", "service.port|exists: false")),
+		"tcp":  compileRule(t, fmt.Sprintf(fieldRule, otherID, "http", "service.port|exists: false")),
+	}
+	for _, tt := range []struct{ name, protocol, selection, server string }{
+		{"service.banner in an http rule", "http", "service.banner|contains: 'Acme FTP'", ftp},
+		{"keywords in an http rule", "http", "- 'acme ftp'", ftp},
+		{"ssh.banner in an http rule", "http", "ssh.banner|contains: AcmeSSH", ssh},
+		{"service.protocol ssh in an http rule", "http", "service.protocol: ssh", ssh},
+		{"service.protocol http in a tcp rule", "tcp", "service.protocol: http", web.URL},
+		{"http.title in a tcp rule", "tcp", "http.title: whatever", web.URL},
+	} {
+		c := compileRule(t, fmt.Sprintf(fieldRule, "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", tt.protocol, tt.selection))
+		o := opts()
+		o.Timeout = 500 * time.Millisecond
+		for name, rules := range map[string][]*eval.Compiled{"alone": {c}, "with another rule": {c, other[tt.protocol]}} {
+			if got := ruleIDs(scanOne(t, New(rules, o), tt.server)); got != c.Rule.ID {
+				t.Errorf("%s, %s: matched %q, want the rule", tt.name, name, got)
+			}
+		}
+	}
+}
+
+// The prober offers no ALPN protocol, so none is negotiated and tls.alpn is
+// never set. A rule that reads it is warned about, like JARM.
+func TestWarnsAboutALPN(t *testing.T) {
+	const id = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+	c := compileRule(t, fmt.Sprintf(fieldRule, id, "http", "tls.alpn: http/1.1"))
+	w := strings.Join(New([]*eval.Compiled{c}, opts()).Warnings(), "\n")
+	if !strings.Contains(w, "does not collect tls.alpn") {
+		t.Errorf("warnings = %q", w)
+	}
+	for _, f := range []string{"tls.version", "tls.cipher"} {
+		c := compileRule(t, fmt.Sprintf(fieldRule, id, "http", f+"|exists: true"))
+		if w := New([]*eval.Compiled{c}, opts()).Warnings(); len(w) != 0 {
+			t.Errorf("%s is collected, but: %v", f, w)
+		}
+	}
+}
+
 func TestNeedsAndWarnings(t *testing.T) {
 	s := New(repoRules(t), opts())
-	if n := s.Needs(); !n.HTTP || !n.Favicon || !n.TLS || n.Banner {
+	if n := s.Needs(); !n.HTTP || !n.Favicon || n.Banner {
 		t.Errorf("needs for the ARTEX rules = %+v", n)
 	}
 	// The ARTEX frontend files rule fetches files with custom probes, which
@@ -322,6 +511,74 @@ func TestPerHostLimitAndClosedPorts(t *testing.T) {
 	st := s.Run(context.Background(), []probe.Target{tg}, output.NewJSON(&buf))
 	if st.Checks != 3 || st.Open != 1 || st.Matches != 1 {
 		t.Errorf("stats = %+v\n%s", st, buf.String())
+	}
+}
+
+// A target given twice, alone or inside a range, is checked once.
+func TestDuplicateTargets(t *testing.T) {
+	srv := httptest.NewServer(page("NKW — Autonomous Penetration Testing Console"))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	o := opts()
+	o.Ports = []int{80}
+	o.Ports[0], _ = strconv.Atoi(u.Port())
+	var targets []probe.Target
+	for _, s := range []string{u.Host, "127.0.0.1", u.Host, "127.0.0.1", "127.0.0.1/32"} {
+		tg, err := probe.ParseTarget(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, tg)
+	}
+	var buf bytes.Buffer
+	st := New(repoRules(t), o).Run(context.Background(), targets, output.NewJSON(&buf))
+	if st.Hosts != 1 || st.Checks != 1 || st.Open != 1 || st.Matches != 1 {
+		t.Errorf("stats = %+v\n%s", st, buf.String())
+	}
+}
+
+// Resolve looks every hostname up once and drops the targets whose name
+// does not resolve.
+func TestResolve(t *testing.T) {
+	var mu sync.Mutex
+	lookups := map[string]int{}
+	o := opts()
+	o.Lookup = func(_ context.Context, host string) ([]string, error) {
+		mu.Lock()
+		lookups[host]++
+		mu.Unlock()
+		if strings.HasPrefix(host, "gone.") {
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		return []string{"192.0.2.1"}, nil
+	}
+	var targets []probe.Target
+	for _, s := range []string{"gone.example", "192.0.2.7", "ok.example", "gone.example:443", "192.0.2.0/30", "ok.example:8443", "2001:db8::1"} {
+		tg, err := probe.ParseTarget(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, tg)
+	}
+	s := New(repoRules(t), o)
+	got, warnings := s.Resolve(context.Background(), targets)
+	want := []probe.Target{targets[1], targets[2], targets[4], targets[5], targets[6]}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("targets:\n got %+v\nwant %+v", got, want)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "gone.example does not resolve (no such host)") {
+		t.Errorf("warnings = %q", warnings)
+	}
+	if len(lookups) != 2 || lookups["gone.example"] != 1 || lookups["ok.example"] != 1 {
+		t.Errorf("lookups = %v, want one for each of the two names", lookups)
+	}
+
+	// An interrupted lookup is not a name that does not resolve.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	o.Lookup = func(ctx context.Context, _ string) ([]string, error) { return nil, ctx.Err() }
+	if got, warnings := New(repoRules(t), o).Resolve(ctx, targets); len(got) != len(targets) || len(warnings) != 0 {
+		t.Errorf("after cancel: %d targets, warnings %q", len(got), warnings)
 	}
 }
 
