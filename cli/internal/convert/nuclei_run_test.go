@@ -250,6 +250,9 @@ func nucleiBin(t *testing.T) string {
 	t.Helper()
 	bin, err := exec.LookPath("nuclei")
 	if err != nil {
+		if os.Getenv("ATHAR_REQUIRE_SCANNERS") != "" {
+			t.Fatal("nuclei not installed, but ATHAR_REQUIRE_SCANNERS is set")
+		}
 		t.Skip("nuclei not installed")
 	}
 	if testing.Short() {
