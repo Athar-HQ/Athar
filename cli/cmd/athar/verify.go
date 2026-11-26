@@ -101,7 +101,8 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 		rep.problems = append(rep.problems, warnings...)
 		rep.tests = c.RunTests()
 	}
-	for path, problems := range rule.CheckSet(rules) {
+	// A variant given without its family finds it among the files next to it.
+	for path, problems := range rule.CheckSet(rules, rule.Families(rules)...) {
 		byPath[path].problems = append(byPath[path].problems, problems...)
 	}
 

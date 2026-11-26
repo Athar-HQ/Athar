@@ -26,6 +26,11 @@
 -- Each keeps its own author and licence (Detection Rule License 1.1 for the
 -- rules in the Athar repository), and every match this script reports names
 -- the rule's author.
+--
+-- Known gap: against a TLS service that closes the connection without a
+-- close_notify alert, Nmap's Nsock drops what it read, so the script may
+-- report nothing where athar scan matches; the cause is in Nmap (seen with
+-- 7.97 and OpenSSL 3).
 
 local base64 = require "base64"
 local json = require "json"
@@ -44,7 +49,11 @@ collects what athar scan collects: a banner if a rule needs one, the TLS
 certificate, GET / without following redirects, and the favicon. It then
 reports each rule that matched, with the rule's author, as the Detection Rule
 License 1.1 asks. A match of a rule whose conversion is not exact says so
-under "fidelity".
+under "fidelity". A family rule is left out when one of its variants matched;
+the variant then also shows what the family extracted.
+
+Unlike athar scan, the script does not decode charsets: a page that is not
+UTF-8 is matched on its raw bytes.
 
 Custom probes declared by rules are only sent with the script argument
 athar.probes, like athar scan's -probes.
@@ -97,7 +106,10 @@ local FORMAT = 1
 local MAX_BODY = 1 << 20      -- body bytes kept, as athar scan
 local MAX_HEADER = 64 << 10   -- header block limit
 local MAX_BANNER = 8 << 10    -- banner bytes kept
-local MAX_RAW = 8 << 20       -- raw body bytes read at most
+local BANNER_TAIL = 1000      -- ms a banner may go on after the wait for it
+local MAX_HASH = 16 << 20     -- body bytes hashed at most, as athar scan
+local MAX_RAW = MAX_HASH + (64 << 10) -- gzip body bytes read at most
+local GZIP_SPAN = 4 << 10     -- first guess at the length of a later gzip member
 local USER_AGENT = "Mozilla/5.0 (compatible; athar-nse; +https://github.com/Athar-HQ/Athar)"
 
 local byte, char, find, sub, gsub = string.byte, string.char, string.find, string.sub, string.gsub
@@ -626,9 +638,24 @@ local function json_value(s, path)
   return to_string(doc)
 end
 
+-- extracted_text prints the extracted values for Nmap's readable output.
+-- Nmap escapes control characters there, but not the line feed and the tab:
+-- a value from the service could add lines that read like another match.
+-- Both are shown the way Nmap shows the others, as \x0A and \x09. The XML
+-- output keeps the values. Six spaces is Nmap's indent at this depth.
+local function extracted_text(t)
+  local lines = {}
+  for k, v in pairs(t) do
+    lines[#lines + 1] = "\n      " .. k .. ": " ..
+      gsub(v, "[\n\t]", function(c) return string.format("\\x%02X", byte(c)) end)
+  end
+  return concat(lines)
+end
+
 local function run_extract(rule, f)
   if not rule.extract then return nil end
   local out, any = stdnse.output_table(), false
+  getmetatable(out).__tostring = extracted_text
   for _, x in ipairs(rule.extract) do
     local v = f[x.f]
     if v ~= nil then
@@ -718,7 +745,7 @@ local function recv(sock, deadline)
   if left <= 0 then return nil end
   sock:set_timeout(math.max(1, math.floor(left)))
   local ok, data = sock:receive()
-  if not ok then return nil end
+  if not ok then return nil, data end
   return data
 end
 
@@ -744,26 +771,15 @@ local function has_token(values, token)
   return false
 end
 
--- Parses the header block as Go's net/http.ReadResponse does. Returns nil
--- where Go rejects the response.
-local function parse_head(head, method)
+local function split_lines(s)
   local lines = {}
-  for line in head:gmatch("([^\n]*)\n") do lines[#lines + 1] = (line:gsub("\r$", "")) end
-  local proto, rest = (lines[1] or ""):match("^([^ ]*) (.*)$")
-  if not proto then return nil end
-  local code = rest:gsub("^ +", ""):match("^([^ ]*)")
-  if #code ~= 3 or not code:match("^[+-]?%d+$") then return nil end
-  local status = tonumber(code)
-  if status < 0 then return nil end
-  local major, minor
-  if proto == "HTTP/1.1" then major, minor = 1, 1
-  elseif proto == "HTTP/1.0" then major, minor = 1, 0
-  else
-    local a, b = proto:match("^HTTP/(%d)%.(%d)$")
-    if not a then return nil end
-    major, minor = tonumber(a), tonumber(b)
-  end
+  for line in s:gmatch("([^\n]*)\n") do lines[#lines + 1] = (line:gsub("\r$", "")) end
+  return lines
+end
 
+-- Parses the header lines after the first line as Go's textproto does.
+-- Returns nil where Go rejects them.
+local function mime_header(lines)
   local kvs = {}
   if lines[2] and lines[2]:match("^[ \t]") then return nil end
   for i = 2, #lines do
@@ -789,6 +805,33 @@ local function parse_head(head, method)
     end
     table.insert(header[name], v)
   end
+  return order, header
+end
+
+-- Parses the header block as Go's net/http.ReadResponse does. Returns nil
+-- where Go rejects the response.
+local function parse_head(head, method)
+  local lines = split_lines(head)
+  local proto, rest = (lines[1] or ""):match("^([^ ]*) (.*)$")
+  if not proto then return nil end
+  local code = rest:gsub("^ +", ""):match("^([^ ]*)")
+  if #code ~= 3 or not code:match("^[+-]?%d+$") then return nil end
+  local status = tonumber(code)
+  if status < 0 then return nil end
+  local major, minor
+  if proto == "HTTP/1.1" then major, minor = 1, 1
+  elseif proto == "HTTP/1.0" then major, minor = 1, 0
+  else
+    local a, b = proto:match("^HTTP/(%d)%.(%d)$")
+    if not a then return nil end
+    major, minor = tonumber(a), tonumber(b)
+  end
+  local order, header = mime_header(lines)
+  if not order then return nil end
+  -- The fields hold every header as received; what is removed below only
+  -- decides how the body is read.
+  local received = {}
+  for name, values in pairs(header) do received[name] = values end
 
   -- What net/http's readTransfer removes or rejects.
   local tmajor, tminor = major, minor
@@ -837,14 +880,30 @@ local function parse_head(head, method)
     end
     header["trailer"] = nil
   end
-  return {status = status, header = header, order = order, mode = mode, length = length}
+  return {status = status, header = header, received = received, order = order, mode = mode, length = length}
 end
 
--- Decodes chunked data as it arrives, like Go's chunked reader.
+-- Decodes chunked data as it arrives, like Go's chunked reader. st.ended
+-- says that the body came to its end: after the last chunk Go wants CRLF,
+-- or trailer lines that end with an empty line within its 4096-byte buffer.
 local function chunk_feed(st, data)
   st.raw = st.raw .. data
   while not st.done do
-    if st.left > 0 then
+    if st.last then
+      if #st.raw < 2 then return end
+      if sub(st.raw, 1, 2) == "\r\n" then
+        st.ended = true
+      else
+        local e = find(st.raw, "\r\n\r\n", 1, true)
+        if not e and #st.raw < 4096 then return end
+        if e and e + 3 <= 4096 then
+          local lines = split_lines(sub(st.raw, 1, e + 3))
+          table.insert(lines, 1, "")
+          st.ended = mime_header(lines) ~= nil
+        end
+      end
+      st.done = true
+    elseif st.left > 0 then
       local take = math.min(st.left, #st.raw)
       if take == 0 then return end
       st.out[#st.out + 1] = sub(st.raw, 1, take)
@@ -870,18 +929,19 @@ local function chunk_feed(st, data)
       line = sub(line, 1, -3):gsub("[ \t\r\n]+$", ""):match("^[^;]*")
       if #line == 0 or #line > 16 or find(line, "[^0-9a-fA-F]") then st.done = true return end
       local n = tonumber(line, 16)
-      if not n or n <= 0 then st.done = true return end
+      if not n or n < 0 then st.done = true return end
       st.left = n
+      st.last = n == 0
     end
   end
 end
 
--- Where the deflate data of a gzip member starts, or nil where Go's
--- gzip.NewReader rejects the header (RFC 1952: magic, method, optional
+-- Where the deflate data of the gzip member at from starts, or nil where
+-- Go's gzip.NewReader rejects the header (RFC 1952: magic, method, optional
 -- extra field, name, comment and header CRC).
-local function gzip_data_start(data)
-  if #data < 10 or sub(data, 1, 3) ~= "\x1f\x8b\x08" then return nil end
-  local flags, pos = byte(data, 4), 11
+local function gzip_data_start(data, from)
+  if #data < from + 9 or sub(data, from, from + 2) ~= "\x1f\x8b\x08" then return nil end
+  local flags, pos = byte(data, from + 3), from + 10
   if flags & 4 ~= 0 then
     if #data < pos + 1 then return nil end
     pos = pos + 2 + (byte(data, pos) | (byte(data, pos + 1) << 8))
@@ -896,7 +956,7 @@ local function gzip_data_start(data)
   end
   if flags & 2 ~= 0 then
     if #data < pos + 1 then return nil end
-    if zlib.crc32(0, sub(data, 1, pos - 1)) & 0xffff ~= (byte(data, pos) | (byte(data, pos + 1) << 8)) then
+    if zlib.crc32(0, sub(data, from, pos - 1)) & 0xffff ~= (byte(data, pos) | (byte(data, pos + 1) << 8)) then
       return nil
     end
     pos = pos + 2
@@ -904,19 +964,14 @@ local function gzip_data_start(data)
   return pos
 end
 
--- Decodes a gzip body as athar scan does: without a valid gzip header it is
--- kept as sent (nil); otherwise it is what decodes, which is all of a
--- truncated body that arrived and nothing of corrupt data. The header is
--- parsed here and the deflate data inflated raw, so zlib's own header checks
--- don't apply. zlib.decompress never returns on truncated input, so the
--- stream interface is used.
-local function gunzip(data)
-  local start = gzip_data_start(data)
-  if not start then return nil end
-  local ok, stream = pcall(zlib.inflate, sub(data, start), -15)
+-- Inflates the raw deflate stream that data starts with, to at most room
+-- bytes. zlib.decompress never returns on truncated input, so the stream
+-- interface is used.
+local function inflate(data, room)
+  local ok, stream = pcall(zlib.inflate, data, -15)
   if not ok then return "" end
   local parts, n = {}, 0
-  while n < MAX_BODY do
+  while n < room do
     local ok2, piece = pcall(stream.read, stream, 65536)
     if not ok2 or not piece or piece == "" then break end
     parts[#parts + 1] = piece
@@ -924,6 +979,47 @@ local function gunzip(data)
   end
   pcall(stream.close, stream)
   return concat(parts)
+end
+
+-- Decodes a gzip body as athar scan does: without a valid gzip header it is
+-- kept as sent (nil); otherwise it is what decodes, which is all of a
+-- truncated body that arrived and nothing of corrupt data. The header is
+-- parsed here and the deflate data inflated raw, so zlib's own header checks
+-- don't apply. The second result says that the body is complete: it ends
+-- with the CRC and the size of what its last member decoded to.
+--
+-- A body can have several gzip members. Go reads the next one only after a
+-- member whose CRC-32 and length fit and a valid header. The zlib binding
+-- doesn't tell where a member ends, so its end is found by that trailer and
+-- the next header's first bytes. Later members are inflated from a piece of
+-- the data that grows until it holds the member, so that many short members
+-- don't each copy the rest of the body.
+local function gunzip(data)
+  local start = gzip_data_start(data, 1)
+  if not start then return nil end
+  local parts, n, span = {}, 0, #data
+  local complete = false
+  while true do
+    local piece = sub(data, start, start + span - 1)
+    local out = inflate(piece, MAX_HASH + 1 - n)
+    local full = n + #out > MAX_HASH
+    local trailer = string.pack("<I4I4", zlib.crc32(0, out) & M32, #out & M32)
+    local at = not full and find(piece, trailer .. "\x1f\x8b\x08", 1, true)
+    if at then
+      parts[#parts + 1] = out
+      n = n + #out
+      start = gzip_data_start(data, start + at + 7)
+      if not start then break end
+      span = GZIP_SPAN
+    elseif full or start + span > #data then
+      parts[#parts + 1] = out
+      complete = not full and sub(piece, -8) == trailer
+      break
+    else
+      span = span * 8
+    end
+  end
+  return concat(parts), complete
 end
 
 -- Where the header block ends: the first line that is empty but for CRs.
@@ -963,51 +1059,73 @@ local function http_exchange(sock, hosthdr, method, path, headers, deadline)
   req[#req + 1] = "\r\n"
   if not sock:send(concat(req)) then return nil end
 
+  -- Interim 1xx responses come before the final one and are skipped;
+  -- MAX_HEADER limits all header blocks together.
   local buf, from, hend = "", 1, nil
+  local first, head, resp = 1, nil, nil -- first: where the block starts
   while true do
-    hend, from = head_end(buf, from)
-    if hend then break end
-    if #buf > MAX_HEADER then return nil end
-    local data = recv(sock, deadline)
-    if not data then return nil end
-    buf = buf .. data
+    while true do
+      hend, from = head_end(buf, from)
+      if hend then break end
+      if #buf > MAX_HEADER then return nil end
+      local data = recv(sock, deadline)
+      if not data then return nil end
+      buf = buf .. data
+    end
+    if hend > MAX_HEADER or sub(buf, first, first + 4) ~= "HTTP/" then return nil end
+    head = sub(buf, first, hend)
+    resp = parse_head(head, method)
+    if not resp then return nil end
+    if resp.status // 100 ~= 1 or resp.status == 101 then break end
+    first, from = hend + 1, hend + 1
   end
-  if hend > MAX_HEADER or sub(buf, 1, 5) ~= "HTTP/" then return nil end
-  local head = sub(buf, 1, hend)
-  local resp = parse_head(head, method)
-  if not resp then return nil end
 
+  -- The body is read to its end if that comes within MAX_HASH bytes, so
+  -- that it can be hashed whole; ended says that the end was reached.
   local gzip = resp.header["content-encoding"] and lower(resp.header["content-encoding"][1]) == "gzip"
   local rest = sub(buf, hend + 1)
-  local body
+  local limit = gzip and MAX_RAW or MAX_HASH + 1
+  local body, ended
   if resp.mode == "none" then
-    body = ""
+    body, ended = "", true
   elseif resp.mode == "chunked" then
     local st = {raw = "", out = {}, size = 0, left = 0, crlf = false, done = false}
     chunk_feed(st, rest)
-    local limit = gzip and MAX_RAW or MAX_BODY
     while not st.done and st.size < limit do
       local data = recv(sock, deadline)
       if not data then break end
       chunk_feed(st, data)
     end
-    body = concat(st.out)
+    body, ended = concat(st.out), st.ended
   else
     local parts, have = {rest}, #rest
-    local want = resp.mode == "length" and resp.length or math.huge
-    local limit = math.min(want, gzip and MAX_RAW or MAX_BODY)
+    if resp.mode == "length" then
+      -- Too long to hash: read no more than is kept.
+      limit = (not gzip and resp.length > MAX_HASH) and MAX_BODY or math.min(resp.length, limit)
+    end
+    local err
     while have < limit do
-      local data = recv(sock, deadline)
+      local data
+      data, err = recv(sock, deadline)
       if not data then break end
       parts[#parts + 1] = data
       have = have + #data
     end
     body = concat(parts)
-    if resp.mode == "length" then body = sub(body, 1, resp.length) end
+    if resp.mode == "length" then
+      body = sub(body, 1, resp.length)
+      ended = #body == resp.length
+    else
+      ended = err == "EOF"
+    end
   end
+  local whole = ended
   if gzip and #body > 0 then
-    body = gunzip(body) or body
+    local out, valid = gunzip(body)
+    if out then body, whole = out, ended and valid end
   end
+  -- A body that is too long or was cut short has no complete form.
+  if whole and #body <= MAX_HASH then resp.full = body end
   if #body > MAX_BODY then body = sub(body, 1, MAX_BODY) end
   resp.raw = head
   resp.body = body
@@ -1019,14 +1137,14 @@ local function http_fields(f, resp)
   f["http.status_code"] = resp.status
   f["http.headers_raw"] = resp.raw
   for _, name in ipairs(resp.order) do
-    local values = resp.header[name]
-    if values then
-      f["http.headers." .. name] = #values == 1 and values[1] or values
-    end
+    local values = resp.received[name]
+    f["http.headers." .. name] = #values == 1 and values[1] or values
   end
   f["http.body"] = resp.body
-  f["http.body.mmh3"] = mmh3(resp.body)
-  f["http.body.sha256"] = hex(openssl.digest("sha256", resp.body))
+  if resp.full then -- the hashes are of the complete body
+    f["http.body.mmh3"] = mmh3(resp.full)
+    f["http.body.sha256"] = hex(openssl.digest("sha256", resp.full))
+  end
   local t = html_title(resp.body)
   if t then f["http.title"] = t end
 end
@@ -1158,8 +1276,8 @@ end
 
 -- Where the favicon comes from, as athar scan's faviconSource: a path on the
 -- same service, or the icon bytes of a data: URI. References that url.Parse
--- rejects, or that point at another host or port, fall back to
--- /favicon.ico.
+-- rejects, that point at another host or port, or that have no path ("#",
+-- "?v=2") fall back to /favicon.ico.
 local function favicon_source(ref, hostname, portnum)
   local fallback = "/favicon.ico"
   if ref == "" then return fallback end
@@ -1179,7 +1297,7 @@ local function favicon_source(ref, hostname, portnum)
   local q = find(rest, "?", 1, true)
   if q then rest, query = sub(rest, 1, q - 1), sub(rest, q + 1) end
   if sub(rest, 1, 1) ~= "/" then
-    if scheme then return "/" .. (query ~= "" and "?" .. query or "") end -- opaque
+    if scheme then return fallback end -- opaque: no path
     local seg = rest:match("^[^/]*")
     if find(seg, ":", 1, true) then return fallback end
   end
@@ -1219,18 +1337,14 @@ local function favicon_source(ref, hostname, portnum)
       if lower(h) ~= lower(hostname) or (p ~= "" and p ~= tostring(portnum)) then return fallback end
     end
   end
+  if rest == "" then return fallback end -- no path: the page itself
   local path = unescape_pct(rest)
   if not path then return fallback end
   local escaped = rest
   if find(rest, PATH_OK) then
     escaped = gsub(path, PATH_KEEP, function(c) return string.format("%%%02X", byte(c)) end)
   end
-  local uri
-  if escaped == "" then
-    uri = "/"
-  else
-    uri = resolve_path(escaped)
-  end
+  local uri = resolve_path(escaped)
   if query ~= "" then uri = uri .. "?" .. query end
   return uri
 end
@@ -1468,13 +1582,18 @@ local function dial(host, port, cfg)
   return sock
 end
 
-local function read_banner(sock, wait)
-  sock:set_timeout(wait)
+-- Ends at the latest BANNER_TAIL after wait or after limit, so a server that
+-- drips bytes can't hold it.
+local function read_banner(sock, wait, limit)
+  local stop = nmap.clock_ms() + math.min(wait + BANNER_TAIL, limit)
+  sock:set_timeout(math.min(wait, limit))
   local ok, data = sock:receive()
   if not ok then return "" end
   local parts, n = {data}, #data
   while n < MAX_BANNER do
-    sock:set_timeout(250)
+    local left = stop - nmap.clock_ms()
+    if left <= 0 then break end
+    sock:set_timeout(math.max(1, math.floor(math.min(250, left))))
     local ok2, more = sock:receive()
     if not ok2 then break end
     parts[#parts + 1] = more
@@ -1529,7 +1648,7 @@ local function http_probe(host, port, svc, sock, cfg, needs)
   if not ic then return end
   local icon = http_exchange(ic, host_header(host, port, svc.tls), "GET", path, nil, nmap.clock_ms() + cfg.timeout)
   ic:close()
-  if icon and icon.status == 200 then favicon_fields(svc.fields, icon.body) end
+  if icon and icon.status == 200 and icon.full then favicon_fields(svc.fields, icon.full) end
 end
 
 local function baseline(host, port, needs, cfg)
@@ -1539,7 +1658,7 @@ local function baseline(host, port, needs, cfg)
   local f = svc.fields
 
   if needs.banner then
-    local b = read_banner(sock, cfg.banner)
+    local b = read_banner(sock, cfg.banner, cfg.timeout)
     if #b > 0 then
       banner_fields(f, b)
       sock:close()
@@ -1547,13 +1666,15 @@ local function baseline(host, port, needs, cfg)
     end
   end
 
-  if needs.tls then
+  -- TLS is tried whatever the rules need: every rule's target.tls depends
+  -- on whether the service speaks it.
+  do
     sock:set_timeout(cfg.timeout)
     if sock:reconnect_ssl() then
       svc.tls = true
       cert_fields(f, sock:get_ssl_certificate())
       if needs.banner then
-        local b = read_banner(sock, cfg.banner)
+        local b = read_banner(sock, cfg.banner, cfg.timeout)
         if #b > 0 then
           banner_fields(f, b)
           sock:close()
@@ -1596,7 +1717,8 @@ local function custom_probe(host, port, svc, p, cfg)
       sock:close()
       return nil
     end
-    local b = read_banner(sock, p.wait or cfg.timeout)
+    -- A rule may shorten the read, not extend it past the timeout.
+    local b = read_banner(sock, math.min(p.wait or cfg.timeout, cfg.timeout), cfg.timeout)
     if #b > (p.max or MAX_BANNER) then b = sub(b, 1, p.max) end
     if #b > 0 then
       banner_fields(f, b)
@@ -1698,6 +1820,45 @@ action = function(host, port)
     end
   end
   if #hits == 0 then return nil end
+
+  -- As athar scan: a family is left out when one of its variants matched,
+  -- and the variant's entry then also carries what the family extracted.
+  -- The variant's own values win.
+  local by_id, superseded = {}, {}
+  for _, h in ipairs(hits) do
+    if h.rule.id then by_id[h.rule.id] = h end
+  end
+  for _, h in ipairs(hits) do
+    for _, id in ipairs(h.rule.variant_of or {}) do
+      if by_id[id] then superseded[id] = true end
+    end
+  end
+  local kept = {}
+  for _, h in ipairs(hits) do
+    if not superseded[h.rule.id] then
+      local own, names, values = h.extracted or {}, {}, {}
+      for _, id in ipairs(h.rule.variant_of or {}) do
+        for k, v in pairs(superseded[id] and by_id[id].extracted or {}) do
+          if own[k] == nil and values[k] == nil then
+            names[#names + 1] = k
+            values[k] = v
+          end
+        end
+      end
+      if #names > 0 then
+        for k, v in pairs(own) do
+          names[#names + 1] = k
+          values[k] = v
+        end
+        table.sort(names, bytewise_less)
+        h.extracted = stdnse.output_table()
+        for _, k in ipairs(names) do h.extracted[k] = values[k] end
+      end
+      kept[#kept + 1] = h
+    end
+  end
+  hits = kept
+
   table.sort(hits, function(a, b)
     local x, y = CONFIDENCE[a.rule.confidence] or 0, CONFIDENCE[b.rule.confidence] or 0
     if x ~= y then return x > y end

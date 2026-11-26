@@ -36,7 +36,7 @@ Most hunts start as a query on FOFA, Shodan, Censys, ZoomEye, Modat Magnify or u
 8. **Fill the metadata** from the template in [rules/README.md](rules/README.md): a fresh lowercase UUIDv4 (`python3 -c 'import uuid; print(uuid.uuid4())'`), `status: experimental`, today's `date`, `references` to the public source of the hunt, and the original query under `native`, keyed by engine. Ask the user for `author`; don't invent one.
    - `identifies` needs at least a `product` or a `family`. Use `product` (and `vendor`, if you know it) for one product, and `family` for one codebase that ships under several brands (spec section 8).
    - `category` must come from the controlled list in spec section 7, and the tag `category.<category>` repeats it. If no category fits, tell the user instead of forcing one: a new category is the maintainers' decision.
-9. **Verify and round-trip.** Run `athar verify -strict <file>` until it passes. Then run `athar convert -t <engine> <file>` for the engine the query came from and compare its query with the original. Explain every difference to the user: a dropped location or port filter, a label replaced by a signal, a `contains` that was an exact match. The fidelity `athar convert` reports compares the converted query with the rule, not with the original query. `approximate` without a note means the engine matches whole words (Shodan, Censys `:`) or that its equality is case-sensitive (ZoomEye `==`).
+9. **Verify and round-trip.** Run `athar verify -strict <file>` until it passes. Then run `athar convert -t <engine> <file>` for the engine the query came from and compare its query with the original. Explain every difference to the user: a dropped location or port filter, a label replaced by a signal, a `contains` that was an exact match. The fidelity `athar convert` reports compares the converted query with the rule, not with the original query. `approximate` without a note means the engine matches whole words (Shodan, Censys `:`) or that its equality is case-sensitive (ZoomEye `==`). A note that a mapping "is not verified" marks an engine field that spec Appendix A lists with †, such as FOFA `status_code=`: the query is labelled `approximate` even when it equals the original.
 10. **Save the rule.** In this repository, rules go to `rules/<category>/`, named after the product as described in [rules/README.md](rules/README.md); a narrower rule adds a qualifier, such as `gitea_default_title.yml`. Elsewhere, save it where the user wants.
 
 ### Engine syntax to Athar fields
@@ -57,11 +57,13 @@ Values in angle brackets are placeholders. "contains" means `field|contains: val
 | FOFA `icon_hash=` · Shodan `http.favicon.hash:` · ZoomEye `iconhash=` with an integer · Modat `http.files.mmh3=` | `http.favicon.mmh3` exact |
 | ZoomEye `iconhash=` with 32 hex characters | `http.favicon.md5` exact |
 | Censys `…http.favicons.hash_sha256` · Modat `http.files.sha256` | `http.favicon.sha256` exact |
-| Shodan `http.html_hash:` · FOFA `body_hash=` · Modat `http.body_mmh3` | `http.body.mmh3` exact |
+| Shodan `http.html_hash:` · Modat `http.body_mmh3` | `http.body.mmh3` exact |
+| FOFA `body_hash=` | No field: its algorithm is undocumented ([docs/decisions.md](docs/decisions.md)). Tell the user, keep the query under `native` and match on another signal; `athar convert` doesn't write `body_hash=`. |
 | urlscan `hash:<sha256>` | A file the page loaded. Ask for the file's path (urlscan lists it under the scan's requests), declare a custom probe that fetches it, and match `http.body.sha256` in a selection with `probe: <id>`. See spec section 9 and `rules/offensive-tool/aof_artex_frontend_files_nov26.yml`. If the file is the favicon or the landing page itself, use `http.favicon.sha256` or `http.body.sha256` without a probe. |
 | FOFA `cert.subject.cn=` · Shodan `ssl.cert.subject.cn:` · ZoomEye `ssl.cert.subject.cn=` · Modat `tls.subject.common_name` · Censys `…cert.parsed.subject.common_name` | `tls.cert.subject.cn` contains (exact for `==` or `=`) |
 | The same with `issuer` | `tls.cert.issuer.cn` |
-| Shodan `ssl.cert.fingerprint:` · Censys `…cert.fingerprint_sha256` · Modat `tls.fingerprint_sha256` | `tls.cert.sha256` exact |
+| Censys `…cert.fingerprint_sha256` · Modat `tls.fingerprint_sha256` | `tls.cert.sha256` exact |
+| Shodan `ssl.cert.fingerprint:` | `tls.cert.sha256` exact for 64 hex characters, `tls.cert.sha1` for 40. Which hash Shodan stores there is not checked, so `athar convert` doesn't write it and the round trip on Shodan drops it. |
 | FOFA `jarm=` · Shodan `ssl.jarm:` · ZoomEye `ssl.jarm=` · Censys `…jarm.fingerprint` · Modat `tls.jarm` | `tls.jarm` exact |
 | Shodan `ssl.ja3s:` · ZoomEye `ssl.ja3s=` · Modat `tls.ja3s` | `tls.ja3s` exact |
 | FOFA, ZoomEye `banner=` · Censys `…banner` · Modat `banner~` | `service.banner` contains |
@@ -105,7 +107,7 @@ The same steps apply without a query: take the most specific stable signals the 
 
 A product with rebrands gets a family rule plus variant rules (spec section 8): the family matches what all brands share and extracts the brand; a variant links to the family with `related` type `variant-of` and repeats the family's selections.
 
-`confidence` says how likely a match is really this service and not a lookalike: `certain` for unique hashes or certificates, `high` for a distinctive title or phrase, `medium` for signals other software could share, `low` for weak hints.
+`confidence` says how likely a match is really this service and not a lookalike: `certain` for the SHA-256 of a file or certificate that only this product has, `high` for a favicon hash, a default certificate name or a distinctive title or phrase, `medium` for signals other software could share, `low` for weak hints.
 
 ## Scanning
 
