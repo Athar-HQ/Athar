@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -125,6 +126,61 @@ func TestUsage(t *testing.T) {
 func TestInterleavedFlags(t *testing.T) {
 	if code, out, errOut := runCLI("verify", "../../../rules", "-strict", "-q"); code != exitOK {
 		t.Errorf("exit %d\n%s%s", code, out, errOut)
+	}
+}
+
+// "--" ends the flags: everything after it is a positional argument.
+func TestDoubleDash(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	jsonOut, rules := fs.Bool("json", false, ""), fs.String("r", "", "")
+	pos, err := parseFlags(fs, []string{"a", "-r", "rules", "--", "host", "-json", "--", "b"})
+	if err != nil || *jsonOut || *rules != "rules" || strings.Join(pos, " ") != "a host -json -- b" {
+		t.Errorf("positional %q, json %v, r %q, err %v", pos, *jsonOut, *rules, err)
+	}
+
+	// What follows "--" is a path or a target, so these fail: no file is
+	// named like a flag, and the scan has no -r.
+	for _, args := range [][]string{
+		{"verify", "--", "../../../rules", "-q"},
+		{"convert", "--", "../../../rules", "-json"},
+		{"scan", "--", "127.0.0.1:1", "-r", "../../../rules"},
+	} {
+		if code, _, errOut := runCLI(args...); code != exitUsage {
+			t.Errorf("%v: exit %d, want %d\n%s", args, code, exitUsage, errOut)
+		}
+	}
+}
+
+// A file given twice, also through its folder, another spelling or a
+// symlink, is loaded once. Two files with one id are still an error.
+func TestSameFileTwice(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.yml")
+	if err := os.WriteFile(a, []byte(convertFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spellings := []string{a, dir + "/./a.yml"}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err == nil {
+		spellings = append(spellings, filepath.Join(link, "a.yml"))
+	}
+	for _, same := range spellings {
+		if code, out, errOut := runCLI("verify", dir, same); code != exitOK || !strings.Contains(out, "\n1 rule, ") {
+			t.Errorf("verify %s %s: exit %d\n%s%s", dir, same, code, out, errOut)
+		}
+		if code, _, errOut := runCLI("scan", "-r", dir, "-r", same, "127.0.0.1:1"); code != exitOK {
+			t.Errorf("scan -r %s -r %s: exit %d\n%s", dir, same, code, errOut)
+		}
+		if code, out, errOut := runCLI("convert", "-t", "fofa", "-json", dir, same); code != exitOK || strings.Count(out, "\n") != 1 {
+			t.Errorf("convert %s %s: exit %d\n%s%s", dir, same, code, out, errOut)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "b.yml"), []byte(convertFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := runCLI("verify", dir); code != exitFindings || !strings.Contains(out, "is already used by") {
+		t.Errorf("two files with one id: exit %d\n%s", code, out)
 	}
 }
 

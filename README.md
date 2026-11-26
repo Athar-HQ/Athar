@@ -153,7 +153,7 @@ go install github.com/Athar-HQ/Athar/cli/cmd/athar@latest
 
 ### Scan
 
-Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames, CIDR ranges up to /16, or `host:port`. Flags can go before or after the targets.
+Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames, CIDR ranges up to /16, or `host:port`. Flags can go before or after the targets; `--` ends the flags.
 
 ```bash
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24

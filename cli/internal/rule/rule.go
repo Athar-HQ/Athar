@@ -141,16 +141,32 @@ func Load(path string) (*Rule, error) {
 }
 
 // Files returns the rule files (.yml, .yaml) under the given files or
-// directories, sorted. Hidden directories are skipped.
+// directories, sorted. Hidden directories are skipped. A file reached more
+// than once (named twice, in a listed folder, through a symlink) is returned
+// once, under the first path that led to it.
 func Files(paths []string) ([]string, error) {
 	var out []string
+	seen := map[string]bool{}
+	add := func(path string) {
+		key := path
+		if abs, err := filepath.Abs(path); err == nil {
+			key = abs
+		}
+		if resolved, err := filepath.EvalSymlinks(key); err == nil {
+			key = resolved
+		}
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, path)
+		}
+	}
 	for _, p := range paths {
 		info, err := os.Stat(p)
 		if err != nil {
 			return nil, err
 		}
 		if !info.IsDir() {
-			out = append(out, p)
+			add(p)
 			continue
 		}
 		err = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
@@ -164,7 +180,7 @@ func Files(paths []string) ([]string, error) {
 				return nil
 			}
 			if ext := filepath.Ext(path); ext == ".yml" || ext == ".yaml" {
-				out = append(out, path)
+				add(path)
 			}
 			return nil
 		})
