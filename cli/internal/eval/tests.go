@@ -1,12 +1,19 @@
 package eval
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/Athar-HQ/Athar/cli/internal/fields"
+	"github.com/Athar-HQ/Athar/cli/internal/rule"
 )
+
+// RawHTTP derives the fields of one HTTP response, given as received, for
+// tests with a raw response. The scanner's parser is in package probe, which
+// imports this package, so the program sets it: eval.RawHTTP = probe.HTTPFields.
+var RawHTTP func(raw []byte) (Fields, error)
 
 // TestResult is the outcome of one entry in a rule's tests section.
 type TestResult struct {
@@ -15,9 +22,9 @@ type TestResult struct {
 	Detail string // why it failed
 }
 
-// RunTests evaluates the rule's tests (spec section 9). response describes
-// the baseline probe and probes the custom probes, by id; a custom probe a
-// test doesn't list got no response.
+// RunTests evaluates the rule's tests (spec section 9). raw and response
+// describe the baseline probe and probes the custom probes, by id; a custom
+// probe a test doesn't list got no response.
 func (c *Compiled) RunTests() []TestResult {
 	var out []TestResult
 	for i, t := range c.Rule.Tests {
@@ -34,7 +41,10 @@ func (c *Compiled) RunTests() []TestResult {
 			}
 		}
 		for id, pr := range t.Probes {
-			for f := range pr {
+			for f, v := range pr {
+				if _, ok := v.(string); ok && f == "raw" {
+					continue
+				}
 				if !fields.Known(f) {
 					unknown = append(unknown, id+": "+f)
 				}
@@ -48,9 +58,24 @@ func (c *Compiled) RunTests() []TestResult {
 			continue
 		}
 
-		resp := Responses{DefaultProbe: Fields(t.Response)}
+		var bad []string
+		base, err := testFields(t.Raw, t.Response)
+		if err != nil {
+			bad = append(bad, err.Error())
+		}
+		resp := Responses{DefaultProbe: base}
 		for id, pr := range t.Probes {
-			resp[id] = Fields(pr)
+			raw, _ := pr["raw"].(string)
+			if resp[id], err = testFields(raw, pr); err != nil {
+				bad = append(bad, "probe "+id+": "+err.Error())
+			}
+		}
+		if len(bad) > 0 {
+			sort.Strings(bad)
+			tr.Passed = false
+			tr.Detail = strings.Join(bad, "; ")
+			out = append(out, tr)
+			continue
 		}
 		res := c.Eval(resp)
 		switch {
@@ -92,6 +117,27 @@ func (c *Compiled) RunTests() []TestResult {
 		out = append(out, tr)
 	}
 	return out
+}
+
+// testFields returns the fields of one test response: the ones derived from
+// raw, if given, and the listed ones on top.
+func testFields(raw string, listed map[string]any) (Fields, error) {
+	f := Fields{}
+	if raw != "" {
+		if RawHTTP == nil {
+			return nil, errors.New("raw: no HTTP parser set (eval.RawHTTP)")
+		}
+		var err error
+		if f, err = RawHTTP(rule.RawResponse(raw)); err != nil {
+			return nil, fmt.Errorf("raw: %w", err)
+		}
+	}
+	for k, v := range listed {
+		if k != "raw" {
+			f[k] = v
+		}
+	}
+	return f, nil
 }
 
 func list(s []string) string {

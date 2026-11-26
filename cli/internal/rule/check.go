@@ -151,12 +151,21 @@ func Check(r *Rule) []Problem {
 		if t.Expect == "no_match" {
 			negative = true
 		}
-		if len(t.Response) == 0 && len(t.Probes) == 0 {
+		if t.Raw == "" && len(t.Response) == 0 && len(t.Probes) == 0 {
 			p = append(p, errorf("test %q: missing response", name))
 		}
 		for _, id := range sortedKeys(t.Probes) {
-			if _, ok := r.Probes[id]; !ok {
+			pr, ok := r.Probes[id]
+			if !ok {
 				p = append(p, errorf("test %q: probe %q is not declared under probes", name, id))
+				continue
+			}
+			if raw, ok := t.Probes[id]["raw"]; !ok {
+				continue
+			} else if _, ok := raw.(string); !ok {
+				p = append(p, errorf("test %q: probe %q: raw must be a string", name, id))
+			} else if !strings.EqualFold(pr.Protocol, "http") {
+				p = append(p, errorf("test %q: probe %q: raw needs an http probe", name, id))
 			}
 		}
 	}

@@ -72,7 +72,7 @@ Create a category folder when its first rule arrives.
 - [ ] Variants link to their family with `related` type `variant-of` and repeat the family's selections.
 - [ ] `athar verify -strict rules/` passes. CI runs the same check on every pull request.
 
-Test responses may be minimal samples built from published indicators while a rule is `experimental`. Say so in a comment. Captured responses are better.
+Test responses may be minimal samples built from published indicators while a rule is `experimental`. Say so in a comment. A captured response is better: put it under `raw` as received, and `athar verify` derives the fields from it as the scanner does (spec section 9).
 
 ## Template
 
