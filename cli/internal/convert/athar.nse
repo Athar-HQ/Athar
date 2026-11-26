@@ -26,6 +26,11 @@
 -- Each keeps its own author and licence (Detection Rule License 1.1 for the
 -- rules in the Athar repository), and every match this script reports names
 -- the rule's author.
+--
+-- Known gap: against a TLS service that closes the connection without a
+-- close_notify alert, Nmap's Nsock drops what it read, so the script may
+-- report nothing where athar scan matches; the cause is in Nmap (seen with
+-- 7.97 and OpenSSL 3).
 
 local base64 = require "base64"
 local json = require "json"
@@ -104,6 +109,7 @@ local MAX_BANNER = 8 << 10    -- banner bytes kept
 local BANNER_TAIL = 1000      -- ms a banner may go on after the wait for it
 local MAX_HASH = 16 << 20     -- body bytes hashed at most, as athar scan
 local MAX_RAW = MAX_HASH + (64 << 10) -- gzip body bytes read at most
+local GZIP_SPAN = 4 << 10     -- first guess at the length of a later gzip member
 local USER_AGENT = "Mozilla/5.0 (compatible; athar-nse; +https://github.com/Athar-HQ/Athar)"
 
 local byte, char, find, sub, gsub = string.byte, string.char, string.find, string.sub, string.gsub
@@ -930,12 +936,12 @@ local function chunk_feed(st, data)
   end
 end
 
--- Where the deflate data of a gzip member starts, or nil where Go's
--- gzip.NewReader rejects the header (RFC 1952: magic, method, optional
+-- Where the deflate data of the gzip member at from starts, or nil where
+-- Go's gzip.NewReader rejects the header (RFC 1952: magic, method, optional
 -- extra field, name, comment and header CRC).
-local function gzip_data_start(data)
-  if #data < 10 or sub(data, 1, 3) ~= "\x1f\x8b\x08" then return nil end
-  local flags, pos = byte(data, 4), 11
+local function gzip_data_start(data, from)
+  if #data < from + 9 or sub(data, from, from + 2) ~= "\x1f\x8b\x08" then return nil end
+  local flags, pos = byte(data, from + 3), from + 10
   if flags & 4 ~= 0 then
     if #data < pos + 1 then return nil end
     pos = pos + 2 + (byte(data, pos) | (byte(data, pos + 1) << 8))
@@ -950,7 +956,7 @@ local function gzip_data_start(data)
   end
   if flags & 2 ~= 0 then
     if #data < pos + 1 then return nil end
-    if zlib.crc32(0, sub(data, 1, pos - 1)) & 0xffff ~= (byte(data, pos) | (byte(data, pos + 1) << 8)) then
+    if zlib.crc32(0, sub(data, from, pos - 1)) & 0xffff ~= (byte(data, pos) | (byte(data, pos + 1) << 8)) then
       return nil
     end
     pos = pos + 2
@@ -958,30 +964,62 @@ local function gzip_data_start(data)
   return pos
 end
 
--- Decodes a gzip body as athar scan does: without a valid gzip header it is
--- kept as sent (nil); otherwise it is what decodes, which is all of a
--- truncated body that arrived and nothing of corrupt data. The header is
--- parsed here and the deflate data inflated raw, so zlib's own header checks
--- don't apply. zlib.decompress never returns on truncated input, so the
--- stream interface is used. The second result says that the body is
--- complete: it ends with the CRC and the size of what was decoded.
-local function gunzip(data)
-  local start = gzip_data_start(data)
-  if not start then return nil end
-  local ok, stream = pcall(zlib.inflate, sub(data, start), -15)
-  if not ok then return "", false end
+-- Inflates the raw deflate stream that data starts with, to at most room
+-- bytes. zlib.decompress never returns on truncated input, so the stream
+-- interface is used.
+local function inflate(data, room)
+  local ok, stream = pcall(zlib.inflate, data, -15)
+  if not ok then return "" end
   local parts, n = {}, 0
-  while n <= MAX_HASH do
+  while n < room do
     local ok2, piece = pcall(stream.read, stream, 65536)
     if not ok2 or not piece or piece == "" then break end
     parts[#parts + 1] = piece
     n = n + #piece
   end
   pcall(stream.close, stream)
-  local out = concat(parts)
-  if #data < start + 7 then return out, false end
-  local crc, size = string.unpack("<I4I4", data, #data - 7)
-  return out, crc == zlib.crc32(0, out) & M32 and size == #out & M32
+  return concat(parts)
+end
+
+-- Decodes a gzip body as athar scan does: without a valid gzip header it is
+-- kept as sent (nil); otherwise it is what decodes, which is all of a
+-- truncated body that arrived and nothing of corrupt data. The header is
+-- parsed here and the deflate data inflated raw, so zlib's own header checks
+-- don't apply. The second result says that the body is complete: it ends
+-- with the CRC and the size of what its last member decoded to.
+--
+-- A body can have several gzip members. Go reads the next one only after a
+-- member whose CRC-32 and length fit and a valid header. The zlib binding
+-- doesn't tell where a member ends, so its end is found by that trailer and
+-- the next header's first bytes. Later members are inflated from a piece of
+-- the data that grows until it holds the member, so that many short members
+-- don't each copy the rest of the body.
+local function gunzip(data)
+  local start = gzip_data_start(data, 1)
+  if not start then return nil end
+  local parts, n, span = {}, 0, #data
+  local complete = false
+  while true do
+    local piece = sub(data, start, start + span - 1)
+    local out = inflate(piece, MAX_HASH + 1 - n)
+    local full = n + #out > MAX_HASH
+    local trailer = string.pack("<I4I4", zlib.crc32(0, out) & M32, #out & M32)
+    local at = not full and find(piece, trailer .. "\x1f\x8b\x08", 1, true)
+    if at then
+      parts[#parts + 1] = out
+      n = n + #out
+      start = gzip_data_start(data, start + at + 7)
+      if not start then break end
+      span = GZIP_SPAN
+    elseif full or start + span > #data then
+      parts[#parts + 1] = out
+      complete = not full and sub(piece, -8) == trailer
+      break
+    else
+      span = span * 8
+    end
+  end
+  return concat(parts), complete
 end
 
 -- Where the header block ends: the first line that is empty but for CRs.

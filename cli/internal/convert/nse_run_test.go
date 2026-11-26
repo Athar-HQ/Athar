@@ -100,7 +100,7 @@ func TestNSEMatchesScan(t *testing.T) {
 		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC",
 		"favicon link without a path", "favicon link without a hierarchy", "headers as received",
 		"early hints", "cut short", "chunked without end", "chunked without last CRLF", "chunked with trailer",
-		"chunked bad trailer", "gzip bad CRC", "gzip and more"}
+		"chunked bad trailer", "gzip bad CRC", "gzip and more", "gzip members", "gzip bad checksum"}
 	expect := map[string][]string{
 		"diff headers as received": {"headers as received"},
 		"diff lists":               {"entities and headers", "TLS", "TLS until close"},
@@ -910,6 +910,15 @@ func diffServers(t *testing.T) map[string]int {
 	gzipPage := func(body string) map[string]string {
 		return map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n", body)}
 	}
+	// Several gzip members: athar scan reads them all, up to a member whose
+	// checksum is wrong. The long member compresses badly.
+	var long strings.Builder
+	for i := range 600 {
+		fmt.Fprintf(&long, "<p>%x</p>\n", sha256.Sum256([]byte{byte(i), byte(i >> 8)}))
+	}
+	members := gzipped("<title>members</title>") + gzipped("") + gzipped(long.String()) + gzipped("<p>last member</p>")
+	badSum := []byte(gzipped("<title>checksum</title>"))
+	badSum[len(badSum)-8] ^= 0xff
 	// Bodies that don't come to their end have no hashes; one that does has.
 	badCRC := []byte(gzipped("<title>bad crc</title>"))
 	badCRC[len(badCRC)-8] ^= 0xff
@@ -969,6 +978,8 @@ func diffServers(t *testing.T) map[string]int {
 		"gzip truncated":     rawServer(t, gzipPage(cut), nil, ""),
 		"gzip header fields": rawServer(t, gzipPage(named.String()), nil, ""),
 		"gzip header CRC":    rawServer(t, gzipPage(string(hcrc)), nil, ""),
+		"gzip members":       rawServer(t, gzipPage(members), nil, ""),
+		"gzip bad checksum":  rawServer(t, gzipPage(string(badSum)+gzipped("<p>not read</p>")), nil, ""),
 		"early hints": rawServer(t, map[string]string{
 			"/": "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </x.css>; rel=preload\r\nServer: early\r\n\r\n" +
 				httpResponse("HTTP/1.1 200 OK\r\nServer: final\r\n", "<title>hinted</title>"),
