@@ -239,6 +239,22 @@ condition: sel
 	})
 }
 
+// A value YAML reads as a number reaches the engines as the author wrote it.
+func TestValuesAsWritten(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title: 0100\n  http.body|contains: 2.0\n  tls.cert.subject.cn|contains: 1_000\nicon:\n  http.favicon.mmh3: -576220750\ncondition: sel and icon\n")
+	check(t, r, map[string]want{
+		"fofa":  {`body="2.0" && title=="0100" && cert.subject.cn="1_000" && icon_hash="-576220750"`, Exact},
+		"modat": {`http.body~"2.0" and http.title="0100" and tls.subject.common_name~"1_000" and http.files.mmh3=-576220750`, Approximate},
+	})
+	// Only the values matter here, not the form of the matcher around them.
+	tmpl := nucleiFor(t, "sel:\n  http.title: 0100\n  http.body|contains: 2.0\ncondition: sel\n")
+	wantIn(t, tmpl, `"2.0")`)
+	wantIn(t, tmpl, `== "0100"`)
+	wantData(t, nseFor(t, "sel:\n  http.title: 0100\n  service.banner|hex|startswith: 0016\ncondition: sel\n"),
+		`{f = "http.title", m = "eq", v = "0100"}`,
+		`{f = "service.banner", m = "startswith", v = "\x00\x16", c = true}`)
+}
+
 func TestUnknownEngine(t *testing.T) {
 	if _, err := Convert(ruleFrom(t, specFamily), "bing"); err == nil {
 		t.Error("want error for unknown engine")

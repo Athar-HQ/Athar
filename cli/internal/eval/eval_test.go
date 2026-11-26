@@ -316,3 +316,103 @@ func TestRunTests(t *testing.T) {
 		}
 	}
 }
+
+// Values of string fields and hex values are used as written, even where
+// YAML reads them as numbers, booleans or dates. Numeric and boolean fields
+// keep their YAML value.
+func TestValuesAsWritten(t *testing.T) {
+	resp := baseline(Fields{
+		"http.title":           "1000",
+		"http.body":            "build 010",
+		"http.status_code":     200,
+		"http.favicon.mmh3":    -576220750,
+		"http.headers.etag":    "0x1F",
+		"http.headers.x-debug": "True",
+		"http.headers.x-built": "2026-11-26",
+		"tls.cert.serial":      "0100",
+		"tls.cert.san":         []any{"1e3", ".5"},
+		"tls.cert.self_signed": true,
+		"service.banner":       "\x00\x16abc",
+		"ssh.banner":           "SSH-1.99-Foo_2",
+	})
+	tests := []struct {
+		sel  string
+		want bool
+	}{
+		{"ssh.banner|contains: 2.0", false},
+		{"ssh.banner|contains: 1.99", true},
+		{"tls.cert.serial: 0100", true},
+		{"tls.cert.serial: 64", false},
+		{"service.banner|hex|startswith: 0016", true},
+		{"service.banner|hex|startswith: [0016, 17]", true},
+		{"http.title: 1_000", false},
+		{"http.title: 1000", true},
+		{"http.title: 1e3", false},
+		{"http.headers.etag: 0x1F", true},
+		{"http.headers.etag: 31", false},
+		{"tls.cert.san: 1e3", true},
+		{"tls.cert.san: [.5, 7]", true},
+		{"tls.cert.san: 0.5", false},
+		{"http.headers.x-debug|cased: True", true},
+		{"http.headers.x-debug|cased: true", false},
+		{"http.headers.x-built: 2026-11-26", true},
+		// a null value still means the field is absent
+		{"tls.jarm: ~", true},
+		{"http.title: null", false},
+		// numbers and booleans stay what YAML reads
+		{"http.status_code: 200", true},
+		{"http.status_code: 2_00", true},
+		{"http.status_code|lt: 0x12C", true},
+		{"http.favicon.mmh3: -576220750", true},
+		{"http.favicon.mmh3: '-576220750'", true},
+		{"tls.cert.self_signed: True", true},
+		{"http.title|exists: True", true},
+	}
+	for _, tt := range tests {
+		c, _, err := compileErr("sel:\n  " + tt.sel + "\ncondition: sel")
+		if err != nil {
+			t.Errorf("%s: %v", tt.sel, err)
+			continue
+		}
+		if got := c.Eval(resp).Match; got != tt.want {
+			t.Errorf("%s: match = %v, want %v", tt.sel, got, tt.want)
+		}
+	}
+
+	// Keywords are strings too.
+	for det, want := range map[string]bool{
+		"keywords: [10.0]\ncondition: keywords": false,
+		"keywords: [010]\ncondition: keywords":  true,
+	} {
+		if got := compile(t, det).Eval(resp).Match; got != want {
+			t.Errorf("%q: match = %v, want %v", det, got, want)
+		}
+	}
+}
+
+// A test response is typed like a scanned one: string fields hold what the
+// test wrote, numeric fields hold numbers.
+func TestRunTestsValuesAsWritten(t *testing.T) {
+	c := compile(t, "sel:\n  - http.title|re: '^(0100|1000|2\\.0|1_0)$'\n  - tls.cert.san|re: '^0x1F$'\n  - http.status_code: 200\ncondition: sel",
+		"extract:",
+		"  title: { field: http.title, regex: '.+' }",
+		"tests:",
+		"  - { name: octal, expect: match, response: { http.title: 0100 }, extracted: { title: '0100' } }",
+		"  - { name: int, expect: match, response: { http.title: 1000 } }",
+		"  - { name: float, expect: match, response: { http.title: 2.0 } }",
+		"  - { name: underscore, expect: match, response: { http.title: 1_0 } }",
+		"  - { name: list, expect: match, response: { tls.cert.san: [a, 0x1F] } }",
+		"  - { name: number field, expect: match, response: { http.status_code: 2_00 } }",
+		"  - { name: quoted number field, expect: match, response: { http.status_code: '200' } }",
+		"  - { name: null is absent, expect: no_match, response: { http.title: ~ } }",
+	)
+	res := c.RunTests()
+	if len(res) != 8 {
+		t.Fatalf("got %d results, want 8", len(res))
+	}
+	for _, r := range res {
+		if !r.Passed {
+			t.Errorf("test %q failed: %s", r.Name, r.Detail)
+		}
+	}
+}
