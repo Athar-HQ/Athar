@@ -44,6 +44,48 @@ func TestText(t *testing.T) {
 	}
 }
 
+// Extracted values come from the scanned service. In readable output their
+// control characters must not reach the terminal; JSON keeps the value.
+func TestTextEscapesExtracted(t *testing.T) {
+	r := argos
+	r.Author = ""
+	r.Extracted = map[string]string{
+		"brand":   "\x1b[2J\x1b]0;owned\aFAKE",
+		"c0":      "a\nb\rc\td\x00e\x7f",
+		"c1":      "\u009b31mred\u0085x\xff\x9b",
+		"bidi":    "\u202eevil\u202a\u2066x\u2069\u2028y",
+		"chinese": "海盗船-内部渗透框架",
+		"korean":  "자율 침투 v2 · café",
+	}
+	var buf bytes.Buffer
+	if err := NewText(&buf, color.New(false)).Write(r); err != nil {
+		t.Fatal(err)
+	}
+	want := `144.202.110.94:443 (tls)  Agentic Offensive Framework - ARTEX family  [offensive-tool] [high]  ` +
+		`bidi=\u202eevil\u202a\u2066x\u2069\u2028y brand=\x1b[2J\x1b]0;owned\x07FAKE c0=a\nb\rc\td\x00e\x7f ` +
+		`c1=\u009b31mred\u0085x\xff\x9b chinese=海盗船-内部渗透框架 korean=자율 침투 v2 · café` + "\n"
+	if buf.String() != want {
+		t.Errorf("got  %q\nwant %q", buf.String(), want)
+	}
+
+	buf.Reset()
+	NewText(&buf, color.New(true)).Write(r)
+	if out := buf.String(); !strings.Contains(out, "\x1b[1m\x1b[33m\\x1b[2J\\x1b]0;owned\\x07FAKE\x1b[0m\x1b[0m") || strings.Count(out, "\n") != 1 {
+		t.Errorf("colored line = %q", out)
+	}
+
+	buf.Reset()
+	r.Extracted = map[string]string{"brand": "\x1b[2J\u202eA\nB"}
+	NewJSON(&buf).Write(r)
+	var back Record
+	if err := json.Unmarshal(buf.Bytes(), &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Extracted["brand"] != r.Extracted["brand"] || strings.Count(buf.String(), "\n") != 1 || strings.Contains(buf.String(), "\x1b") {
+		t.Errorf("JSON line = %q", buf.String())
+	}
+}
+
 func TestTextColors(t *testing.T) {
 	var buf bytes.Buffer
 	NewText(&buf, color.New(true)).Write(argos)

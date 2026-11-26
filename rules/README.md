@@ -19,6 +19,7 @@ rules/
 │   ├── aof_artex_llm_console_nov26.yml             LLM-driven console phrase
 │   ├── aof_artex_opx_nov26.yml                     OPX rebrand with an operations console title
 │   ├── aof_artex_rebrands_nov26.yml                family without ARTEX's title or favicon
+│   ├── aof_artex_redirect_stub_nov26.yml           ARTEX page that redirects to the console
 │   ├── aof_artex_stylesheet_nov26.yml              paths of the family's frontend stylesheets
 │   ├── aof_autocve_nov26.yml                       AutoCVE title
 │   ├── aof_autocve_favicon_nov26.yml               favicon, MurmurHash3
