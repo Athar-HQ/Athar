@@ -7,7 +7,7 @@
 | Target | Output | Notes |
 | --- | --- | --- |
 | FOFA, Shodan, Censys, ZoomEye, Modat Magnify, urlscan.io | Search queries | Find candidates in indexed scan data. See [spec section 10](../spec/athar-spec.md#10-conversion). |
-| [Nuclei](https://github.com/projectdiscovery/nuclei) | One template per rule (`-t nuclei`) | Runs the rule in Nuclei without Athar's scanner. The condition becomes one DSL matcher. Favicon rules are approximate, because the template fetches `/favicon.ico` while the scanner first follows `<link rel="icon">`. |
+| [Nuclei](https://github.com/projectdiscovery/nuclei) | One template per rule (`-t nuclei`) | Runs the rule in Nuclei without Athar's scanner. The condition becomes one DSL matcher. Favicon rules are approximate, because the template fetches `/favicon.ico` while the scanner first follows `<link rel="icon">`. Body hash rules are approximate too: Nuclei also hashes a body that was cut short. |
 | [Nmap NSE](https://nmap.org/book/nse.html) | One script, `athar.nse`, plus one data file per rule (`-t nse`) | Runs the rules with `nmap --script`. The script probes and matches as Athar's scanner does, regular expressions included, so every rule in the repository converts exactly; a test compares the two on the same responses. Not converted: TLS version, cipher and ALPN, JARM, JA3S, certificate DN and `self_signed`. |
 
 ### Reachable without a new backend

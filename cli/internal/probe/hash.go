@@ -14,20 +14,51 @@ import (
 // MMH3 is 32-bit MurmurHash3 with seed 0, as a signed integer. This matches
 // Python's mmh3.hash, which Shodan and FOFA use.
 func MMH3(data []byte) int32 {
-	const c1, c2 = 0xcc9e2d51, 0x1b873593
-	var h uint32
-	n := len(data) / 4
-	for i := 0; i < n; i++ {
-		k := binary.LittleEndian.Uint32(data[i*4:])
-		k *= c1
-		k = bits.RotateLeft32(k, 15)
-		k *= c2
-		h ^= k
-		h = bits.RotateLeft32(h, 13)
-		h = h*5 + 0xe6546b64
+	var m mmh3Sum
+	m.Write(data)
+	return m.Sum()
+}
+
+// mmh3Sum computes MMH3 over data written in pieces.
+type mmh3Sum struct {
+	h    uint32
+	n    int     // bytes written
+	tail [4]byte // the last n%4 bytes, not yet part of h
+}
+
+func (m *mmh3Sum) Write(p []byte) (int, error) {
+	written := len(p)
+	if have := m.n % 4; have > 0 {
+		c := copy(m.tail[have:], p)
+		m.n += c
+		p = p[c:]
+		if have+c < 4 {
+			return written, nil
+		}
+		m.block(binary.LittleEndian.Uint32(m.tail[:]))
 	}
+	m.n += len(p)
+	for ; len(p) >= 4; p = p[4:] {
+		m.block(binary.LittleEndian.Uint32(p))
+	}
+	copy(m.tail[:], p)
+	return written, nil
+}
+
+func (m *mmh3Sum) block(k uint32) {
+	k *= 0xcc9e2d51
+	k = bits.RotateLeft32(k, 15)
+	k *= 0x1b873593
+	m.h ^= k
+	m.h = bits.RotateLeft32(m.h, 13)
+	m.h = m.h*5 + 0xe6546b64
+}
+
+// Sum returns the hash of what was written so far.
+func (m *mmh3Sum) Sum() int32 {
+	h := m.h
 	var k uint32
-	switch tail := data[n*4:]; len(tail) {
+	switch tail := m.tail[:m.n%4]; len(tail) {
 	case 3:
 		k ^= uint32(tail[2]) << 16
 		fallthrough
@@ -36,12 +67,12 @@ func MMH3(data []byte) int32 {
 		fallthrough
 	case 1:
 		k ^= uint32(tail[0])
-		k *= c1
+		k *= 0xcc9e2d51
 		k = bits.RotateLeft32(k, 15)
-		k *= c2
+		k *= 0x1b873593
 		h ^= k
 	}
-	h ^= uint32(len(data))
+	h ^= uint32(m.n)
 	h ^= h >> 16
 	h *= 0x85ebca6b
 	h ^= h >> 13

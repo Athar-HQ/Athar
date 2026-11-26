@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -83,6 +85,14 @@ func TestParseTarget(t *testing.T) {
 		{"example.org", "example.org||0"},
 		{"example.org.", "example.org||0"},
 		{"example.org:8080", "example.org||8080"},
+		{"[::1]:80", "::1||80"},
+		{"host-1.internal", "host-1.internal||0"},
+		{"a.b.c.10gen.com", "a.b.c.10gen.com||0"},
+		{"10gen.com:80", "10gen.com||80"},
+		{"1.example.org", "1.example.org||0"},
+		{"0x10.example", "0x10.example||0"},
+		{"bücher.example", "bücher.example||0"},
+		{"xn--bcher-kva.example", "xn--bcher-kva.example||0"},
 	} {
 		tg, err := ParseTarget(tt.in)
 		if err != nil {
@@ -100,6 +110,59 @@ func TestParseTarget(t *testing.T) {
 	for _, bad := range []string{"", "http://example.org", "10.0.0.0/8", "10.0.0.0/33", "host:0", "host:http", "a b"} {
 		if _, err := ParseTarget(bad); err == nil {
 			t.Errorf("ParseTarget(%q): want error", bad)
+		}
+	}
+	// Numbers that are not IP addresses are not hostnames either: system
+	// resolvers read them as addresses, so 10.0.1 would scan 10.0.0.1.
+	for _, bad := range []string{
+		"10.0.1", "127.1", "2130706433", "0x7f.0.0.1", "0x7f000001", "0X7F000001", "1.2.3.0x4",
+		"1.2.3.4.5", "256.1.1.1", "127.1.", "1..2", ".", "host.123", "host.0x1f",
+		"10.0.1:80", "0x7f.0.0.1:80", "[127.1]:80", "2130706433:443",
+	} {
+		if tg, err := ParseTarget(bad); err == nil {
+			t.Errorf("ParseTarget(%q) = %+v, want error", bad, tg)
+		}
+	}
+}
+
+// Repeated and overlapping targets are checked once.
+func TestDedup(t *testing.T) {
+	ports := []int{80, 443}
+	for _, tt := range []struct {
+		in, want string
+	}{
+		{"1.2.3.4 1.2.3.4", "1.2.3.4"},
+		{"1.2.3.4 ::ffff:1.2.3.4 2001:db8::1 2001:DB8:0::1", "1.2.3.4 2001:db8::1"},
+		{"h.example H.Example h.example. other.example", "h.example other.example"},
+		{"10.0.0.5 10.0.0.0/30 10.0.0.1 10.0.0.2/32 10.0.0.9", "10.0.0.5 10.0.0.0/30 10.0.0.9"},
+		{"10.0.0.0/25 10.0.0.0/24 10.0.0.0/24 10.0.0.128/26 10.0.1.0/24", "10.0.0.0/24 10.0.1.0/24"},
+		{"2001:db8::/126 2001:db8::2 2001:db8::4", "2001:db8::/126 2001:db8::4"},
+		{"1.2.3.4:8080 1.2.3.4:8080 h.example:8080 H.example:8080", "1.2.3.4:8080 h.example:8080"},
+		// A host:port whose host is scanned on that port anyway.
+		{"1.2.3.4:80 1.2.3.4 1.2.3.4:8080", "1.2.3.4 1.2.3.4:8080"},
+		{"10.0.0.7:443 10.0.0.7:22 10.0.0.0/24 h.example:80 h.example", "10.0.0.7:22 10.0.0.0/24 h.example"},
+	} {
+		var targets []Target
+		for _, s := range strings.Fields(tt.in) {
+			tg, err := ParseTarget(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			targets = append(targets, tg)
+		}
+		var got []string
+		for _, tg := range Dedup(targets, ports) {
+			switch {
+			case tg.Prefix.IsValid():
+				got = append(got, tg.Prefix.String())
+			case tg.Port != 0:
+				got = append(got, net.JoinHostPort(tg.Host, strconv.Itoa(tg.Port)))
+			default:
+				got = append(got, tg.Host)
+			}
+		}
+		if g := strings.Join(got, " "); g != tt.want {
+			t.Errorf("Dedup(%s):\n got %s\nwant %s", tt.in, g, tt.want)
 		}
 	}
 }
@@ -287,7 +350,7 @@ func TestProbeHTTP(t *testing.T) {
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
 
-	p := testProber(Needs{TLS: true, HTTP: true, Favicon: true})
+	p := testProber(Needs{HTTP: true, Favicon: true})
 	svc := p.Probe(context.Background(), host, port)
 	if svc == nil {
 		t.Fatal("port reported closed")
@@ -327,7 +390,7 @@ func TestProbeTLS(t *testing.T) {
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
 
-	svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || !svc.TLS {
 		t.Fatalf("expected a TLS service, got %+v", svc)
 	}
@@ -348,6 +411,33 @@ func TestProbeTLS(t *testing.T) {
 	}
 	if _, ok := f["http.favicon.mmh3"]; ok {
 		t.Error("favicon fetched although not needed")
+	}
+}
+
+// Whether a service speaks TLS is found out whatever the rules need:
+// target.tls can't be honoured without it, and a plaintext request to a TLS
+// server gets a "400 Bad Request" that rules would match. No ALPN protocol
+// is offered, so tls.alpn is never set.
+func TestProbeAlwaysDetectsTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(panelHandler())
+	defer srv.Close()
+	host, port := hostPort(t, srv.URL)
+
+	for _, needs := range []Needs{{}, {HTTP: true}, {Banner: true, HTTP: true}} {
+		svc := testProber(needs).Probe(context.Background(), host, port)
+		if svc == nil || !svc.TLS {
+			t.Fatalf("needs %+v: expected a TLS service, got %+v", needs, svc)
+		}
+		f := svc.Fields
+		if f["tls.cert.subject.o"] != "Acme Co" || f["tls.version"] == nil || f["tls.cipher"] == nil {
+			t.Errorf("needs %+v: TLS fields = %#v", needs, f)
+		}
+		if needs.HTTP && f["http.status_code"] != 200 {
+			t.Errorf("needs %+v: http.status_code = %#v", needs, f["http.status_code"])
+		}
+		if v, ok := f["tls.alpn"]; ok {
+			t.Errorf("needs %+v: tls.alpn = %#v, but no protocol was offered", needs, v)
+		}
 	}
 }
 
@@ -377,7 +467,7 @@ func TestProbeBanner(t *testing.T) {
 		c.Write([]byte("SSH-2.0-OpenSSH_9.6\r\n"))
 		time.Sleep(500 * time.Millisecond)
 	})
-	svc := testProber(Needs{Banner: true, TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{Banner: true, HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil {
 		t.Fatal("port reported closed")
 	}
@@ -398,7 +488,7 @@ func TestProbeHTTPWithBannerWait(t *testing.T) {
 	srv := httptest.NewServer(panelHandler())
 	defer srv.Close()
 	host, port := hostPort(t, srv.URL)
-	svc := testProber(Needs{Banner: true, TLS: true, HTTP: true}).Probe(context.Background(), host, port)
+	svc := testProber(Needs{Banner: true, HTTP: true}).Probe(context.Background(), host, port)
 	if svc == nil || svc.Fields["http.status_code"] != 200 {
 		t.Fatalf("got %+v", svc)
 	}
@@ -411,7 +501,7 @@ func TestProbeClosed(t *testing.T) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
-	if svc := testProber(Needs{TLS: true, HTTP: true}).Probe(context.Background(), "127.0.0.1", port); svc != nil {
+	if svc := testProber(Needs{HTTP: true}).Probe(context.Background(), "127.0.0.1", port); svc != nil {
 		t.Errorf("closed port reported open: %+v", svc)
 	}
 }
@@ -718,6 +808,412 @@ func TestBodyCharset(t *testing.T) {
 			} {
 				if !reflect.DeepEqual(svc.Fields[k], want) {
 					t.Errorf("%s = %q, want %q", k, svc.Fields[k], want)
+				}
+			}
+		})
+	}
+}
+
+// A body that never ends is read up to the hash limit and then left alone:
+// the probe must not go on reading it until the deadline.
+func TestEndlessBodyIsNotDrained(t *testing.T) {
+	var sent atomic.Int64
+	done := make(chan struct{})
+	host, port := listen(t, func(c net.Conn) {
+		// Only the HTTP request gets the endless body, not a TLS attempt
+		// that may come first on a connection of its own.
+		if line, _ := bufio.NewReader(c).ReadString('\n'); !strings.HasPrefix(line, "GET ") {
+			return
+		}
+		defer close(done)
+		c.Write([]byte("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"))
+		chunk := []byte("10000\r\n" + strings.Repeat("a", 64<<10) + "\r\n")
+		for {
+			n, err := c.Write(chunk)
+			sent.Add(int64(n))
+			if err != nil {
+				return
+			}
+		}
+	})
+	svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+	if svc == nil {
+		t.Fatal("port reported closed")
+	}
+	<-done
+	if n := sent.Load(); n > maxHashBody+(8<<20) {
+		t.Errorf("the server could send %d MiB; the probe should stop after %d MiB", n>>20, maxHashBody>>20)
+	}
+	if body, _ := svc.Fields["http.body"].(string); body != strings.Repeat("a", MaxBody) {
+		t.Errorf("http.body = %d bytes, want the first %d", len(body), MaxBody)
+	}
+	for _, k := range []string{"http.body.sha256", "http.body.mmh3"} {
+		if v, ok := svc.Fields[k]; ok {
+			t.Errorf("%s = %v for a body without an end", k, v)
+		}
+	}
+}
+
+// The body hashes cover the complete body, not the first MaxBody bytes that
+// http.body keeps. A body that is too long or cut short has no hashes.
+func TestBodyHashes(t *testing.T) {
+	big := make([]byte, 3<<20)
+	rand.New(rand.NewSource(1)).Read(big)
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	zw.Write(big)
+	zw.Close()
+	atLimit := make([]byte, maxHashBody)
+	head := func(n int) string { return "HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(n) + "\r\n\r\n" }
+	gzHead := func(n int) string {
+		return "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(n) + "\r\n\r\n"
+	}
+	chunked := func(c net.Conn, b []byte) {
+		c.Write([]byte("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"))
+		for ; len(b) > 0; b = b[min(len(b), 1<<20):] {
+			piece := b[:min(len(b), 1<<20)]
+			c.Write([]byte(strconv.FormatInt(int64(len(piece)), 16) + "\r\n"))
+			c.Write(piece)
+			c.Write([]byte("\r\n"))
+		}
+		c.Write([]byte("0\r\n\r\n"))
+	}
+	for _, tt := range []struct {
+		name   string
+		serve  func(c net.Conn)
+		body   []byte // the decoded body; nil if what arrives of it varies
+		hashed bool
+	}{
+		{"content-length", func(c net.Conn) { c.Write([]byte(head(len(big)))); c.Write(big) }, big, true},
+		{"chunked", func(c net.Conn) { chunked(c, big) }, big, true},
+		{"gzip", func(c net.Conn) { c.Write([]byte(gzHead(gz.Len()))); c.Write(gz.Bytes()) }, big, true},
+		{"until close", func(c net.Conn) { c.Write([]byte("HTTP/1.0 200 OK\r\n\r\n")); c.Write(big) }, big, true},
+		{"at the limit", func(c net.Conn) { chunked(c, atLimit) }, atLimit, true},
+		{"over the limit", func(c net.Conn) { chunked(c, append(atLimit, 0)) }, atLimit, false},
+		{"content-length over the limit", func(c net.Conn) { c.Write([]byte(head(len(atLimit) + 1))); c.Write(append(atLimit, 0)) }, atLimit, false},
+		{"cut short", func(c net.Conn) { c.Write([]byte(head(len(big)))); c.Write(big[:2<<20]) }, big, false},
+		{"gzip cut short", func(c net.Conn) { c.Write([]byte(gzHead(gz.Len() - 8))); c.Write(gz.Bytes()[:gz.Len()-8]) }, big, false}, // no CRC and size
+		{"stalled", func(c net.Conn) {
+			c.Write([]byte(head(len(big))))
+			c.Write(big[:2<<20])
+			time.Sleep(time.Second)
+		}, big, false},
+		{"reset", func(c net.Conn) {
+			c.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
+			c.Write(big[:2<<20])
+			time.Sleep(100 * time.Millisecond)
+			c.(*net.TCPConn).SetLinger(0)
+		}, nil, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port := listen(t, func(c net.Conn) {
+				bufio.NewReader(c).ReadString('\n')
+				tt.serve(c)
+			})
+			p := testProber(Needs{HTTP: true})
+			if tt.name == "stalled" {
+				p.Timeout = 300 * time.Millisecond
+			}
+			svc := p.Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			f := svc.Fields
+			if body, _ := f["http.body"].(string); tt.body != nil && body != string(tt.body[:MaxBody]) {
+				t.Errorf("http.body = %d bytes, want the first %d", len(body), MaxBody)
+			}
+			if !tt.hashed {
+				for _, k := range []string{"http.body.sha256", "http.body.mmh3"} {
+					if v, ok := f[k]; ok {
+						t.Errorf("%s = %v for a body that was not read to its end", k, v)
+					}
+				}
+				return
+			}
+			if got, want := f["http.body.sha256"], sha256Hex(tt.body); got != want {
+				t.Errorf("http.body.sha256 = %v, want %s", got, want)
+			}
+			if got, want := f["http.body.mmh3"], int(MMH3(tt.body)); got != want {
+				t.Errorf("http.body.mmh3 = %v, want %d", got, want)
+			}
+		})
+	}
+}
+
+// A favicon is hashed whole, however large; one that is cut short is not
+// hashed at all.
+func TestLargeFavicon(t *testing.T) {
+	large := make([]byte, 2<<20+5)
+	rand.New(rand.NewSource(2)).Read(large)
+	const page = `<link rel="icon" href="/large.ico">`
+	for _, tt := range []struct {
+		name   string
+		sent   int
+		hashed bool
+	}{
+		{"complete", len(large), true},
+		{"cut short", len(large) - 1, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port := listen(t, func(c net.Conn) {
+				line, _ := bufio.NewReader(c).ReadString('\n')
+				if strings.HasPrefix(line, "GET / ") {
+					c.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(len(page)) + "\r\n\r\n" + page))
+					return
+				}
+				c.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(len(large)) + "\r\n\r\n"))
+				c.Write(large[:tt.sent])
+			})
+			svc := testProber(Needs{HTTP: true, Favicon: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			want := map[string]any{}
+			if tt.hashed {
+				want = map[string]any{
+					"http.favicon.mmh3":   int(FaviconMMH3(large)),
+					"http.favicon.md5":    md5Hex(large),
+					"http.favicon.sha256": sha256Hex(large),
+				}
+			}
+			for _, k := range []string{"http.favicon.mmh3", "http.favicon.md5", "http.favicon.sha256"} {
+				if got, ok := svc.Fields[k]; ok != tt.hashed || got != want[k] {
+					t.Errorf("%s = %v, want %v", k, got, want[k])
+				}
+			}
+		})
+	}
+}
+
+// Hashes over data written in pieces equal the hashes of the whole.
+func TestHashInPieces(t *testing.T) {
+	data := make([]byte, 1000)
+	rand.New(rand.NewSource(3)).Read(data)
+	for _, size := range []int{0, 1, 3, 4, 56, 57, 58, 114, 999, 1000} {
+		for _, step := range []int{1, 3, 5, 57, 64, 1000} {
+			var m mmh3Sum
+			icon := newIconSum()
+			for b := data[:size]; len(b) > 0; b = b[min(len(b), step):] {
+				m.Write(b[:min(len(b), step)])
+				icon.Write(b[:min(len(b), step)])
+			}
+			if got, want := m.Sum(), MMH3(data[:size]); got != want {
+				t.Errorf("%d bytes in pieces of %d: mmh3 = %d, want %d", size, step, got, want)
+			}
+			f := map[string]any{}
+			icon.fields(f)
+			want := map[string]any{}
+			if size > 0 {
+				want = map[string]any{
+					"http.favicon.mmh3":   int(FaviconMMH3(data[:size])),
+					"http.favicon.md5":    md5Hex(data[:size]),
+					"http.favicon.sha256": sha256Hex(data[:size]),
+				}
+			}
+			if !reflect.DeepEqual(f, want) {
+				t.Errorf("%d bytes in pieces of %d: icon hashes = %v, want %v", size, step, f, want)
+			}
+		}
+	}
+}
+
+// Interim 1xx responses such as 103 Early Hints come before the final
+// response and are skipped. 101 is final.
+func TestInterimResponses(t *testing.T) {
+	const final = "HTTP/1.1 200 OK\r\nServer: final\r\nContent-Length: 20\r\n\r\n<title>Final</title>"
+	const hints = "HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload\r\n\r\n"
+	for _, tt := range []struct {
+		name   string
+		serve  func(c net.Conn)
+		status any
+	}{
+		{"103", func(c net.Conn) { c.Write([]byte(hints + final)) }, 200},
+		{"100, 102 and 103", func(c net.Conn) {
+			c.Write([]byte("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 102 Processing\r\n\r\n" + hints + final))
+		}, 200},
+		{"103 sent ahead", func(c net.Conn) {
+			c.Write([]byte(hints))
+			time.Sleep(100 * time.Millisecond)
+			c.Write([]byte(final))
+		}, 200},
+		{"101", func(c net.Conn) {
+			c.Write([]byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: other\r\n\r\n" + final))
+		}, 101},
+		{"only interim responses", func(c net.Conn) {
+			for {
+				if _, err := c.Write([]byte(hints)); err != nil {
+					return
+				}
+			}
+		}, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port := listen(t, func(c net.Conn) {
+				bufio.NewReader(c).ReadString('\n')
+				tt.serve(c)
+			})
+			start := time.Now()
+			svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			if d := time.Since(start); d > time.Second {
+				t.Errorf("took %v", d)
+			}
+			f := svc.Fields
+			if f["http.status_code"] != tt.status {
+				t.Fatalf("http.status_code = %v, want %v", f["http.status_code"], tt.status)
+			}
+			if tt.status != 200 {
+				return
+			}
+			if f["http.title"] != "Final" || f["http.headers.server"] != "final" {
+				t.Errorf("http.title = %v, http.headers.server = %v", f["http.title"], f["http.headers.server"])
+			}
+			if raw, _ := f["http.headers_raw"].(string); raw != final[:strings.Index(final, "<")] {
+				t.Errorf("http.headers_raw = %q", raw)
+			}
+			if v, ok := f["http.headers.link"]; ok {
+				t.Errorf("http.headers.link = %v, a header of the interim response", v)
+			}
+		})
+	}
+}
+
+// rawPages answers each request with the page for its target, written
+// exactly as given, and records the targets.
+func rawPages(t *testing.T, pages map[string]string) (string, int, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	host, port := listen(t, func(c net.Conn) {
+		c.SetDeadline(time.Now().Add(2 * time.Second))
+		req, err := http.ReadRequest(bufio.NewReader(c))
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		seen = append(seen, req.RequestURI)
+		mu.Unlock()
+		page, ok := pages[req.RequestURI]
+		if !ok {
+			page = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"
+		}
+		c.Write([]byte(page))
+	})
+	return host, port, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+}
+
+func rawPage(body string) string {
+	return "HTTP/1.1 200 OK\r\nContent-Length: " + strconv.Itoa(len(body)) + "\r\n\r\n" + body
+}
+
+// A favicon link without a path of its own points at the page itself. The
+// scanner must not hash the page as the icon; it asks for /favicon.ico.
+func TestFaviconLinkWithoutPath(t *testing.T) {
+	for _, tt := range []struct {
+		href, want string
+	}{
+		{"#", "/favicon.ico"},
+		{"", "/favicon.ico"},
+		{"?v=2", "/favicon.ico"},
+		{"#x", "/favicon.ico"},
+		{"javascript:void(0)", "/favicon.ico"},
+		{"/favicon.ico?v=2", "/favicon.ico?v=2"},
+		{"img/fav.ico?v=2#x", "/img/fav.ico?v=2"},
+	} {
+		t.Run(tt.href, func(t *testing.T) {
+			page := rawPage(`<html><head><title>Panel</title><link rel="icon" href="` + tt.href + `"></head></html>`)
+			host, port, seen := rawPages(t, map[string]string{"/": page, "/?v=2": page, tt.want: rawPage(string(icon))})
+			svc := testProber(Needs{HTTP: true, Favicon: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			if got := seen(); !reflect.DeepEqual(got, []string{"/", tt.want}) {
+				t.Errorf("requests = %q, want / and %s", got, tt.want)
+			}
+			if got := svc.Fields["http.favicon.md5"]; got != md5Hex(icon) {
+				t.Errorf("http.favicon.md5 = %v, want the icon's %s", got, md5Hex(icon))
+			}
+		})
+	}
+}
+
+// Every header of the raw block has its field. net/http's parsed header map
+// drops Transfer-Encoding, "Connection: close" and Trailer, merges repeated
+// Content-Length headers and adds a Cache-Control to "Pragma: no-cache".
+func TestHeaderFieldsFromRawBlock(t *testing.T) {
+	for _, tt := range []struct {
+		name, page string
+		want       map[string]any
+		absent     []string
+	}{
+		{
+			name: "chunked",
+			page: "HTTP/1.1 200 OK\r\nServer:  Acme  Web \r\nTransfer-Encoding: chunked\r\nconnection: close\r\nTrailer: X-Sum\r\n" +
+				"Pragma: no-cache\r\nX-Multi: a\r\nx-multi: b\r\nX-Fold: first\r\n\tsecond\r\nX-Empty:\r\n\r\n" +
+				"5\r\nhello\r\n0\r\nX-Sum: 1\r\n\r\n",
+			want: map[string]any{
+				"http.headers.server":            "Acme  Web",
+				"http.headers.transfer-encoding": "chunked",
+				"http.headers.connection":        "close",
+				"http.headers.trailer":           "X-Sum",
+				"http.headers.pragma":            "no-cache",
+				"http.headers.x-multi":           []any{"a", "b"},
+				"http.headers.x-fold":            "first second",
+				"http.headers.x-empty":           "",
+				"http.body":                      "hello",
+			},
+			absent: []string{"http.headers.cache-control", "http.headers.content-length", "http.headers.x-sum"},
+		},
+		{
+			name: "repeated Content-Length, bare LF",
+			page: "HTTP/1.1 200 OK\nContent-Length: 5\nContent-Length: 5\nConnection: Close\n\nhello",
+			want: map[string]any{
+				"http.headers.content-length": []any{"5", "5"},
+				"http.headers.connection":     "Close",
+				"http.body":                   "hello",
+			},
+		},
+		{
+			name: "HTTP/1.0",
+			page: "HTTP/1.0 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nhello",
+			want: map[string]any{
+				"http.headers.transfer-encoding": "chunked",
+				"http.headers.connection":        "close",
+				"http.body":                      "hello",
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			host, port, _ := rawPages(t, map[string]string{"/": tt.page})
+			svc := testProber(Needs{HTTP: true}).Probe(context.Background(), host, port)
+			if svc == nil {
+				t.Fatal("port reported closed")
+			}
+			f := svc.Fields
+			for k, want := range tt.want {
+				if !reflect.DeepEqual(f[k], want) {
+					t.Errorf("%s = %#v, want %#v", k, f[k], want)
+				}
+			}
+			for _, k := range tt.absent {
+				if v, ok := f[k]; ok {
+					t.Errorf("%s = %#v, but the response has no such header", k, v)
+				}
+			}
+			raw, _ := f["http.headers_raw"].(string)
+			for _, line := range strings.Split(raw, "\n")[1:] {
+				name, _, ok := strings.Cut(line, ":")
+				if !ok {
+					continue // the blank line or a folded one
+				}
+				if _, ok := f["http.headers."+strings.ToLower(name)]; !ok {
+					t.Errorf("http.headers_raw has %q, but http.headers.%s is not set", line, strings.ToLower(name))
 				}
 			}
 		})

@@ -8,23 +8,29 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,15 +97,19 @@ func TestNSEMatchesScan(t *testing.T) {
 	}
 	// Where athar scan matches, so that agreement is not just both missing.
 	plain := []string{"entities and headers", "chunked gzip", "HTTP/1.0 until close", "bare LF", "no body", "escaped favicon path", "custom probe",
-		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC"}
+		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC",
+		"favicon link without a path", "favicon link without a hierarchy", "headers as received",
+		"early hints", "cut short", "chunked without end", "chunked without last CRLF", "chunked with trailer",
+		"chunked bad trailer", "gzip bad CRC", "gzip and more"}
 	expect := map[string][]string{
-		"diff lists":               {"entities and headers", "TLS"},
+		"diff headers as received": {"headers as received"},
+		"diff lists":               {"entities and headers", "TLS", "TLS until close"},
 		"diff fold":                {"chunked gzip"},
 		"diff wildcard and regex":  {"entities and headers"},
 		"diff keyword and numbers": {"entities and headers", "chunked gzip", "bare LF"},
 		"diff absent title":        {"no body", "rejected header", "banner", "gzip corrupt"},
 		"diff custom probe":        {"custom probe"},
-		"diff TLS required":        {"TLS"},
+		"diff TLS required":        {"TLS", "TLS until close"},
 		"diff TLS none":            plain,
 		"diff banner":              {"banner"},
 	}
@@ -143,17 +153,245 @@ func TestNSEMatchesScan(t *testing.T) {
 	}
 }
 
+// TestNSEVariantCarriesFamilyExtract checks that athar.nse reports a family
+// and its variants as athar scan does: the family entry is left out when a
+// variant matched, and the variants carry the values the family extracted.
+func TestNSEVariantCarriesFamilyExtract(t *testing.T) {
+	bin := nmapBin(t)
+	const family, byHeader, byServer = "30000000-0000-4000-8000-000000000001", "30000000-0000-4000-8000-000000000002", "30000000-0000-4000-8000-000000000003"
+	var rules []*rule.Rule
+	for i, src := range []string{`
+title: Acme family
+id: ` + family + `
+target: {protocol: http}
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  condition: selection_title
+extract:
+  brand: {field: http.title, regex: '^(?P<brand>\w+) '}
+  build: {field: http.headers.x-build, regex: '^(.+)$'}
+confidence: high
+`, `
+title: Acme by header
+id: ` + byHeader + `
+related: [{id: ` + family + `, type: variant-of}]
+target: {protocol: http}
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  selection_header:
+    http.headers.x-build|exists: true
+  condition: selection_title and selection_header
+confidence: high
+`, `
+title: Acme by server
+id: ` + byServer + `
+related: [{id: ` + family + `, type: variant-of}]
+target: {protocol: http}
+detection:
+  selection_title:
+    http.title|contains: 'Acme Console'
+  selection_server:
+    http.headers.server|startswith: 'acme-two'
+  condition: selection_title and selection_server
+extract:
+  brand: {field: http.headers.server, regex: '^([a-z-]+)'}
+confidence: medium
+`} {
+		rules = append(rules, parse(t, fmt.Sprintf("variant_%d.yml", i), src))
+	}
+	const body = "<title>Zeta Acme Console</title>"
+	variants := rawServer(t, map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\nServer: acme-two/1.0\r\nX-Build: 42\r\n", body)}, nil, "")
+	alone := rawServer(t, map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\n", body)}, nil, "")
+	want := map[int]map[string]map[string]string{
+		variants: {
+			byHeader: {"brand": "Zeta", "build": "42"},     // both from the family
+			byServer: {"brand": "acme-two", "build": "42"}, // its own brand wins
+		},
+		alone: {family: {"brand": "Zeta"}},
+	}
+	ports := []int{variants, alone}
+	for name, got := range map[string]map[int]map[string]nseMatch{
+		"athar scan": scanRecords(t, rules, ports),
+		"athar.nse":  runNSE(t, bin, rules, ports),
+	} {
+		for port, w := range want {
+			g := map[string]map[string]string{}
+			for id, m := range got[port] {
+				g[id] = m.extracted
+			}
+			if !reflect.DeepEqual(g, w) {
+				t.Errorf("%s, port %d:\ngot  %v\nwant %v", name, port, g, w)
+			}
+		}
+	}
+}
+
+// TestNSERuleAloneMatchesScan loads one rule at a time: what a rule matches
+// must not depend on the other rules loaded. Alone, a tls: none rule used to
+// keep both scanners from trying TLS, so it matched the plaintext "400 Bad
+// Request" of a TLS server, and an http rule never got the banner it reads.
+func TestNSERuleAloneMatchesScan(t *testing.T) {
+	bin := nmapBin(t)
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	tlsPort, _ := strconv.Atoi(u.Port())
+	ftpPort := rawServer(t, nil, nil, "220 Acme FTP ready\r\n")
+
+	for _, tt := range []struct {
+		src  string
+		port int // where the rule must match; 0 for nowhere
+	}{{`
+title: alone TLS none
+id: 10000000-0000-4000-8000-0000000000a1
+target: {protocol: http, tls: none}
+detection:
+  selection:
+    http.status_code|exists: true
+  condition: selection
+`, 0}, {`
+title: alone banner
+id: 10000000-0000-4000-8000-0000000000a2
+target: {protocol: http}
+detection:
+  selection:
+    service.banner|contains: 'Acme FTP'
+  condition: selection
+`, ftpPort}, {`
+title: alone keyword
+id: 10000000-0000-4000-8000-0000000000a3
+target: {protocol: http}
+detection:
+  keywords:
+    - 'acme ftp'
+  condition: keywords
+`, ftpPort}} {
+		r := parse(t, "alone.yml", tt.src)
+		rules, ports := []*rule.Rule{r}, []int{tlsPort, ftpPort}
+		want := scanRecords(t, rules, ports)
+		got := runNSE(t, bin, rules, ports, "athar.timeout=1s")
+		for _, port := range ports {
+			_, wok := want[port][r.ID]
+			_, gok := got[port][r.ID]
+			if expected := port == tt.port; wok != expected || gok != expected {
+				t.Errorf("%s, port %d: athar scan matched=%v, athar.nse matched=%v, want %v", r.Title, port, wok, gok, expected)
+			}
+		}
+	}
+}
+
 // truncatedAlike accepts the one difference between Go's flate and zlib:
 // at the end of a truncated stream, zlib can emit a few more bytes, because
-// Go reads ahead before it decodes the last symbols.
+// Go reads ahead before it decodes the last symbols. Neither hashes it.
 func truncatedAlike(field, a, b string) bool {
-	switch field {
-	case "body":
-		return strings.HasPrefix(b, a) && len(b)-len(a) <= 8
-	case "body_mmh3", "body_sha256":
-		return true
+	return field == "body" && strings.HasPrefix(b, a) && len(b)-len(a) <= 8
+}
+
+// TestNSEHashesWholeBodies compares athar scan and athar.nse on bodies and
+// icons longer than http.body keeps. Both hash them whole up to the same
+// limit, and neither hashes one that is longer or cut short.
+func TestNSEHashesWholeBodies(t *testing.T) {
+	bin := nmapBin(t)
+	var lines strings.Builder
+	for i := 0; lines.Len() < 3<<20; i++ {
+		fmt.Fprintf(&lines, "<p>line %d %x</p>\n", i, i*7919)
 	}
-	return false
+	big := `<link rel="icon" href="/large.ico">` + lines.String()
+	icon := strings.Repeat("\x00\x01icon", 400_000)
+	limit := strings.Repeat("a", 16<<20) // the scanner's maxHashBody
+	ok := func(body string) string { return httpResponse("HTTP/1.1 200 OK\r\n", body) }
+	cut := func(body string) string { return ok(body)[:len(ok(body))-1] }
+	chunked := func(body string) string {
+		var b strings.Builder
+		b.WriteString("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+		for ; len(body) > 0; body = body[min(len(body), 1<<20):] {
+			piece := body[:min(len(body), 1<<20)]
+			fmt.Fprintf(&b, "%x\r\n%s\r\n", len(piece), piece)
+		}
+		b.WriteString("0\r\n\r\n")
+		return b.String()
+	}
+	servers := map[string]int{
+		"large":          rawServer(t, map[string]string{"/": ok(big), "/large.ico": ok(icon), "/large.css": chunked(big)}, nil, ""),
+		"large gzip":     rawServer(t, map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n", gzipped(big)), "/large.ico": cut(icon)}, nil, ""),
+		"at the limit":   rawServer(t, map[string]string{"/": chunked(limit)}, nil, ""),
+		"over the limit": rawServer(t, map[string]string{"/": chunked(limit + "a")}, nil, ""),
+		"cut short":      rawServer(t, map[string]string{"/": cut(big), "/large.css": cut(big)}, nil, ""),
+	}
+	expect := map[string][]string{
+		"whole body":     {"large", "large gzip", "at the limit"},
+		"no body hashes": {"over the limit", "cut short"},
+		"whole icon":     {"large"},
+		"no icon hashes": {"large gzip", "at the limit", "over the limit", "cut short"},
+		"whole file":     {"large"},
+	}
+	sum := func(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+	md := md5.Sum([]byte(icon))
+	var rules []*rule.Rule
+	for i, src := range []string{fmt.Sprintf(`
+title: whole body
+detection:
+  selection:
+    http.body.sha256: [%s, %s]
+    http.body.mmh3: [%d, %d]
+  condition: selection
+`, sum(big), sum(limit), probe.MMH3([]byte(big)), probe.MMH3([]byte(limit))), `
+title: no body hashes
+detection:
+  selection:
+    http.status_code: 200
+    http.body.sha256|exists: false
+    http.body.mmh3|exists: false
+  condition: selection
+`, fmt.Sprintf(`
+title: whole icon
+detection:
+  selection:
+    http.favicon.sha256: %s
+    http.favicon.md5: %s
+    http.favicon.mmh3: %d
+  condition: selection
+`, sum(icon), hex.EncodeToString(md[:]), probe.FaviconMMH3([]byte(icon))), `
+title: no icon hashes
+detection:
+  selection:
+    http.status_code: 200
+    http.favicon.sha256|exists: false
+    http.favicon.md5|exists: false
+    http.favicon.mmh3|exists: false
+  condition: selection
+`, fmt.Sprintf(`
+title: whole file
+probes:
+  css:
+    protocol: http
+    request: {path: /large.css}
+detection:
+  selection:
+    probe: css
+    http.body.sha256: %s
+  condition: selection
+`, sum(big))} {
+		rules = append(rules, parse(t, fmt.Sprintf("whole_%d.yml", i),
+			fmt.Sprintf("id: 10000000-0000-4000-8000-0000000001%02d\ntarget: {protocol: http}%s", i, src)))
+	}
+	var ports []int
+	for _, p := range servers {
+		ports = append(ports, p)
+	}
+	want := scanRecords(t, rules, ports)
+	got := runNSE(t, bin, rules, ports, "athar.probes", "athar.timeout=10s")
+	for name, port := range servers {
+		for _, r := range rules {
+			_, wok := want[port][r.ID]
+			_, gok := got[port][r.ID]
+			if expected := slices.Contains(expect[r.Title], name); wok != expected || gok != expected {
+				t.Errorf("%s, %s: athar scan matched=%v, athar.nse matched=%v, want %v", name, r.Title, wok, gok, expected)
+			}
+		}
+	}
 }
 
 func union(a, b map[string]string) map[string]bool {
@@ -167,10 +405,62 @@ func union(a, b map[string]string) map[string]bool {
 	return out
 }
 
+// TestNSEOutputLineFeed checks that an extracted value can't add lines to
+// Nmap's readable output. Nmap escapes other control characters itself but
+// prints a line feed as a new line, which could read like another match.
+// The XML output keeps the value.
+func TestNSEOutputLineFeed(t *testing.T) {
+	bin := nmapBin(t)
+	r := parse(t, "linefeed.yml", `
+title: line feed in extract
+id: 10000000-0000-4000-8000-0000000000f1
+target: {protocol: http}
+detection:
+  selection:
+    http.title: 'line feed test'
+  condition: selection
+extract:
+  ver: {field: http.body, regex: '(?s)ver=(.*)END'}
+`)
+	res, err := Convert(r, nseTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, NSERulesDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"athar.nse": NSEScript, filepath.Join(NSERulesDir, res.TemplateID+".lua"): res.Template} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	port := rawServer(t, map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\n",
+		"<title>line feed test</title>ver=1.0\n  Fake Rule:\n    rule:\tforgedEND")}, nil, "")
+	xmlFile := filepath.Join(dir, "nmap.xml")
+	text, err := exec.Command(bin, "-sT", "-Pn", "-n", "-p", strconv.Itoa(port), "--script", filepath.Join(dir, "athar.nse"), "-oX", xmlFile, "127.0.0.1").CombinedOutput()
+	if err != nil {
+		t.Fatalf("nmap: %v\n%s", err, text)
+	}
+	if want := `ver: 1.0\x0A  Fake Rule:\x0A    rule:\x09forged` + "\n"; !strings.Contains(string(text), want) || strings.Contains(string(text), "|   Fake Rule:") {
+		t.Errorf("readable output:\n%s\nwant a line with %q", text, want)
+	}
+	data, err := os.ReadFile(xmlFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `<elem key="ver">1.0&#xa;  Fake Rule:&#xa;    rule:&#x9;forged</elem>`; !strings.Contains(string(data), want) {
+		t.Errorf("XML output:\n%s\nwant %s", data, want)
+	}
+}
+
 func nmapBin(t *testing.T) string {
 	t.Helper()
 	bin, err := exec.LookPath("nmap")
 	if err != nil {
+		if os.Getenv("ATHAR_REQUIRE_SCANNERS") != "" {
+			t.Fatal("nmap not installed, but ATHAR_REQUIRE_SCANNERS is set")
+		}
 		t.Skip("nmap not installed")
 	}
 	if testing.Short() {
@@ -222,7 +512,17 @@ func nseCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nseCase, str
 		cases[i].fid = fids[cases[i].rule]
 		ports = append(ports, cases[i].port)
 	}
-	got := runNSE(t, bin, rules, ports, "athar.probes")
+	got := map[int]map[string]nseMatch{}
+	for _, group := range nseGroups(rules) {
+		for port, ms := range runNSE(t, bin, group, ports, "athar.probes") {
+			if got[port] == nil {
+				got[port] = map[string]nseMatch{}
+			}
+			for id, m := range ms {
+				got[port][id] = m
+			}
+		}
+	}
 	matches := 0
 	for _, c := range cases {
 		m, hit := got[c.port][c.rule]
@@ -248,6 +548,32 @@ func nseCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nseCase, str
 		t.Errorf("athar.nse matched nothing; the harness is broken")
 	}
 	t.Logf("%d test responses checked with nmap (%d matches), %d skipped", len(cases), matches, skipped)
+}
+
+// nseGroups splits rules so that no family runs together with its variants.
+// athar.nse leaves a family out when one of its variants matched, and a
+// rule's tests are about that rule alone.
+func nseGroups(rules []*rule.Rule) [][]*rule.Rule {
+	family := map[string]bool{}
+	for _, r := range rules {
+		for _, rel := range r.Related {
+			if rel.Type == "variant-of" {
+				family[rel.ID] = true
+			}
+		}
+	}
+	var rest, families []*rule.Rule
+	for _, r := range rules {
+		if family[r.ID] {
+			families = append(families, r)
+		} else {
+			rest = append(rest, r)
+		}
+	}
+	if len(families) == 0 || len(rest) == 0 {
+		return [][]*rule.Rule{rules}
+	}
+	return append([][]*rule.Rule{rest}, nseGroups(families)...)
 }
 
 // nseMatch is one rule athar.nse or athar scan reported on one port.
@@ -580,6 +906,12 @@ func diffServers(t *testing.T) map[string]int {
 	gzipPage := func(body string) map[string]string {
 		return map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n", body)}
 	}
+	// Bodies that don't come to their end have no hashes; one that does has.
+	badCRC := []byte(gzipped("<title>bad crc</title>"))
+	badCRC[len(badCRC)-8] ^= 0xff
+	chunkedPage := func(end string) map[string]string {
+		return map[string]string{"/": "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n14\r\n<title>chunk</title>\r\n" + end}
+	}
 
 	return map[string]int{
 		"entities and headers": rawServer(t, map[string]string{
@@ -606,6 +938,20 @@ func diffServers(t *testing.T) map[string]int {
 			"/":              httpResponse("HTTP/1.1 200 OK\r\n", `<title>esc</title><link href="img/a b.png" rel="ICON">`),
 			"/img/a%20b.png": httpResponse("HTTP/1.1 200 OK\r\n", "SPACE"),
 		}, nil, ""),
+		"favicon link without a path": rawServer(t, map[string]string{
+			"/":            httpResponse("HTTP/1.1 200 OK\r\n", `<title>self</title><link rel=icon href="?v=2#x">`),
+			"/?v=2":        httpResponse("HTTP/1.1 200 OK\r\n", `<title>self</title><link rel=icon href="?v=2#x">`),
+			"/favicon.ico": httpResponse("HTTP/1.1 200 OK\r\n", "ICO3"),
+		}, nil, ""),
+		"favicon link without a hierarchy": rawServer(t, map[string]string{
+			"/":            httpResponse("HTTP/1.1 200 OK\r\n", `<title>void</title><link rel=icon href="javascript:void(0)?v=3">`),
+			"/?v=3":        httpResponse("HTTP/1.1 200 OK\r\n", `<title>void</title>`),
+			"/favicon.ico": httpResponse("HTTP/1.1 200 OK\r\n", "ICO4"),
+		}, nil, ""),
+		"headers as received": rawServer(t, map[string]string{
+			"/": "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: Keep-Alive, close\r\nContent-Length: 7\r\ncontent-length: 7\r\n" +
+				"Trailer: X-Sum\r\nPragma: no-cache\r\n\r\n12\r\n<title>hdr</title>\r\n0\r\nX-Sum: 1\r\n\r\n",
+		}, nil, ""),
 		"custom probe": rawServer(t, map[string]string{
 			"/":           httpResponse("HTTP/1.1 200 OK\r\n", "<title>api</title>"),
 			"/api/health": "HTTP/1.1 204 No Content\r\nX-Health: ok\r\n\r\n",
@@ -619,6 +965,23 @@ func diffServers(t *testing.T) map[string]int {
 		"gzip truncated":     rawServer(t, gzipPage(cut), nil, ""),
 		"gzip header fields": rawServer(t, gzipPage(named.String()), nil, ""),
 		"gzip header CRC":    rawServer(t, gzipPage(string(hcrc)), nil, ""),
+		"early hints": rawServer(t, map[string]string{
+			"/": "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </x.css>; rel=preload\r\nServer: early\r\n\r\n" +
+				httpResponse("HTTP/1.1 200 OK\r\nServer: final\r\n", "<title>hinted</title>"),
+		}, nil, ""),
+		"cut short": rawServer(t, map[string]string{
+			"/": "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n<title>short</title>",
+		}, nil, ""),
+		"TLS until close": rawServer(t, map[string]string{
+			"/":            "HTTP/1.0 200 OK\r\n\r\n<title>old TLS</title>",
+			"/favicon.ico": "HTTP/1.0 200 OK\r\n\r\nICO3",
+		}, cert, ""),
+		"chunked without end":       rawServer(t, chunkedPage(""), nil, ""),
+		"chunked without last CRLF": rawServer(t, chunkedPage("0\r\n"), nil, ""),
+		"chunked with trailer":      rawServer(t, chunkedPage("0\r\nX-Sum: 1\r\n folded\r\n\r\n"), nil, ""),
+		"chunked bad trailer":       rawServer(t, chunkedPage("0\r\nno colon\r\n\r\n"), nil, ""),
+		"gzip bad CRC":              rawServer(t, gzipPage(string(badCRC)), nil, ""),
+		"gzip and more":             rawServer(t, gzipPage(gzipped("<title>more</title>")+"junk after the end"), nil, ""),
 	}
 }
 
@@ -654,6 +1017,8 @@ extract:
   trailer: {field: http.headers.trailer, regex: '^(.*)$'}
   powered: {field: http.headers.x-powered-by, regex: '^(.*)$'}
   health: {field: http.headers.x-health, regex: '^(.*)$'}
+  pragma: {field: http.headers.pragma, regex: '^(.*)$'}
+  cache: {field: http.headers.cache-control, regex: '^(.*)$'}
   cn: {field: tls.cert.subject.cn, regex: '^(.*)$'}
   org: {field: tls.cert.subject.o, regex: '^(.*)$'}
   issuer_cn: {field: tls.cert.issuer.cn, regex: '^(.*)$'}
@@ -751,6 +1116,20 @@ detection:
   selection:
     http.status_code|exists: true
   condition: selection
+`, `
+title: diff headers as received
+id: 10000000-0000-4000-8000-00000000000c
+target: {protocol: http}
+detection:
+  selection:
+    http.headers.transfer-encoding: 'chunked'
+    http.headers.connection: 'keep-alive, close'
+    http.headers.content-length|all: ['7']
+    http.headers.trailer: 'x-sum'
+    http.headers.pragma: 'no-cache'
+  filter:
+    http.headers.cache-control|exists: true
+  condition: selection and not filter
 `}
 	if banner {
 		src = append(src, `
