@@ -1241,8 +1241,9 @@ func TestCertOrgAndSAN(t *testing.T) {
 		{"tls.cert.san|cased: 'pentagi.local'", "modat", want{`tls.extensions.subject_alt_name.dns="pentagi.local"`, Approximate}, "without regard to case"},
 		// Engines index the DNS names of the SAN, not its IP addresses.
 		{"tls.cert.san: '192.0.2.10'", "modat", want{`tls.extensions.subject_alt_name.dns="192.0.2.10"`, Approximate}, "only the DNS names"},
-		{"tls.cert.san|cased: 'pentagi.local'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names == 'pentagi.local')`, Exact}, ""},
-		{"tls.cert.san|endswith|cased: '.nip.io'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names LIKE '%.nip.io')`, Exact}, ""},
+		// Hunt.io doesn't say whether dns_names is searched name by name.
+		{"tls.cert.san|cased: 'pentagi.local'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names == 'pentagi.local')`, Approximate}, "one name at a time"},
+		{"tls.cert.san|endswith|cased: '.nip.io'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names LIKE '%.nip.io')`, Approximate}, "one name at a time"},
 		{"tls.cert.san|contains|cased: '10.0'", "huntio", want{`SELECT ip, service.port FROM ip.current WHERE same_port(tls.cert.dns_names LIKE '%10.0%')`, Approximate}, "only the DNS names"},
 		{"tls.cert.san|re: '^antifox\\..+\\.nip\\.io$'", "censys", want{`host.services: (cert.parsed.extensions.subject_alt_name.dns_names =~ "^antifox\\..+\\.nip\\.io$")`, Approximate}, "only the DNS names"},
 	} {
@@ -1261,8 +1262,13 @@ func TestCertOrgAndSAN(t *testing.T) {
 	})
 	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  tls.cert.san: 'localhost'\ncondition: sel and not filter\n")
 	check(t, r, map[string]want{
-		"modat": {`http.title~"Console" and not tls.extensions.subject_alt_name.dns="localhost"`, Exact},
+		"modat":  {`http.title~"Console" and not tls.extensions.subject_alt_name.dns="localhost"`, Exact},
+		"huntio": {`SELECT ip, service.port FROM ip.current WHERE same_port(html.head.title LIKE '%Console%')`, Superset},
 	})
+	res, _ := Convert(r, "huntio")
+	if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "one name at a time") || !strings.Contains(notes, "(dropped)") {
+		t.Errorf("huntio: notes don't explain the dropped filter: %v", res.Notes)
+	}
 }
 
 func TestIPLike(t *testing.T) {

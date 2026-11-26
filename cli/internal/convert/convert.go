@@ -396,6 +396,15 @@ func (c *converter) lower(e expr) expr {
 			// only excludes less, so the term stays.
 			f, note = max(f, Approximate), joinNote(note, fmt.Sprintf("%s's %s holds only the DNS names of the certificate, not its IP addresses", c.engine, spec.name))
 		}
+		if spec.oneValue {
+			// If the engine searches the names as one text, a pattern can
+			// span two of them, so the term may find more than the rule.
+			how := fmt.Sprintf("%s does not document whether %s is searched one name at a time", c.engine, spec.name)
+			if x.negated {
+				return c.drop(widenedNote(x, how))
+			}
+			f, note = max(f, Approximate), joinNote(note, how)
+		}
 		if how := caseLost(c.engine, x); how != "" {
 			// A search that ignores case finds more than the term, so its
 			// negation finds less.

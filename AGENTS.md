@@ -66,7 +66,7 @@ Values in angle brackets are placeholders. "contains" means `field|contains: val
 | The same with `issuer` | `tls.cert.issuer.cn` |
 | FOFA `cert.subject.org=` · Modat `tls.subject.organization` · Censys `…cert.parsed.subject.organization` · Hunt.io `tls.cert.subject.organization` | `tls.cert.subject.o` contains (exact for `==` or `=`) |
 | The same with `issuer` | `tls.cert.issuer.o` |
-| Modat `tls.extensions.subject_alt_name.dns` or `.ip` · Censys `…cert.parsed.extensions.subject_alt_name.dns_names` or `.ip_addresses` · Hunt.io `tls.cert.dns_names` | `tls.cert.san` (exact for `==` or `=`). It is a list and holds DNS names and IP addresses; `athar convert` writes the DNS-name field only, so a value that could be an address converts as approximate. |
+| Modat `tls.extensions.subject_alt_name.dns` or `.ip` · Censys `…cert.parsed.extensions.subject_alt_name.dns_names` or `.ip_addresses` · Hunt.io `tls.cert.dns_names` or `tls.cert.ip_addresses` | `tls.cert.san` (exact for `==` or `=`). It is a list and holds DNS names and IP addresses; `athar convert` writes the DNS-name field only, so a value that could be an address converts as approximate. |
 | Shodan `ssl:` · ZoomEye `ssl=` · FOFA `cert=` · Modat `tls.raw~` (text anywhere in the certificate) | The `tls.cert.*` field where the certificate shows the text, such as `tls.cert.subject.o`. `athar convert` writes none of these searches. |
 | Censys `…cert.fingerprint_sha256` · Modat `tls.fingerprint_sha256` · Hunt.io `tls.cert.hash.sha256 ==` | `tls.cert.sha256` exact |
 | Shodan `ssl.cert.fingerprint:` | `tls.cert.sha256` exact for 64 hex characters, `tls.cert.sha1` for 40. Which hash Shodan stores there is not checked, so `athar convert` doesn't write it and the round trip on Shodan drops it. |

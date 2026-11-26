@@ -51,6 +51,7 @@ type fieldSpec struct {
 	loose      bool   // the engine field covers more than the taxonomy field, so even equality is approximate
 	noWild     bool   // Modat: the field has no wildcards
 	dnsOnly    bool   // the field holds the DNS names of tls.cert.san, not its IP addresses (see ipLike)
+	oneValue   bool   // the engine doesn't say that a list is searched one value at a time
 	note       string // known limitation, shown with every query that uses the field
 }
 
@@ -177,7 +178,7 @@ var (
 		"tls.cert.issuer.cn":        {name: "tls.cert.issuer.common_name"},
 		"tls.cert.subject.o":        {name: "tls.cert.subject.organization"},
 		"tls.cert.issuer.o":         {name: "tls.cert.issuer.organization"},
-		"tls.cert.san":              {name: "tls.cert.dns_names", dnsOnly: true},
+		"tls.cert.san":              {name: "tls.cert.dns_names", dnsOnly: true, oneValue: true},
 		"tls.cert.sha256":           {name: "tls.cert.hash.sha256", kind: exactOnly},
 		"tls.jarm":                  {name: "jarm.fingerprint", kind: exactOnly},
 		"service.port":              {name: "service.port", kind: exactOnly},
