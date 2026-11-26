@@ -59,14 +59,42 @@ func TestNucleiTemplatesRun(t *testing.T) {
 // TestNucleiTemplateFeatures checks conversions the repository's rules don't
 // use yet, strictly: approximate templates must also give the expected
 // result here.
+//
+// Nuclei runs twice, with and without template clustering: a cluster sends
+// one request for all templates that ask for the same one and evaluates them
+// on one shared response, with the variables of its first template only.
 func TestNucleiTemplateFeatures(t *testing.T) {
 	bin := nucleiBin(t)
 	rules, icon := featureRules(t)
+	// The expectations of the field rules are the scanner's: their tests
+	// list every field they read, so they must pass in eval.
+	for _, r := range fieldRules(t) {
+		c, _, err := eval.Compile(r)
+		if err != nil {
+			t.Fatalf("%s: %v", r.Path, err)
+		}
+		for _, tr := range c.RunTests() {
+			if !tr.Passed {
+				t.Errorf("%s: %s: %s", r.Path, tr.Name, tr.Detail)
+			}
+		}
+		rules = append(rules, r)
+	}
 	extra := []nucleiCase{
 		{rule: "athar-features-hashes", test: "hashes: same favicon and body", target: serveIconPage(t, icon), expect: true},
 		{rule: "athar-features-hashes", test: "hashes: other favicon", target: serveIconPage(t, []byte("other")), expect: false},
+		// An empty answer is no favicon: the scanner has no hash fields then.
+		{rule: "athar-features-no-favicon", test: "no favicon: empty answer", target: serveIconPage(t, nil), expect: true},
+		{rule: "athar-features-no-favicon", test: "no favicon: an icon", target: serveIconPage(t, icon), expect: false},
 	}
-	nucleiCheck(t, bin, rules, extra, true)
+	for _, mode := range []struct {
+		name  string
+		flags []string
+	}{{"clustered", nil}, {"unclustered", []string{"-dc"}}} {
+		t.Run(mode.name, func(t *testing.T) {
+			nucleiCheck(t, bin, rules, extra[:len(extra):len(extra)], true, mode.flags...)
+		})
+	}
 }
 
 // featurePage is what serveIconPage serves at /.
@@ -233,6 +261,291 @@ tests:
 	return rules, icon
 }
 
+// fieldRules check that a template reads a field as the scanner does: an
+// absent field fails every comparison, a repeated header matches if one of
+// its values does, and letters fold as in Go's (?i).
+func fieldRules(t *testing.T) []*rule.Rule {
+	t.Helper()
+	return []*rule.Rule{
+		// Three templates that ask for the same request, so Nuclei clusters
+		// them. The response has no title and no X-Absent header.
+		parse(t, "features_not_title.yml", `
+title: not title
+id: 55555555-5555-4555-8555-555555555501
+detection:
+  selection:
+    http.status_code: 302
+  filter:
+    http.title|contains: 'zzz'
+  condition: selection and not filter
+tests:
+  - name: redirect without a title
+    expect: match
+    response:
+      http.status_code: 302
+      http.headers.location: '/login'
+  - name: redirect with the filtered title
+    expect: no_match
+    response:
+      http.status_code: 302
+      http.title: 'a zzz page'
+`),
+		parse(t, "features_not_header.yml", `
+title: not header
+id: 55555555-5555-4555-8555-555555555502
+detection:
+  selection:
+    http.status_code: 302
+  filter:
+    http.headers.x-absent|contains: 'zzz'
+  condition: selection and not filter
+tests:
+  - name: redirect without the header
+    expect: match
+    response:
+      http.status_code: 302
+      http.headers.location: '/login'
+  - name: redirect with the filtered header
+    expect: no_match
+    response:
+      http.status_code: 302
+      http.headers.x-absent: 'a zzz value'
+`),
+		parse(t, "features_title_or_header.yml", `
+title: title or header
+id: 55555555-5555-4555-8555-555555555503
+detection:
+  selection_title:
+    http.title|contains: 'nothing'
+  selection_location:
+    http.headers.location|contains: '/login'
+  condition: selection_title or selection_location
+tests:
+  - name: redirect without a title
+    expect: match
+    response:
+      http.status_code: 302
+      http.headers.location: '/login'
+  - name: redirect elsewhere
+    expect: no_match
+    response:
+      http.status_code: 302
+      http.headers.location: '/home'
+`),
+		// A page without a title has no title; it does not have an empty one.
+		parse(t, "features_empty_title.yml", `
+title: empty title
+id: 55555555-5555-4555-8555-555555555504
+detection:
+  selection_status:
+    http.status_code: 302
+  selection_empty:
+    http.title|re: '^$'
+  condition: selection_status and selection_empty
+tests:
+  - name: empty title
+    expect: match
+    response:
+      http.status_code: 302
+      http.title: ''
+  - name: no title
+    expect: no_match
+    response:
+      http.status_code: 302
+`),
+		parse(t, "features_not_empty_title.yml", `
+title: not empty title
+id: 55555555-5555-4555-8555-555555555505
+detection:
+  selection_status:
+    http.status_code: 302
+  filter_empty:
+    http.title: ''
+  condition: selection_status and not filter_empty
+tests:
+  - name: no title
+    expect: match
+    response:
+      http.status_code: 302
+  - name: empty title
+    expect: no_match
+    response:
+      http.status_code: 302
+      http.title: ''
+  - name: some title
+    expect: match
+    response:
+      http.status_code: 302
+      http.title: 'Moved'
+`),
+		parse(t, "features_exists.yml", `
+title: exists
+id: 55555555-5555-4555-8555-555555555506
+detection:
+  selection:
+    http.title|exists: false
+    http.headers.x-here|exists: true
+    http.headers.x-gone: null
+  condition: selection
+tests:
+  - name: header with an empty value, no title
+    expect: match
+    response:
+      http.headers.x-here: ''
+      http.body: 'plain'
+  - name: with a title
+    expect: no_match
+    response:
+      http.headers.x-here: ''
+      http.title: 'Here'
+  - name: without the header
+    expect: no_match
+    response:
+      http.body: 'plain'
+  - name: with the header that must be absent
+    expect: no_match
+    response:
+      http.headers.x-here: 'yes'
+      http.headers.x-gone: 'no'
+      http.body: 'plain'
+`),
+		// Every value of a repeated header is compared on its own.
+		parse(t, "features_repeated_header.yml", `
+title: repeated header
+id: 55555555-5555-4555-8555-555555555507
+detection:
+  selection_start:
+    http.headers.set-cookie|startswith: 'session='
+  selection_equal:
+    http.headers.x-multi: 'two'
+  selection_end:
+    http.headers.x-multi|endswith: 'ne'
+  selection_cased:
+    http.headers.x-multi|contains|cased: 'Tw'
+  selection_regex:
+    http.headers.x-multi|re: '^T.o$'
+  selection_wildcard:
+    http.headers.x-multi: 't?o'
+  filter_joined:
+    http.headers.x-multi|contains: 'one two'
+  condition: all of selection_* and not filter_joined
+tests:
+  - name: two cookies, two values
+    expect: match
+    response:
+      http.headers.set-cookie: ['a=1; Path=/', 'session=xyz; HttpOnly']
+      http.headers.x-multi: ['one', 'Two']
+  - name: both words in one value
+    expect: no_match
+    response:
+      http.headers.set-cookie: ['a=1; Path=/', 'session=xyz; HttpOnly']
+      http.headers.x-multi: 'one Two'
+  - name: cookie name inside a value
+    expect: no_match
+    response:
+      http.headers.set-cookie: 'a=1; session=xyz'
+      http.headers.x-multi: ['one', 'Two']
+`),
+		// Go's (?i) folds a final sigma and a long s, and does not fold a
+		// dotted capital I to i; tolower() does the opposite.
+		parse(t, "features_folding.yml", `
+title: folding
+id: 55555555-5555-4555-8555-555555555508
+detection:
+  selection_sigma:
+    http.body|contains: 'ΟΔΟΣ ΟΔΟΣ'
+  selection_long_s:
+    http.title: 'Glass'
+  condition: selection_sigma and selection_long_s
+tests:
+  - name: final sigma and long s
+    expect: match
+    response:
+      http.title: 'GLAſS'
+      http.body: 'ΟΔΟΣ οδος'
+  - name: other word
+    expect: no_match
+    response:
+      http.title: 'GLAſS'
+      http.body: 'ΟΔΟΣ οδοι'
+`),
+		parse(t, "features_folding_ascii.yml", `
+title: folding of an ASCII value
+id: 55555555-5555-4555-8555-555555555509
+detection:
+  selection:
+    http.body|contains: 'panel'
+  filter:
+    http.body|contains: 'istanbul'
+  condition: selection and not filter
+tests:
+  - name: dotted capital I
+    expect: match
+    response:
+      http.body: 'İstanbul panel'
+  - name: plain capital I
+    expect: no_match
+    response:
+      http.body: 'Istanbul panel'
+`),
+		// A certificate without an organisation, and no certificate at all.
+		parse(t, "features_tls_absent.yml", `
+title: absent certificate fields
+id: 55555555-5555-4555-8555-555555555510
+detection:
+  selection_cn:
+    tls.cert.subject.cn: 'acme panel'
+  selection_no_org:
+    tls.cert.subject.o|exists: false
+  filter_issuer:
+    tls.cert.issuer.o: 'Evil CA'
+  condition: selection_cn and selection_no_org and not filter_issuer
+tests:
+  - name: self-signed without an organisation
+    expect: match
+    response:
+      tls.cert.subject.cn: 'Acme Panel'
+  - name: with an organisation
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'Acme Panel'
+      tls.cert.subject.o: 'Acme'
+`),
+		parse(t, "features_no_tls.yml", `
+title: no certificate
+id: 55555555-5555-4555-8555-555555555511
+detection:
+  selection:
+    http.title: 'Plain'
+  filter:
+    tls.cert.subject.cn|re: '^$'
+  condition: selection and not filter
+tests:
+  - name: plain HTTP
+    expect: match
+    response:
+      http.title: 'Plain'
+  - name: other title
+    expect: no_match
+    response:
+      http.title: 'Other'
+`),
+		// Served by serveIconPage.
+		parse(t, "features_no_favicon.yml", `
+title: no favicon
+id: 55555555-5555-4555-8555-555555555512
+detection:
+  selection_title:
+    http.title: 'Hash test'
+  selection_none:
+    http.favicon.md5|exists: false
+  filter_empty:
+    http.favicon.mmh3: 0
+  condition: selection_title and selection_none and not filter_empty
+`),
+	}
+}
+
 // serveIconPage serves featurePage at / and ico at /favicon.ico.
 func serveIconPage(t *testing.T, ico []byte) string {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -279,8 +592,8 @@ type nucleiCase struct {
 
 // nucleiCheck converts the rules, serves their tests, runs Nuclei once over
 // all templates and targets, and compares. strict also holds approximate
-// templates to the expected result.
-func nucleiCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nucleiCase, strict bool) {
+// templates to the expected result. flags are added to Nuclei's.
+func nucleiCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nucleiCase, strict bool, flags ...string) {
 	t.Helper()
 	dir := t.TempDir()
 	fids := map[string]Fidelity{}
@@ -318,7 +631,7 @@ func nucleiCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nucleiCas
 	if err := os.WriteFile(list, []byte(strings.Join(targets, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "-duc", "-silent", "-nc", "-jsonl", "-t", dir, "-l", list, "-timeout", "5", "-retries", "0")
+	cmd := exec.Command(bin, append([]string{"-duc", "-silent", "-nc", "-jsonl", "-t", dir, "-l", list, "-timeout", "5", "-retries", "0"}, flags...)...)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("nuclei: %v\n%s", err, out)
