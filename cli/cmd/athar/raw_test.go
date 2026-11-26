@@ -13,6 +13,7 @@ func TestVerifyRawResponse(t *testing.T) {
 title: Raw tests
 id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b
 status: experimental
+tags: [category.web-server]
 target: { protocol: http }
 detection:
   sel:
