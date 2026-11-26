@@ -8,12 +8,14 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"hash/crc32"
@@ -26,6 +28,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -92,15 +95,17 @@ func TestNSEMatchesScan(t *testing.T) {
 	}
 	// Where athar scan matches, so that agreement is not just both missing.
 	plain := []string{"entities and headers", "chunked gzip", "HTTP/1.0 until close", "bare LF", "no body", "escaped favicon path", "custom probe",
-		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC", "gzip members", "gzip bad checksum"}
+		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC",
+		"early hints", "cut short", "chunked without end", "chunked without last CRLF", "chunked with trailer",
+		"chunked bad trailer", "gzip bad CRC", "gzip and more", "gzip members", "gzip bad checksum"}
 	expect := map[string][]string{
-		"diff lists":               {"entities and headers", "TLS"},
+		"diff lists":               {"entities and headers", "TLS", "TLS until close"},
 		"diff fold":                {"chunked gzip"},
 		"diff wildcard and regex":  {"entities and headers"},
 		"diff keyword and numbers": {"entities and headers", "chunked gzip", "bare LF"},
 		"diff absent title":        {"no body", "rejected header", "banner", "gzip corrupt"},
 		"diff custom probe":        {"custom probe"},
-		"diff TLS required":        {"TLS"},
+		"diff TLS required":        {"TLS", "TLS until close"},
 		"diff TLS none":            plain,
 		"diff banner":              {"banner"},
 	}
@@ -146,15 +151,114 @@ func TestNSEMatchesScan(t *testing.T) {
 
 // truncatedAlike accepts the one difference between Go's flate and zlib:
 // at the end of a truncated stream, zlib can emit a few more bytes, because
-// Go reads ahead before it decodes the last symbols.
+// Go reads ahead before it decodes the last symbols. Neither hashes it.
 func truncatedAlike(field, a, b string) bool {
-	switch field {
-	case "body":
-		return strings.HasPrefix(b, a) && len(b)-len(a) <= 8
-	case "body_mmh3", "body_sha256":
-		return true
+	return field == "body" && strings.HasPrefix(b, a) && len(b)-len(a) <= 8
+}
+
+// TestNSEHashesWholeBodies compares athar scan and athar.nse on bodies and
+// icons longer than http.body keeps. Both hash them whole up to the same
+// limit, and neither hashes one that is longer or cut short.
+func TestNSEHashesWholeBodies(t *testing.T) {
+	bin := nmapBin(t)
+	var lines strings.Builder
+	for i := 0; lines.Len() < 3<<20; i++ {
+		fmt.Fprintf(&lines, "<p>line %d %x</p>\n", i, i*7919)
 	}
-	return false
+	big := `<link rel="icon" href="/large.ico">` + lines.String()
+	icon := strings.Repeat("\x00\x01icon", 400_000)
+	limit := strings.Repeat("a", 16<<20) // the scanner's maxHashBody
+	ok := func(body string) string { return httpResponse("HTTP/1.1 200 OK\r\n", body) }
+	cut := func(body string) string { return ok(body)[:len(ok(body))-1] }
+	chunked := func(body string) string {
+		var b strings.Builder
+		b.WriteString("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+		for ; len(body) > 0; body = body[min(len(body), 1<<20):] {
+			piece := body[:min(len(body), 1<<20)]
+			fmt.Fprintf(&b, "%x\r\n%s\r\n", len(piece), piece)
+		}
+		b.WriteString("0\r\n\r\n")
+		return b.String()
+	}
+	servers := map[string]int{
+		"large":          rawServer(t, map[string]string{"/": ok(big), "/large.ico": ok(icon), "/large.css": chunked(big)}, nil, ""),
+		"large gzip":     rawServer(t, map[string]string{"/": httpResponse("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n", gzipped(big)), "/large.ico": cut(icon)}, nil, ""),
+		"at the limit":   rawServer(t, map[string]string{"/": chunked(limit)}, nil, ""),
+		"over the limit": rawServer(t, map[string]string{"/": chunked(limit + "a")}, nil, ""),
+		"cut short":      rawServer(t, map[string]string{"/": cut(big), "/large.css": cut(big)}, nil, ""),
+	}
+	expect := map[string][]string{
+		"whole body":     {"large", "large gzip", "at the limit"},
+		"no body hashes": {"over the limit", "cut short"},
+		"whole icon":     {"large"},
+		"no icon hashes": {"large gzip", "at the limit", "over the limit", "cut short"},
+		"whole file":     {"large"},
+	}
+	sum := func(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+	md := md5.Sum([]byte(icon))
+	var rules []*rule.Rule
+	for i, src := range []string{fmt.Sprintf(`
+title: whole body
+detection:
+  selection:
+    http.body.sha256: [%s, %s]
+    http.body.mmh3: [%d, %d]
+  condition: selection
+`, sum(big), sum(limit), probe.MMH3([]byte(big)), probe.MMH3([]byte(limit))), `
+title: no body hashes
+detection:
+  selection:
+    http.status_code: 200
+    http.body.sha256|exists: false
+    http.body.mmh3|exists: false
+  condition: selection
+`, fmt.Sprintf(`
+title: whole icon
+detection:
+  selection:
+    http.favicon.sha256: %s
+    http.favicon.md5: %s
+    http.favicon.mmh3: %d
+  condition: selection
+`, sum(icon), hex.EncodeToString(md[:]), probe.FaviconMMH3([]byte(icon))), `
+title: no icon hashes
+detection:
+  selection:
+    http.status_code: 200
+    http.favicon.sha256|exists: false
+    http.favicon.md5|exists: false
+    http.favicon.mmh3|exists: false
+  condition: selection
+`, fmt.Sprintf(`
+title: whole file
+probes:
+  css:
+    protocol: http
+    request: {path: /large.css}
+detection:
+  selection:
+    probe: css
+    http.body.sha256: %s
+  condition: selection
+`, sum(big))} {
+		rules = append(rules, parse(t, fmt.Sprintf("whole_%d.yml", i),
+			fmt.Sprintf("id: 10000000-0000-4000-8000-0000000001%02d\ntarget: {protocol: http}%s", i, src)))
+	}
+	var ports []int
+	for _, p := range servers {
+		ports = append(ports, p)
+	}
+	want := scanRecords(t, rules, ports)
+	got := runNSE(t, bin, rules, ports, "athar.probes", "athar.timeout=10s")
+	for name, port := range servers {
+		for _, r := range rules {
+			_, wok := want[port][r.ID]
+			_, gok := got[port][r.ID]
+			if expected := slices.Contains(expect[r.Title], name); wok != expected || gok != expected {
+				t.Errorf("%s, %s: athar scan matched=%v, athar.nse matched=%v, want %v", name, r.Title, wok, gok, expected)
+			}
+		}
+	}
 }
 
 func union(a, b map[string]string) map[string]bool {
@@ -590,6 +694,12 @@ func diffServers(t *testing.T) map[string]int {
 	members := gzipped("<title>members</title>") + gzipped("") + gzipped(long.String()) + gzipped("<p>last member</p>")
 	badSum := []byte(gzipped("<title>checksum</title>"))
 	badSum[len(badSum)-8] ^= 0xff
+	// Bodies that don't come to their end have no hashes; one that does has.
+	badCRC := []byte(gzipped("<title>bad crc</title>"))
+	badCRC[len(badCRC)-8] ^= 0xff
+	chunkedPage := func(end string) map[string]string {
+		return map[string]string{"/": "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n14\r\n<title>chunk</title>\r\n" + end}
+	}
 
 	return map[string]int{
 		"entities and headers": rawServer(t, map[string]string{
@@ -631,6 +741,23 @@ func diffServers(t *testing.T) map[string]int {
 		"gzip header CRC":    rawServer(t, gzipPage(string(hcrc)), nil, ""),
 		"gzip members":       rawServer(t, gzipPage(members), nil, ""),
 		"gzip bad checksum":  rawServer(t, gzipPage(string(badSum)+gzipped("<p>not read</p>")), nil, ""),
+		"early hints": rawServer(t, map[string]string{
+			"/": "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </x.css>; rel=preload\r\nServer: early\r\n\r\n" +
+				httpResponse("HTTP/1.1 200 OK\r\nServer: final\r\n", "<title>hinted</title>"),
+		}, nil, ""),
+		"cut short": rawServer(t, map[string]string{
+			"/": "HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n<title>short</title>",
+		}, nil, ""),
+		"TLS until close": rawServer(t, map[string]string{
+			"/":            "HTTP/1.0 200 OK\r\n\r\n<title>old TLS</title>",
+			"/favicon.ico": "HTTP/1.0 200 OK\r\n\r\nICO3",
+		}, cert, ""),
+		"chunked without end":       rawServer(t, chunkedPage(""), nil, ""),
+		"chunked without last CRLF": rawServer(t, chunkedPage("0\r\n"), nil, ""),
+		"chunked with trailer":      rawServer(t, chunkedPage("0\r\nX-Sum: 1\r\n folded\r\n\r\n"), nil, ""),
+		"chunked bad trailer":       rawServer(t, chunkedPage("0\r\nno colon\r\n\r\n"), nil, ""),
+		"gzip bad CRC":              rawServer(t, gzipPage(string(badCRC)), nil, ""),
+		"gzip and more":             rawServer(t, gzipPage(gzipped("<title>more</title>")+"junk after the end"), nil, ""),
 	}
 }
 

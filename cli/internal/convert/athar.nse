@@ -102,7 +102,8 @@ local FORMAT = 1
 local MAX_BODY = 1 << 20      -- body bytes kept, as athar scan
 local MAX_HEADER = 64 << 10   -- header block limit
 local MAX_BANNER = 8 << 10    -- banner bytes kept
-local MAX_RAW = 8 << 20       -- raw body bytes read at most
+local MAX_HASH = 16 << 20     -- body bytes hashed at most, as athar scan
+local MAX_RAW = MAX_HASH + (64 << 10) -- gzip body bytes read at most
 local GZIP_SPAN = 4 << 10     -- first guess at the length of a later gzip member
 local USER_AGENT = "Mozilla/5.0 (compatible; athar-nse; +https://github.com/Athar-HQ/Athar)"
 
@@ -724,7 +725,7 @@ local function recv(sock, deadline)
   if left <= 0 then return nil end
   sock:set_timeout(math.max(1, math.floor(left)))
   local ok, data = sock:receive()
-  if not ok then return nil end
+  if not ok then return nil, data end
   return data
 end
 
@@ -750,26 +751,15 @@ local function has_token(values, token)
   return false
 end
 
--- Parses the header block as Go's net/http.ReadResponse does. Returns nil
--- where Go rejects the response.
-local function parse_head(head, method)
+local function split_lines(s)
   local lines = {}
-  for line in head:gmatch("([^\n]*)\n") do lines[#lines + 1] = (line:gsub("\r$", "")) end
-  local proto, rest = (lines[1] or ""):match("^([^ ]*) (.*)$")
-  if not proto then return nil end
-  local code = rest:gsub("^ +", ""):match("^([^ ]*)")
-  if #code ~= 3 or not code:match("^[+-]?%d+$") then return nil end
-  local status = tonumber(code)
-  if status < 0 then return nil end
-  local major, minor
-  if proto == "HTTP/1.1" then major, minor = 1, 1
-  elseif proto == "HTTP/1.0" then major, minor = 1, 0
-  else
-    local a, b = proto:match("^HTTP/(%d)%.(%d)$")
-    if not a then return nil end
-    major, minor = tonumber(a), tonumber(b)
-  end
+  for line in s:gmatch("([^\n]*)\n") do lines[#lines + 1] = (line:gsub("\r$", "")) end
+  return lines
+end
 
+-- Parses the header lines after the first line as Go's textproto does.
+-- Returns nil where Go rejects them.
+local function mime_header(lines)
   local kvs = {}
   if lines[2] and lines[2]:match("^[ \t]") then return nil end
   for i = 2, #lines do
@@ -795,6 +785,29 @@ local function parse_head(head, method)
     end
     table.insert(header[name], v)
   end
+  return order, header
+end
+
+-- Parses the header block as Go's net/http.ReadResponse does. Returns nil
+-- where Go rejects the response.
+local function parse_head(head, method)
+  local lines = split_lines(head)
+  local proto, rest = (lines[1] or ""):match("^([^ ]*) (.*)$")
+  if not proto then return nil end
+  local code = rest:gsub("^ +", ""):match("^([^ ]*)")
+  if #code ~= 3 or not code:match("^[+-]?%d+$") then return nil end
+  local status = tonumber(code)
+  if status < 0 then return nil end
+  local major, minor
+  if proto == "HTTP/1.1" then major, minor = 1, 1
+  elseif proto == "HTTP/1.0" then major, minor = 1, 0
+  else
+    local a, b = proto:match("^HTTP/(%d)%.(%d)$")
+    if not a then return nil end
+    major, minor = tonumber(a), tonumber(b)
+  end
+  local order, header = mime_header(lines)
+  if not order then return nil end
 
   -- What net/http's readTransfer removes or rejects.
   local tmajor, tminor = major, minor
@@ -846,11 +859,27 @@ local function parse_head(head, method)
   return {status = status, header = header, order = order, mode = mode, length = length}
 end
 
--- Decodes chunked data as it arrives, like Go's chunked reader.
+-- Decodes chunked data as it arrives, like Go's chunked reader. st.ended
+-- says that the body came to its end: after the last chunk Go wants CRLF,
+-- or trailer lines that end with an empty line within its 4096-byte buffer.
 local function chunk_feed(st, data)
   st.raw = st.raw .. data
   while not st.done do
-    if st.left > 0 then
+    if st.last then
+      if #st.raw < 2 then return end
+      if sub(st.raw, 1, 2) == "\r\n" then
+        st.ended = true
+      else
+        local e = find(st.raw, "\r\n\r\n", 1, true)
+        if not e and #st.raw < 4096 then return end
+        if e and e + 3 <= 4096 then
+          local lines = split_lines(sub(st.raw, 1, e + 3))
+          table.insert(lines, 1, "")
+          st.ended = mime_header(lines) ~= nil
+        end
+      end
+      st.done = true
+    elseif st.left > 0 then
       local take = math.min(st.left, #st.raw)
       if take == 0 then return end
       st.out[#st.out + 1] = sub(st.raw, 1, take)
@@ -876,8 +905,9 @@ local function chunk_feed(st, data)
       line = sub(line, 1, -3):gsub("[ \t\r\n]+$", ""):match("^[^;]*")
       if #line == 0 or #line > 16 or find(line, "[^0-9a-fA-F]") then st.done = true return end
       local n = tonumber(line, 16)
-      if not n or n <= 0 then st.done = true return end
+      if not n or n < 0 then st.done = true return end
       st.left = n
+      st.last = n == 0
     end
   end
 end
@@ -931,7 +961,8 @@ end
 -- kept as sent (nil); otherwise it is what decodes, which is all of a
 -- truncated body that arrived and nothing of corrupt data. The header is
 -- parsed here and the deflate data inflated raw, so zlib's own header checks
--- don't apply.
+-- don't apply. The second result says that the body is complete: it ends
+-- with the CRC and the size of what its last member decoded to.
 --
 -- A body can have several gzip members. Go reads the next one only after a
 -- member whose CRC-32 and length fit and a valid header. The zlib binding
@@ -943,12 +974,13 @@ local function gunzip(data)
   local start = gzip_data_start(data, 1)
   if not start then return nil end
   local parts, n, span = {}, 0, #data
+  local complete = false
   while true do
     local piece = sub(data, start, start + span - 1)
-    local out = inflate(piece, MAX_BODY - n)
-    local full = n + #out >= MAX_BODY
-    local at = not full and
-      find(piece, string.pack("<I4I4", zlib.crc32(0, out), #out) .. "\x1f\x8b\x08", 1, true)
+    local out = inflate(piece, MAX_HASH + 1 - n)
+    local full = n + #out > MAX_HASH
+    local trailer = string.pack("<I4I4", zlib.crc32(0, out) & M32, #out & M32)
+    local at = not full and find(piece, trailer .. "\x1f\x8b\x08", 1, true)
     if at then
       parts[#parts + 1] = out
       n = n + #out
@@ -957,12 +989,13 @@ local function gunzip(data)
       span = GZIP_SPAN
     elseif full or start + span > #data then
       parts[#parts + 1] = out
+      complete = not full and sub(piece, -8) == trailer
       break
     else
       span = span * 8
     end
   end
-  return concat(parts)
+  return concat(parts), complete
 end
 
 -- Where the header block ends: the first line that is empty but for CRs.
@@ -1002,51 +1035,73 @@ local function http_exchange(sock, hosthdr, method, path, headers, deadline)
   req[#req + 1] = "\r\n"
   if not sock:send(concat(req)) then return nil end
 
+  -- Interim 1xx responses come before the final one and are skipped;
+  -- MAX_HEADER limits all header blocks together.
   local buf, from, hend = "", 1, nil
+  local first, head, resp = 1, nil, nil -- first: where the block starts
   while true do
-    hend, from = head_end(buf, from)
-    if hend then break end
-    if #buf > MAX_HEADER then return nil end
-    local data = recv(sock, deadline)
-    if not data then return nil end
-    buf = buf .. data
+    while true do
+      hend, from = head_end(buf, from)
+      if hend then break end
+      if #buf > MAX_HEADER then return nil end
+      local data = recv(sock, deadline)
+      if not data then return nil end
+      buf = buf .. data
+    end
+    if hend > MAX_HEADER or sub(buf, first, first + 4) ~= "HTTP/" then return nil end
+    head = sub(buf, first, hend)
+    resp = parse_head(head, method)
+    if not resp then return nil end
+    if resp.status // 100 ~= 1 or resp.status == 101 then break end
+    first, from = hend + 1, hend + 1
   end
-  if hend > MAX_HEADER or sub(buf, 1, 5) ~= "HTTP/" then return nil end
-  local head = sub(buf, 1, hend)
-  local resp = parse_head(head, method)
-  if not resp then return nil end
 
+  -- The body is read to its end if that comes within MAX_HASH bytes, so
+  -- that it can be hashed whole; ended says that the end was reached.
   local gzip = resp.header["content-encoding"] and lower(resp.header["content-encoding"][1]) == "gzip"
   local rest = sub(buf, hend + 1)
-  local body
+  local limit = gzip and MAX_RAW or MAX_HASH + 1
+  local body, ended
   if resp.mode == "none" then
-    body = ""
+    body, ended = "", true
   elseif resp.mode == "chunked" then
     local st = {raw = "", out = {}, size = 0, left = 0, crlf = false, done = false}
     chunk_feed(st, rest)
-    local limit = gzip and MAX_RAW or MAX_BODY
     while not st.done and st.size < limit do
       local data = recv(sock, deadline)
       if not data then break end
       chunk_feed(st, data)
     end
-    body = concat(st.out)
+    body, ended = concat(st.out), st.ended
   else
     local parts, have = {rest}, #rest
-    local want = resp.mode == "length" and resp.length or math.huge
-    local limit = math.min(want, gzip and MAX_RAW or MAX_BODY)
+    if resp.mode == "length" then
+      -- Too long to hash: read no more than is kept.
+      limit = (not gzip and resp.length > MAX_HASH) and MAX_BODY or math.min(resp.length, limit)
+    end
+    local err
     while have < limit do
-      local data = recv(sock, deadline)
+      local data
+      data, err = recv(sock, deadline)
       if not data then break end
       parts[#parts + 1] = data
       have = have + #data
     end
     body = concat(parts)
-    if resp.mode == "length" then body = sub(body, 1, resp.length) end
+    if resp.mode == "length" then
+      body = sub(body, 1, resp.length)
+      ended = #body == resp.length
+    else
+      ended = err == "EOF"
+    end
   end
+  local whole = ended
   if gzip and #body > 0 then
-    body = gunzip(body) or body
+    local out, valid = gunzip(body)
+    if out then body, whole = out, ended and valid end
   end
+  -- A body that is too long or was cut short has no complete form.
+  if whole and #body <= MAX_HASH then resp.full = body end
   if #body > MAX_BODY then body = sub(body, 1, MAX_BODY) end
   resp.raw = head
   resp.body = body
@@ -1064,8 +1119,10 @@ local function http_fields(f, resp)
     end
   end
   f["http.body"] = resp.body
-  f["http.body.mmh3"] = mmh3(resp.body)
-  f["http.body.sha256"] = hex(openssl.digest("sha256", resp.body))
+  if resp.full then -- the hashes are of the complete body
+    f["http.body.mmh3"] = mmh3(resp.full)
+    f["http.body.sha256"] = hex(openssl.digest("sha256", resp.full))
+  end
   local t = html_title(resp.body)
   if t then f["http.title"] = t end
 end
@@ -1568,7 +1625,7 @@ local function http_probe(host, port, svc, sock, cfg, needs)
   if not ic then return end
   local icon = http_exchange(ic, host_header(host, port, svc.tls), "GET", path, nil, nmap.clock_ms() + cfg.timeout)
   ic:close()
-  if icon and icon.status == 200 then favicon_fields(svc.fields, icon.body) end
+  if icon and icon.status == 200 and icon.full then favicon_fields(svc.fields, icon.full) end
 end
 
 local function baseline(host, port, needs, cfg)

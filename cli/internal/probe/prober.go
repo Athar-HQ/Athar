@@ -180,9 +180,11 @@ func (p *Prober) http(ctx context.Context, svc *Service, conn net.Conn) {
 		return
 	}
 	defer ic.Close()
-	icon, err := httpExchange(ic, hostHeader(svc), "GET", path, nil, p.UserAgent)
-	if err == nil && icon.status == 200 {
-		faviconFields(svc.Fields, icon.body)
+	// Like the body hashes, the favicon hashes are of the complete icon.
+	sum := newIconSum()
+	icon, err := httpExchange(ic, hostHeader(svc), "GET", path, nil, p.UserAgent, sum)
+	if err == nil && icon.status == 200 && icon.complete {
+		sum.fields(svc.Fields)
 	}
 }
 

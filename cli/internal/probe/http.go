@@ -4,9 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"crypto/md5"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"html"
 	"io"
 	"net"
@@ -23,6 +27,9 @@ import (
 const (
 	// MaxBody is how much of a body is kept (spec section 5).
 	MaxBody = 1 << 20
+	// maxHashBody is how much of a body is read to hash it. The hashes are
+	// of the complete body, so a longer body has none.
+	maxHashBody = 16 << 20
 	// maxHeader limits the raw header block.
 	maxHeader = 64 << 10
 )
@@ -32,12 +39,18 @@ type httpResponse struct {
 	status    int
 	headerRaw []byte
 	header    http.Header
-	body      []byte
+	body      []byte // the first MaxBody bytes
+	// complete says that the body was read to its end. Only then are the
+	// hashes of the body set.
+	complete bool
+	mmh3     int32
+	sha256   string
 }
 
 // httpExchange sends one request on conn and reads the response. The
-// connection is used for this request only (Connection: close).
-func httpExchange(conn net.Conn, hostHeader, method, path string, headers map[string]string, ua string) (*httpResponse, error) {
+// connection is used for this request only (Connection: close). The body is
+// also written to hashes, all of it if the response ends up complete.
+func httpExchange(conn net.Conn, hostHeader, method, path string, headers map[string]string, ua string, hashes ...io.Writer) (*httpResponse, error) {
 	if err := checkRequest(method, path, headers); err != nil {
 		return nil, err
 	}
@@ -61,44 +74,71 @@ func httpExchange(conn net.Conn, hostHeader, method, path string, headers map[st
 
 	// Keep the header block exactly as received, then let net/http parse it.
 	// Lines are read in pieces of at most the buffer size, so a line without
-	// an end can't grow past maxHeader.
+	// an end can't grow past maxHeader. Interim 1xx responses come before
+	// the final one and are skipped; maxHeader limits all blocks together.
 	br := bufio.NewReader(conn)
 	var raw bytes.Buffer
-	start := 0 // where the current line starts in raw
-	for {
-		piece, err := br.ReadSlice('\n')
-		raw.Write(piece)
-		if raw.Len() > maxHeader {
-			return nil, fmt.Errorf("header block larger than %d bytes", maxHeader)
+	var resp *http.Response
+	for skipped := 0; ; skipped += raw.Len() {
+		raw.Reset()
+		start := 0 // where the current line starts in raw
+		for {
+			piece, err := br.ReadSlice('\n')
+			raw.Write(piece)
+			if skipped+raw.Len() > maxHeader {
+				return nil, fmt.Errorf("header block larger than %d bytes", maxHeader)
+			}
+			if errors.Is(err, bufio.ErrBufferFull) {
+				continue // the line goes on
+			}
+			if err != nil {
+				return nil, fmt.Errorf("reading headers: %w", err)
+			}
+			if len(bytes.TrimRight(raw.Bytes()[start:], "\r\n")) == 0 {
+				break
+			}
+			start = raw.Len()
 		}
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue // the line goes on
+		if !bytes.HasPrefix(raw.Bytes(), []byte("HTTP/")) {
+			return nil, fmt.Errorf("not an HTTP response")
 		}
+		var err error
+		resp, err = http.ReadResponse(bufio.NewReader(io.MultiReader(bytes.NewReader(raw.Bytes()), br)), &http.Request{Method: method})
 		if err != nil {
-			return nil, fmt.Errorf("reading headers: %w", err)
+			return nil, err
 		}
-		if len(bytes.TrimRight(raw.Bytes()[start:], "\r\n")) == 0 {
+		if resp.StatusCode/100 != 1 || resp.StatusCode == http.StatusSwitchingProtocols {
 			break
 		}
-		start = raw.Len()
 	}
-	if !bytes.HasPrefix(raw.Bytes(), []byte("HTTP/")) {
-		return nil, fmt.Errorf("not an HTTP response")
-	}
-	resp, err := http.ReadResponse(bufio.NewReader(io.MultiReader(bytes.NewReader(raw.Bytes()), br)), &http.Request{Method: method})
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 
 	var body io.Reader = resp.Body
+	limit := int64(maxHashBody)
 	if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
 		body = gunzip(resp.Body)
+	} else if resp.ContentLength > limit {
+		limit = MaxBody // too long to hash: read no more than is kept
 	}
-	// A body cut short by a timeout or reset still counts; keep what arrived.
-	b, _ := io.ReadAll(io.LimitReader(body, MaxBody))
+	// The first MaxBody bytes are kept and the complete body is hashed as it
+	// arrives. A body cut short by a timeout or reset still counts for what
+	// arrived, but has no hashes. The body is not closed: closing reads on
+	// to its end, and the caller closes the connection.
+	r := &httpResponse{status: resp.StatusCode, headerRaw: raw.Bytes(), header: resp.Header}
+	var mmh3 mmh3Sum
+	sha := sha256.New()
+	w := io.MultiWriter(append([]io.Writer{(*bodyHead)(&r.body), &mmh3, sha}, hashes...)...)
+	if n, err := io.Copy(w, io.LimitReader(body, limit+1)); err == nil && n <= limit {
+		r.complete, r.mmh3, r.sha256 = true, mmh3.Sum(), hex.EncodeToString(sha.Sum(nil))
+	}
+	return r, nil
+}
 
-	return &httpResponse{status: resp.StatusCode, headerRaw: raw.Bytes(), header: resp.Header, body: b}, nil
+// bodyHead keeps the first MaxBody bytes written to it.
+type bodyHead []byte
+
+func (b *bodyHead) Write(p []byte) (int, error) {
+	*b = append(*b, p[:min(len(p), MaxBody-len(*b))]...)
+	return len(p), nil
 }
 
 // gunzip decodes a gzip body. A body without a valid gzip header is returned
@@ -164,8 +204,10 @@ func (r *httpResponse) fields(f eval.Fields) {
 		f[key] = list
 	}
 	f["http.body"] = string(r.body)
-	f["http.body.mmh3"] = int(MMH3(r.body))
-	f["http.body.sha256"] = sha256Hex(r.body)
+	if r.complete {
+		f["http.body.mmh3"] = int(r.mmh3)
+		f["http.body.sha256"] = r.sha256
+	}
 	if t, ok := title(r.body); ok {
 		f["http.title"] = t
 	}
@@ -257,10 +299,53 @@ func decodeDataURI(s string) ([]byte, bool) {
 
 // faviconFields stores the favicon hashes.
 func faviconFields(f eval.Fields, icon []byte) {
-	if len(icon) == 0 {
+	s := newIconSum()
+	s.Write(icon)
+	s.fields(f)
+}
+
+// iconSum computes the favicon hashes over an icon written in pieces.
+type iconSum struct {
+	md5, sha256 hash.Hash
+	mmh3        mmh3Sum // over the base64 lines, as FaviconMMH3
+	line        []byte  // the bytes of the next base64 line, fewer than 57
+	n           int
+}
+
+func newIconSum() *iconSum {
+	return &iconSum{md5: md5.New(), sha256: sha256.New()}
+}
+
+func (s *iconSum) Write(p []byte) (int, error) {
+	s.md5.Write(p)
+	s.sha256.Write(p)
+	s.n += len(p)
+	for rest := p; len(rest) > 0; {
+		c := min(len(rest), 57-len(s.line))
+		s.line = append(s.line, rest[:c]...)
+		rest = rest[c:]
+		if len(s.line) == 57 { // 76 characters
+			s.endLine()
+		}
+	}
+	return len(p), nil
+}
+
+func (s *iconSum) endLine() {
+	enc := base64.StdEncoding.AppendEncode(make([]byte, 0, 77), s.line)
+	s.mmh3.Write(append(enc, '\n'))
+	s.line = s.line[:0]
+}
+
+// fields ends the icon and stores its hashes. An empty icon has none.
+func (s *iconSum) fields(f eval.Fields) {
+	if s.n == 0 {
 		return
 	}
-	f["http.favicon.mmh3"] = int(FaviconMMH3(icon))
-	f["http.favicon.md5"] = md5Hex(icon)
-	f["http.favicon.sha256"] = sha256Hex(icon)
+	if len(s.line) > 0 {
+		s.endLine()
+	}
+	f["http.favicon.mmh3"] = int(s.mmh3.Sum())
+	f["http.favicon.md5"] = hex.EncodeToString(s.md5.Sum(nil))
+	f["http.favicon.sha256"] = hex.EncodeToString(s.sha256.Sum(nil))
 }
