@@ -254,7 +254,7 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 | Fidelity | Meaning |
 | --- | --- |
 | `exact` | Same result set as the rule on the engine's data. |
-| `approximate` | Same intent, looser operator: tokenised text, a prefix searched as a substring, case-sensitive equality. |
+| `approximate` | Same intent, looser operator: tokenised text, a prefix searched as a substring, case-sensitive equality. Also a query on an engine field whose mapping is not verified yet; a note names it. |
 | `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. Shodan can OR several values of one filter (`http.title:"a","b"`) but not different filters, so the ARTEX rule's `title starts with ARTEX or ARTEX favicon` is dropped there. |
 | `unsupported` | Nothing meaningful is left, and no query is printed. |
 

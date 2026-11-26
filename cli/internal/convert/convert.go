@@ -356,6 +356,11 @@ func (c *converter) lower(e expr) expr {
 		if note != "" {
 			c.notes = append(c.notes, note)
 		}
+		if fieldTables[c.engine][x.field].unverified {
+			// Nobody checked that the engine field holds what the rule
+			// field holds, so the query can't be called exact.
+			c.worse(Approximate)
+		}
 		c.worse(f)
 		l := lit{s: s, neg: x.negated}
 		if k, ok := c.b.(keyer); ok {

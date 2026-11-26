@@ -62,11 +62,11 @@ var (
 		"http.title":          {name: "title"},
 		"http.body":           {name: "body"},
 		"http.headers_raw":    {name: "header", kind: rawHeaders},
-		"http.headers.server": {name: "server"},
-		"http.status_code":    {name: "status_code", kind: exactOnly},
+		"http.headers.server": {name: "server", unverified: true},
+		"http.status_code":    {name: "status_code", kind: exactOnly, unverified: true},
 		"http.favicon.mmh3":   {name: "icon_hash", kind: exactOnly},
 		"tls.cert.subject.cn": {name: "cert.subject.cn"},
-		"tls.cert.issuer.cn":  {name: "cert.issuer.cn"},
+		"tls.cert.issuer.cn":  {name: "cert.issuer.cn", unverified: true},
 		"tls.jarm":            {name: "jarm", kind: exactOnly},
 		"service.banner":      {name: "banner"},
 		"service.port":        {name: "port", kind: exactOnly},
@@ -122,7 +122,7 @@ var (
 		"http.status_code":    {name: "http.status_code", kind: exactOnly},
 		"http.favicon.mmh3":   {name: "http.files.mmh3", kind: exactOnly},
 		"http.favicon.sha256": {name: "http.files.sha256", kind: exactOnly},
-		"http.body.mmh3":      {name: "http.body_mmh3", kind: exactOnly},
+		"http.body.mmh3":      {name: "http.body_mmh3", kind: exactOnly, unverified: true},
 		"http.body.sha256":    {name: "http.body_sha256", kind: exactOnly},
 		"tls.cert.subject.cn": {name: "tls.subject.common_name", regex: true},
 		"tls.cert.issuer.cn":  {name: "tls.issuer.common_name", regex: true},
@@ -144,6 +144,17 @@ var (
 		"tls.cert.issuer.cn":  {name: "page.tlsIssuer", kind: prefixKeyword},
 	}
 )
+
+// fieldTables holds every engine's fields. A query on a field marked
+// unverified is never exact (see converter.lower).
+var fieldTables = map[string]map[string]fieldSpec{
+	"fofa":    fofaFields,
+	"shodan":  shodanFields,
+	"censys":  censysFields,
+	"zoomeye": zoomeyeFields,
+	"modat":   modatFields,
+	"urlscan": urlscanFields,
+}
 
 // lookup applies the checks every engine shares and finds the field.
 // Single headers (http.headers.<name>) map to the engine's header search.

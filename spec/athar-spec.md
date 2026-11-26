@@ -321,7 +321,7 @@ A backend turns a rule into one engine's query and labels the result with its fi
 | Fidelity | Meaning | Example |
 | --- | --- | --- |
 | `exact` | Same result set as the scanner on the engine's data | Family rule on FOFA |
-| `approximate` | Same intent, looser operator (tokenized, substring for prefix) | `startswith` on FOFA |
+| `approximate` | Same intent, looser operator (tokenized, substring for prefix), or an engine field that is not verified yet (Appendix A, †) | `startswith` on FOFA |
 | `superset` | Unsupported parts dropped, so the query can only over-match | A custom-probe selection removed |
 | `unsupported` | Nothing meaningful left | A rule that is only a regex, on Shodan |
 
@@ -410,28 +410,28 @@ At Modat host level, a query goes into `same_service( … )`.
 
 ## Appendix A: Engine field mapping
 
-Informative. This is the first draft of the mapping backends use. Cells marked † come from secondary sources or are inferred and must be checked against the engine docs before a backend ships. A dash means the engine has no such field. Modat cells name the field only: `~` is contains, `=` exact, `=~` regex. urlscan cells name the field too; urlscan indexes values in lowercase and allows regexes only on `.keyword` fields.
+Informative. This is the first draft of the mapping backends use. Cells marked † come from secondary sources or are inferred and are not checked against the engine docs yet: a query that uses such a field is `approximate` at best and carries a note that says so. A dash means the engine has no such field. "Not converted" means the engine has the field but the backend leaves it out. Modat cells name the field only: `~` is contains, `=` exact, `=~` regex. urlscan cells name the field too; urlscan indexes values in lowercase and allows regexes only on `.keyword` fields.
 
 | Field | FOFA | Shodan | Censys Platform | ZoomEye | Modat Magnify | urlscan.io |
 | --- | --- | --- | --- | --- | --- | --- |
 | `http.title` | `title=` | `http.title:` | `host.services.endpoints.http.html_title` | `title=` | `http.title` | `page.title.keyword` (regex) |
 | `http.body` | `body=` | `http.html:` | `host.services.endpoints.http.body` | `http.body=` | `http.body` (whole words) | — |
-| `http.headers.server` | `server=`† | full text `"Server: …"` | `…http.headers` key/value† | `http.header.server=` | `http.headers: (key = "Server" and value …)` | `page.server` (words) |
-| other headers | `header=` on raw block | full text | `…http.headers` key/value† | `http.header=` on raw block | `http.headers: (key = "…" and value …)` | — |
+| `http.headers.server` | `server=`† | full text `"Server: …"` | `…http.headers` key/value† (not converted) | `http.header.server=` | `http.headers: (key = "Server" and value …)` | `page.server` (words) |
+| other headers | `header=` on raw block | full text | `…http.headers` key/value† (not converted) | `http.header=` on raw block | `http.headers: (key = "…" and value …)` | — |
 | `http.status_code` | `status_code=`† | `http.status:` | `…http.status_code`† | `http.header.status_code=` | `http.status_code` | `page.status` |
 | `http.favicon.mmh3` | `icon_hash=` | `http.favicon.hash:` | — | `iconhash=` | `http.files.mmh3` | — |
 | `http.favicon.md5` | — | — | — | `iconhash=` | — | — |
 | `http.favicon.sha256` | — | — | `…http.favicons.hash_sha256` | — | `http.files.sha256` | `hash` (any response) |
-| `http.body.mmh3` | `body_hash=`† | `http.html_hash:`† | — | — | `http.body_mmh3`† | — |
+| `http.body.mmh3` | `body_hash=`† (algorithm undocumented, not converted) | `http.html_hash:`† | — | — | `http.body_mmh3`† | — |
 | `http.body.sha256` | — | — | `…http.body_hash_sha256` | — | `http.body_sha256` | `hash` (any response) |
 | `tls.cert.subject.cn` | `cert.subject.cn=` | `ssl.cert.subject.cn:` | `host.services.cert.parsed.subject.common_name`† | `ssl.cert.subject.cn=` | `tls.subject.common_name` | — |
 | `tls.cert.issuer.cn` | `cert.issuer.cn=`† | `ssl.cert.issuer.cn:` | `host.services.cert.parsed.issuer.common_name`† | `ssl.cert.issuer.cn=` | `tls.issuer.common_name` | `page.tlsIssuer` |
-| `tls.cert.sha256` | —† | `ssl.cert.fingerprint:`† | `host.services.cert.fingerprint_sha256` | —† | `tls.fingerprint_sha256` | — |
+| `tls.cert.sha256` | —† | `ssl.cert.fingerprint:`† (hash algorithm unchecked, not converted) | `host.services.cert.fingerprint_sha256` | —† | `tls.fingerprint_sha256` | — |
 | `tls.jarm` | `jarm=` | `ssl.jarm:` | `host.services.jarm.fingerprint` | `ssl.jarm=` | `tls.jarm` | — |
 | `tls.ja3s` | —† | `ssl.ja3s:` | —† | `ssl.ja3s=` | `tls.ja3s` | — |
 | `service.banner` | `banner=` | full text | `host.services.banner` | `banner=` | `banner` (whole words) | — |
 | `service.port` | `port=` | `port:` | `host.services.port` | `port=` | `port` | — |
-| `keywords` | bare `"…"` | bare terms | full-document query | bare `"…"` | bare terms | — |
+| `keywords` | bare `"…"` | bare terms | full-document query (not converted: it can't be combined with `host.services`) | bare `"…"` | bare terms | — |
 
 Engine references:
 
