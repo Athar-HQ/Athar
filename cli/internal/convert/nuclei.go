@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -68,8 +69,13 @@ func (n *nuclei) wrap(q string) string { return q }
 
 var nucleiHeaderRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
-// faviconReq names the favicon request; # can't start a probe id.
+// faviconReq names the favicon request.
 const faviconReq = "#favicon"
+
+// probeRef names a custom probe's request in references. Probe ids are free
+// text; in hex, none is taken for "default", faviconReq or "ssl", none holds
+// the characters that delimit a reference, and no two share a name.
+func probeRef(id string) string { return "probe:" + hex.EncodeToString([]byte(id)) }
 
 const nucleiFaviconNote = "the favicon is fetched from /favicon.ico; the scanner first follows <link rel=\"icon\">"
 
@@ -84,7 +90,14 @@ func (n *nuclei) probeTerm(t term) (string, Fidelity, string, bool) {
 	if !ok || p.Request == nil {
 		return "", 0, fmt.Sprintf("%s uses the custom probe %q, which is not an HTTP request", describe(t), t.probe), false
 	}
-	return n.render(t, t.probe)
+	marked := nucleiMarked(p.Request.Method) || nucleiMarked(p.Request.Path)
+	for k, v := range p.Request.Headers {
+		marked = marked || nucleiMarked(k) || nucleiMarked(v)
+	}
+	if marked {
+		return "", 0, fmt.Sprintf("%s: nuclei would expand the {{ or § in the request of the custom probe %q", describe(t), t.probe), false
+	}
+	return n.render(t, probeRef(t.probe))
 }
 
 func (n *nuclei) render(t term, probe string) (string, Fidelity, string, bool) {
@@ -575,9 +588,75 @@ func (n *nuclei) hash(t term, x string, f Fidelity, note string) (string, Fideli
 }
 
 // dslQuote writes a string literal for Nuclei's DSL, which reads a
-// backslash as an escape for the next character.
+// backslash as an escape for the next character. Nuclei expands {{…}} in an
+// expression before it evaluates it, so the second of two opening braces
+// gets a backslash: the literal reads the same and holds no marker.
 func dslQuote(s string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+	s = strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
+	for nucleiBracesRe.MatchString(s) {
+		s = nucleiBracesRe.ReplaceAllString(s, `${1}\${2}`)
+	}
+	return `"` + s + `"`
+}
+
+// nucleiBracesRe finds what Nuclei takes for the start of {{…}}: two opening
+// braces, each as it is or percent-encoded. Nuclei's own pattern, %7[B|b],
+// takes %7| too.
+var nucleiBracesRe = regexp.MustCompile(`(\{|%7[Bb|])(\{|%7[Bb|])`)
+
+// nucleiMarked reports whether Nuclei would expand a part of s in a request:
+// it replaces {{name}} and §name§, evaluates {{expression}}, and sends no
+// request in which a {{…}} is left.
+func nucleiMarked(s string) bool {
+	return nucleiBracesRe.MatchString(s) || strings.Contains(s, "§")
+}
+
+// reBraces writes the first brace of every {{ in an RE2 pattern as \x7B.
+// Nuclei replaces {{randstr}} in a template's text before it reads the YAML,
+// so quoting can't hide the braces; the pattern matches the same.
+func reBraces(re string) string {
+	var b strings.Builder
+	quoted := false // inside \Q…\E, where nothing can be escaped
+	for i := 0; i < len(re); i++ {
+		rest := re[i:]
+		switch {
+		case quoted && strings.HasPrefix(rest, `\E`):
+			quoted = false
+			b.WriteString(`\E`)
+			i++
+		case quoted && strings.HasPrefix(rest, "{{"):
+			b.WriteString(`{\E\Q`)
+		case quoted:
+			b.WriteByte(re[i])
+		case strings.HasPrefix(rest, `\Q`):
+			quoted = true
+			b.WriteString(`\Q`)
+			i++
+		case strings.HasPrefix(rest, `\{{`):
+			b.WriteString(`\x7B`)
+			i++
+		case rest[0] == '\\' && len(rest) > 1:
+			b.WriteString(rest[:2])
+			i++
+		case strings.HasPrefix(rest, "{{"):
+			b.WriteString(`\x7B`)
+		default:
+			b.WriteByte(re[i])
+		}
+	}
+	return b.String()
+}
+
+// yamlComment makes s safe in a # comment. A line break would end the
+// comment and leave the rest of s as YAML, and a YAML file can't hold other
+// control characters.
+func yamlComment(s string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == 0x2028 || r == 0x2029 { // line and paragraph separator
+			return ' '
+		}
+		return r
+	}, s))
 }
 
 // wildcardRegexp turns a Sigma value into an RE2 pattern, as the evaluator
@@ -676,7 +755,7 @@ type nucleiExtractor struct {
 }
 
 type nucleiRequest struct {
-	probe   string // "default", "favicon" or a custom probe id
+	probe   string // "default", faviconReq or probeRef(id)
 	method  string
 	path    string
 	headers map[string]string
@@ -726,8 +805,8 @@ func convertNuclei(r *rule.Rule) (Result, error) {
 		reqs = append(reqs, nucleiRequest{probe: faviconReq, method: "GET", path: "/favicon.ico"})
 	}
 	var ids []string
-	for id := range used {
-		if id != "default" && id != faviconReq && id != "ssl" {
+	for id := range n.r.Probes {
+		if used[probeRef(id)] {
 			ids = append(ids, id)
 		}
 	}
@@ -742,7 +821,7 @@ func convertNuclei(r *rule.Rule) (Result, error) {
 		if p == "" {
 			p = "/"
 		}
-		reqs = append(reqs, nucleiRequest{probe: id, method: m, path: p, headers: q.Headers})
+		reqs = append(reqs, nucleiRequest{probe: probeRef(id), method: m, path: p, headers: q.Headers})
 	}
 	// The baseline goes last: Nuclei reports the last request's URL.
 	if used["default"] {
@@ -861,17 +940,17 @@ func convertNuclei(r *rule.Rule) (Result, error) {
 	}
 	enc.Close()
 	var head strings.Builder
-	fmt.Fprintf(&head, "# Converted by athar convert from %s", filepath.ToSlash(r.Path))
+	fmt.Fprintf(&head, "# Converted by athar convert from %s", yamlComment(filepath.ToSlash(r.Path)))
 	if r.ID != "" {
-		fmt.Fprintf(&head, " (Athar rule %s)", r.ID)
+		fmt.Fprintf(&head, " (Athar rule %s)", yamlComment(r.ID))
 	}
 	head.WriteString(".\n")
 	if r.Author != "" {
-		fmt.Fprintf(&head, "# Rule by %s, licensed under the Detection Rule License 1.1:\n# %s\n", r.Author, DRLURL)
+		fmt.Fprintf(&head, "# Rule by %s, licensed under the Detection Rule License 1.1:\n# %s\n", yamlComment(r.Author), DRLURL)
 	}
 	fmt.Fprintf(&head, "# Fidelity: %s\n", res.Fidelity)
 	for _, note := range res.Notes {
-		fmt.Fprintf(&head, "# Note: %s\n", note)
+		fmt.Fprintf(&head, "# Note: %s\n", yamlComment(note))
 	}
 	res.TemplateID = t.ID
 	res.Template = head.String() + body.String()
@@ -996,7 +1075,7 @@ func nucleiExtractors(r *rule.Rule, multi bool, index map[string]int, titles map
 			if err != nil {
 				continue
 			}
-			e.Type, e.Regex = "regex", []string{x.Regex}
+			e.Type, e.Regex = "regex", []string{reBraces(x.Regex)}
 			e.Group = re.SubexpIndex(name)
 			if e.Group < 0 {
 				e.Group = min(1, re.NumSubexp())

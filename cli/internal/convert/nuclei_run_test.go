@@ -80,6 +80,7 @@ func TestNucleiTemplateFeatures(t *testing.T) {
 		}
 		rules = append(rules, r)
 	}
+	rules = append(rules, markerRule(t))
 	extra := []nucleiCase{
 		{rule: "athar-features-hashes", test: "hashes: same favicon and body", target: serveIconPage(t, icon), expect: true},
 		{rule: "athar-features-hashes", test: "hashes: other favicon", target: serveIconPage(t, []byte("other")), expect: false},
@@ -95,6 +96,81 @@ func TestNucleiTemplateFeatures(t *testing.T) {
 			nucleiCheck(t, bin, rules, extra[:len(extra):len(extra)], true, mode.flags...)
 		})
 	}
+}
+
+// markerRule has what Nuclei would expand or mistake in a template: {{…}}
+// in values and in an extract pattern, and probe ids that are no names.
+func markerRule(t *testing.T) *rule.Rule {
+	return parse(t, "features_markers.yml", `
+title: markers
+id: 55555555-5555-4555-8555-555555555555
+probes:
+  ssl:
+    protocol: http
+    request:
+      path: /app.js
+  api/v1:
+    protocol: http
+    request:
+      path: /api/v1
+detection:
+  selection_body:
+    http.body|contains: '{{ message }}'
+  selection_cased:
+    http.body|contains|cased: '{{Hostname}}'
+  selection_re:
+    http.body|re: 'id=\w+>{{ ?\w+ ?}}<'
+  selection_encoded:
+    http.body|contains: '%7B%7Bhost%7D%7D'
+  selection_script:
+    probe: ssl
+    http.body|contains: 'on {{host}}'
+  selection_api:
+    probe: api/v1
+    http.status_code: 204
+  condition: all of selection_*
+extract:
+  app:
+    field: http.body
+    regex: '{{randstr}} (\w+)'
+tests:
+  - name: template text
+    expect: match
+    response:
+      http.body: '<div id=app>{{ message }}</div> {{Hostname}} %7B%7Bhost%7D%7D {{randstr}} vue'
+    probes:
+      ssl:
+        http.body: 'on {{host}}'
+      api/v1:
+        http.status_code: 204
+    extracted:
+      app: vue
+  - name: rendered text
+    expect: no_match
+    response:
+      http.body: '<div id=app>hello</div> {{Hostname}} %7B%7Bhost%7D%7D {{randstr}} vue'
+    probes:
+      ssl:
+        http.body: 'on {{host}}'
+      api/v1:
+        http.status_code: 204
+  - name: host name in place of the marker
+    expect: no_match
+    response:
+      http.body: '<div id=app>{{ message }}</div> {{Hostname}} %7B%7Bhost%7D%7D {{randstr}} vue'
+    probes:
+      ssl:
+        http.body: 'on 127.0.0.1'
+      api/v1:
+        http.status_code: 204
+  - name: no API
+    expect: no_match
+    response:
+      http.body: '<div id=app>{{ message }}</div> {{Hostname}} %7B%7Bhost%7D%7D {{randstr}} vue'
+    probes:
+      ssl:
+        http.body: 'on {{host}}'
+`)
 }
 
 // featurePage is what serveIconPage serves at /.
@@ -542,6 +618,42 @@ detection:
   filter_empty:
     http.favicon.mmh3: 0
   condition: selection_title and selection_none and not filter_empty
+`),
+		// {{…}} in the expressions that read a header line and the title.
+		parse(t, "features_markers_fields.yml", `
+title: markers in fields
+id: 55555555-5555-4555-8555-555555555513
+detection:
+  selection_header:
+    http.headers.x-app: '{{host}}'
+  selection_header_re:
+    http.headers.x-app|re: '^{{h\w+}}$'
+  selection_encoded:
+    http.headers.x-enc|contains: '%7B%7Bhost'
+  selection_title:
+    http.title|startswith|cased: '{{Hostname}}'
+  selection_fold:
+    http.title|contains: '{{hostname}} is'
+  condition: all of selection_*
+tests:
+  - name: marker text
+    expect: match
+    response:
+      http.headers.x-app: '{{host}}'
+      http.headers.x-enc: 'a=%7B%7Bhost%7D%7D'
+      http.title: '{{Hostname}} is up'
+  - name: expanded header
+    expect: no_match
+    response:
+      http.headers.x-app: '127.0.0.1'
+      http.headers.x-enc: 'a=%7B%7Bhost%7D%7D'
+      http.title: '{{Hostname}} is up'
+  - name: expanded title
+    expect: no_match
+    response:
+      http.headers.x-app: '{{host}}'
+      http.headers.x-enc: 'a=%7B%7Bhost%7D%7D'
+      http.title: '127.0.0.1 is up'
 `),
 	}
 }
