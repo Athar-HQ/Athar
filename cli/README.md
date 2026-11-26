@@ -121,7 +121,7 @@ athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24 192.0.2.10 example.org
 3. **Open ports.** A TCP connect to each host and port, with a 1.5 s timeout (`-connect-timeout`), long enough for one SYN retransmission. This needs no root privileges; ports that refuse or time out are skipped.
 4. **Fingerprint.** The scanner only collects what the loaded rules use:
    - **Banner**, only when a rule's `target.protocol` is not `http`: wait up to 2 seconds for the server to speak first (SSH, FTP, SMTP). A banner ends the baseline probe for that port.
-   - **TLS** on the same, still unused connection, unless every rule says `tls: none`: certificate fields, version and cipher. SNI is sent only for hostname targets.
+   - **TLS** on the same, still unused connection, unless every rule says `tls: none`: certificate fields, version and cipher. SNI is sent only for hostname targets. A service that answers in TLS but whose certificate or parameters Go's TLS library refuses is still recorded as TLS and gets no plaintext request; its certificate is read where TLS 1.2 or older shows it, the hashes even when it can't be parsed.
    - **HTTP** `GET /` over TLS or plaintext, without following redirects. The `Host` header is the target as given. Body is kept up to 1 MiB, and the title, headers, raw header block and body hashes are computed.
    - **Favicon**, only when a rule uses `http.favicon.*`: from `<link rel="icon">` (also inline `data:` icons), else `/favicon.ico`; icons on other hosts are not fetched.
    - **Custom probes** declared by rules, only with `-probes`. Each distinct probe is sent once per port, however many rules use it.
