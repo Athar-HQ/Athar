@@ -87,13 +87,35 @@ func ParseTarget(s string) (Target, error) {
 		}
 		if a, err := netip.ParseAddr(host); err == nil {
 			host = a.String()
+		} else if numericHost(host) {
+			return Target{}, fmt.Errorf("target %q: not a valid IP address, and a hostname can't end in a number", s)
 		}
 		return Target{Host: host, Port: n}, nil
 	}
 	if strings.ContainsAny(s, " \t:[]") {
 		return Target{}, fmt.Errorf("target %q: not an IP address, hostname, range or host:port", s)
 	}
+	if numericHost(s) {
+		return Target{}, fmt.Errorf("target %q: not a valid IP address, and a hostname can't end in a number", s)
+	}
 	return Target{Host: strings.TrimSuffix(s, ".")}, nil
+}
+
+// numericHost reports whether a host that is not an IP address looks like
+// one: it holds only digits and dots, or its last label is a decimal or 0x
+// number. System resolvers read such names as addresses in old notations
+// (127.1, 2130706433 and 0x7f.0.0.1 are all 127.0.0.1), so a typo like
+// 10.0.1 would scan 10.0.0.1. No top-level domain is a number.
+func numericHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if strings.Trim(host, "0123456789.") == "" {
+		return true
+	}
+	last := host[strings.LastIndexByte(host, '.')+1:]
+	if hex, ok := strings.CutPrefix(last, "0x"); ok {
+		return strings.Trim(hex, "0123456789abcdef") == ""
+	}
+	return last != "" && strings.Trim(last, "0123456789") == ""
 }
 
 // ReadTargets parses one target per line. Empty lines and lines starting with
@@ -177,6 +199,71 @@ func MergePorts(lists ...[]int) []int {
 	}
 	sort.Ints(out)
 	return out
+}
+
+// Dedup removes the targets that another target already covers, so every
+// host and port is checked once: repeated hosts, ranges and host:port pairs,
+// hosts and ranges inside a given range, and host:port pairs whose host is
+// checked on that port anyway. Of equal targets the first one stays.
+// Hostnames are compared without case; a name and its address count as two
+// hosts.
+func Dedup(targets []Target, ports []int) []Target {
+	ranges := map[netip.Prefix]bool{}
+	hosts := map[string]bool{}
+	for _, t := range targets {
+		switch {
+		case t.Prefix.IsValid():
+			ranges[t.Prefix] = true
+		case t.Port == 0:
+			hosts[hostKey(t.Host)] = true
+		}
+	}
+	inPorts := map[int]bool{}
+	for _, p := range ports {
+		inPorts[p] = true
+	}
+	// within reports whether a given range with a prefix of at most bits
+	// holds a. Ranges have at most 16 host bits.
+	within := func(a netip.Addr, bits int) bool {
+		for b := bits; b >= 0 && b >= a.BitLen()-16; b-- {
+			if ranges[netip.PrefixFrom(a, b).Masked()] {
+				return true
+			}
+		}
+		return false
+	}
+	seen := map[string]bool{}
+	var out []Target
+	for _, t := range targets {
+		var key string
+		var covered bool
+		if t.Prefix.IsValid() {
+			key = t.Prefix.String()
+			covered = within(t.Prefix.Addr(), t.Prefix.Bits()-1)
+		} else {
+			key = hostKey(t.Host)
+			a, err := netip.ParseAddr(key)
+			covered = err == nil && a.Zone() == "" && within(a, a.BitLen())
+			if t.Port != 0 {
+				covered = (covered || hosts[key]) && inPorts[t.Port]
+				key = net.JoinHostPort(key, strconv.Itoa(t.Port))
+			}
+		}
+		if covered || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, t)
+	}
+	return out
+}
+
+// hostKey is the form in which Dedup compares hosts.
+func hostKey(host string) string {
+	if a, err := netip.ParseAddr(host); err == nil {
+		return a.Unmap().String()
+	}
+	return strings.ToLower(strings.TrimSuffix(host, "."))
 }
 
 // Count returns the number of hosts and host/port checks the targets expand

@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -110,6 +113,78 @@ confidence: high
 	}
 }
 
+// A variant given on its own finds its family among the files next to it
+// (AGENTS.md step 9). The family is not reported or counted.
+func TestVerifySingleVariant(t *testing.T) {
+	code, out, _ := runCLI("verify", "-strict", "-no-color", "../../../rules/offensive-tool/aof_artex_antifox_nov26.yml")
+	if code != exitOK || !strings.Contains(out, "1 rule, 0 failed") || strings.Contains(out, "aof_artex_nov26.yml") {
+		t.Errorf("repository variant: exit %d\n%s", code, out)
+	}
+
+	const family = `
+title: Fam family
+id: 11111111-1111-4111-8111-111111111111
+status: experimental
+tags: [category.c2]
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: %s
+  condition: selection_title
+identifies: { family: fam, category: c2 }
+confidence: high
+`
+	const variant = `
+title: Fam variant
+id: 22222222-2222-4222-8222-222222222222
+related:
+  - id: 11111111-1111-4111-8111-111111111111
+    type: variant-of
+status: experimental
+tags: [category.c2]
+target: { protocol: http }
+detection:
+  selection_title:
+    http.title|contains: Fam Console
+  condition: selection_title
+identifies: { product: Acme, family: fam, category: c2 }
+confidence: high
+tests:
+  - name: hit
+    expect: match
+    response: { http.title: Acme Fam Console }
+  - name: miss
+    expect: no_match
+    response: { http.title: Other }
+`
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v := filepath.Join(dir, "fam_acme.yml")
+	write("fam_acme.yml", variant)
+
+	// No family next to it: the warning stays.
+	code, out, _ = runCLI("verify", "-strict", "-no-color", v)
+	if code != exitFindings || !strings.Contains(out, "family rule not found") {
+		t.Errorf("no family: exit %d\n%s", code, out)
+	}
+	// A family the variant does not imply is an error, also without -strict.
+	write("fam.yaml", strings.Replace(family, "%s", "Other Console", 1))
+	code, out, _ = runCLI("verify", "-no-color", v)
+	if code != exitFindings || !strings.Contains(out, "does not imply its family") || !strings.Contains(out, "1 rule, 1 failed") {
+		t.Errorf("family not implied: exit %d\n%s", code, out)
+	}
+	write("fam.yaml", strings.Replace(family, "%s", "Fam Console", 1))
+	code, out, _ = runCLI("verify", "-strict", "-no-color", v)
+	if code != exitOK || !strings.Contains(out, "1 rule, 0 failed") {
+		t.Errorf("family implied: exit %d\n%s", code, out)
+	}
+}
+
 func TestUsage(t *testing.T) {
 	for _, args := range [][]string{{}, {"nope"}, {"verify"}, {"verify", "/does/not/exist"}, {"scan"}} {
 		if code, _, _ := runCLI(args...); code != exitUsage {
@@ -125,6 +200,61 @@ func TestUsage(t *testing.T) {
 func TestInterleavedFlags(t *testing.T) {
 	if code, out, errOut := runCLI("verify", "../../../rules", "-strict", "-q"); code != exitOK {
 		t.Errorf("exit %d\n%s%s", code, out, errOut)
+	}
+}
+
+// "--" ends the flags: everything after it is a positional argument.
+func TestDoubleDash(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	jsonOut, rules := fs.Bool("json", false, ""), fs.String("r", "", "")
+	pos, err := parseFlags(fs, []string{"a", "-r", "rules", "--", "host", "-json", "--", "b"})
+	if err != nil || *jsonOut || *rules != "rules" || strings.Join(pos, " ") != "a host -json -- b" {
+		t.Errorf("positional %q, json %v, r %q, err %v", pos, *jsonOut, *rules, err)
+	}
+
+	// What follows "--" is a path or a target, so these fail: no file is
+	// named like a flag, and the scan has no -r.
+	for _, args := range [][]string{
+		{"verify", "--", "../../../rules", "-q"},
+		{"convert", "--", "../../../rules", "-json"},
+		{"scan", "--", "127.0.0.1:1", "-r", "../../../rules"},
+	} {
+		if code, _, errOut := runCLI(args...); code != exitUsage {
+			t.Errorf("%v: exit %d, want %d\n%s", args, code, exitUsage, errOut)
+		}
+	}
+}
+
+// A file given twice, also through its folder, another spelling or a
+// symlink, is loaded once. Two files with one id are still an error.
+func TestSameFileTwice(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.yml")
+	if err := os.WriteFile(a, []byte(convertFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spellings := []string{a, dir + "/./a.yml"}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err == nil {
+		spellings = append(spellings, filepath.Join(link, "a.yml"))
+	}
+	for _, same := range spellings {
+		if code, out, errOut := runCLI("verify", dir, same); code != exitOK || !strings.Contains(out, "\n1 rule, ") {
+			t.Errorf("verify %s %s: exit %d\n%s%s", dir, same, code, out, errOut)
+		}
+		if code, _, errOut := runCLI("scan", "-r", dir, "-r", same, "127.0.0.1:1"); code != exitOK {
+			t.Errorf("scan -r %s -r %s: exit %d\n%s", dir, same, code, errOut)
+		}
+		if code, out, errOut := runCLI("convert", "-t", "fofa", "-json", dir, same); code != exitOK || strings.Count(out, "\n") != 1 {
+			t.Errorf("convert %s %s: exit %d\n%s%s", dir, same, code, out, errOut)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "b.yml"), []byte(convertFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := runCLI("verify", dir); code != exitFindings || !strings.Contains(out, "is already used by") {
+		t.Errorf("two files with one id: exit %d\n%s", code, out)
 	}
 }
 
@@ -182,6 +312,67 @@ func TestScanCommand(t *testing.T) {
 	}
 }
 
+// Repeated and overlapping targets are checked and reported once.
+func TestScanDuplicateTargets(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<title>NKW — Autonomous Penetration Testing Console</title><a href="/function/tasks">`))
+	}))
+	defer srv.Close()
+	target := strings.TrimPrefix(srv.URL, "http://")
+	host, port, _ := net.SplitHostPort(target)
+
+	code, out, errOut := runCLI("scan", "-r", "../../../rules", "-p", port, target, host, target, host, host+"/32")
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 1 {
+		t.Errorf("%d output lines, want 1:\n%s", n, out)
+	}
+	if want := "1 host, 1 check, 1 open, 1 match"; !strings.Contains(errOut, want) {
+		t.Errorf("stderr misses %q:\n%s", want, errOut)
+	}
+}
+
+// A hostname that does not resolve is named in one warning and skipped. The
+// scan fails only when no target is left.
+func TestScanUnresolvedHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<title>NKW — Autonomous Penetration Testing Console</title><a href="/function/tasks">`))
+	}))
+	defer srv.Close()
+	target := strings.TrimPrefix(srv.URL, "http://")
+
+	old := lookupHost
+	lookupHost = func(_ context.Context, host string) ([]string, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	t.Cleanup(func() { lookupHost = old })
+
+	code, out, errOut := runCLI("scan", "-r", "../../../rules", target, "gone.example", "gone.example:8443", "GONE.example")
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s", code, errOut)
+	}
+	if n := strings.Count(out, "\n"); n != 1 {
+		t.Errorf("%d output lines, want 1:\n%s", n, out)
+	}
+	if n := strings.Count(strings.ToLower(errOut), "gone.example"); n != 1 || !strings.Contains(errOut, "warning: gone.example does not resolve") {
+		t.Errorf("want one warning that names gone.example:\n%s", errOut)
+	}
+	if want := "1 host, 1 check, 1 open, 1 match"; !strings.Contains(errOut, want) {
+		t.Errorf("stderr misses %q:\n%s", want, errOut)
+	}
+
+	code, out, errOut = runCLI("scan", "-r", "../../../rules", "gone.example", "lost.example:80")
+	if code != exitUsage || out != "" {
+		t.Errorf("no target resolves: exit %d, want %d; stdout %q\n%s", code, exitUsage, out, errOut)
+	}
+	for _, want := range []string{"gone.example does not resolve", "lost.example does not resolve"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr misses %q:\n%s", want, errOut)
+		}
+	}
+}
+
 func TestScanUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"scan", "127.0.0.1"},            // no rules
@@ -195,6 +386,15 @@ func TestScanUsageErrors(t *testing.T) {
 	} {
 		if code, _, errOut := runCLI(args...); code != exitUsage {
 			t.Errorf("%v: exit %d, want %d\n%s", args, code, exitUsage, errOut)
+		}
+	}
+
+	// Numbers that are not IP addresses: the system resolver would read
+	// them as addresses (10.0.1 as 10.0.0.1), so they are refused.
+	for _, target := range []string{"10.0.1", "127.1", "2130706433", "0x7f.0.0.1", "127.1:80"} {
+		code, _, errOut := runCLI("scan", "-r", "../../../rules", "-p", "1", "127.0.0.1", target)
+		if code != exitUsage || !strings.Contains(errOut, `"`+target+`"`) {
+			t.Errorf("target %s: exit %d, want %d and an error naming it\n%s", target, code, exitUsage, errOut)
 		}
 	}
 

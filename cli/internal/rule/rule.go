@@ -42,6 +42,8 @@ type Rule struct {
 
 	// unknownKeys are top-level keys the spec does not define.
 	unknownKeys []string
+	// nested are the problems checkNested found below the top level.
+	nested []Problem
 }
 
 type Related struct {
@@ -122,12 +124,19 @@ func Parse(data []byte, path string) (*Rule, error) {
 	if err := yaml.Unmarshal(data, r); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	if err := r.valuesAsWritten(data); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	for k := range top {
 		if !knownKeys[k] {
 			r.unknownKeys = append(r.unknownKeys, k)
 		}
 	}
 	sort.Strings(r.unknownKeys)
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err == nil && len(doc.Content) == 1 {
+		r.nested = checkNested(doc.Content[0])
+	}
 	return r, nil
 }
 
@@ -141,16 +150,32 @@ func Load(path string) (*Rule, error) {
 }
 
 // Files returns the rule files (.yml, .yaml) under the given files or
-// directories, sorted. Hidden directories are skipped.
+// directories, sorted. Hidden directories are skipped. A file reached more
+// than once (named twice, in a listed folder, through a symlink) is returned
+// once, under the first path that led to it.
 func Files(paths []string) ([]string, error) {
 	var out []string
+	seen := map[string]bool{}
+	add := func(path string) {
+		key := path
+		if abs, err := filepath.Abs(path); err == nil {
+			key = abs
+		}
+		if resolved, err := filepath.EvalSymlinks(key); err == nil {
+			key = resolved
+		}
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, path)
+		}
+	}
 	for _, p := range paths {
 		info, err := os.Stat(p)
 		if err != nil {
 			return nil, err
 		}
 		if !info.IsDir() {
-			out = append(out, p)
+			add(p)
 			continue
 		}
 		err = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
@@ -164,7 +189,7 @@ func Files(paths []string) ([]string, error) {
 				return nil
 			}
 			if ext := filepath.Ext(path); ext == ".yml" || ext == ".yaml" {
-				out = append(out, path)
+				add(path)
 			}
 			return nil
 		})

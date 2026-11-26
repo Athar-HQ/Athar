@@ -40,6 +40,8 @@ id: e16df89b-108c-4364-8b69-d5bc6ef04b5f
 status: experimental
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
+tags:
+  - category.offensive-tool
 target:
   protocol: http
 detection:
@@ -153,7 +155,7 @@ go install github.com/Athar-HQ/Athar/cli/cmd/athar@latest
 
 ### Scan
 
-Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames, CIDR ranges up to /16, or `host:port`. Flags can go before or after the targets.
+Give `athar scan` the rules, the ports and the targets: IP addresses, hostnames, CIDR ranges up to /16, or `host:port`. Flags can go before or after the targets; `--` ends the flags.
 
 ```bash
 athar scan -r rules/ -p 80,443,8000-8100 10.0.0.0/24
@@ -165,7 +167,7 @@ A real scan from 25 November 2026. Infrastructure like this moves fast, so these
 
 ![athar scan of 144.202.110.94:443 and 130.12.171.248:9443: the ARTEX and ARTEX favicon rules match an ARTEX console, the family rule matches an ARGOS console and extracts brand=ARGOS](docs/images/athar-scan.png)
 
-- **130.12.171.248:9443** is an ARTEX console. The ARTEX rule matches both its title prefix and its favicon hash, so it replaces the family match. The ARTEX favicon rule, which looks for the favicon alone to catch consoles with a changed title, matches too, with medium confidence.
+- **130.12.171.248:9443** is an ARTEX console. The ARTEX rule matches both its title prefix and its favicon hash, so it replaces the family match and takes over the brand the family rule extracts. The ARTEX favicon rule, which looks for the favicon alone to catch consoles with a changed title, matches too, with medium confidence.
 - **144.202.110.94:443** is an ARGOS console behind a Caddy proxy with a Let's Encrypt certificate for the IP. The family rule matches and extracts the brand. The ARTEX and ARTEX favicon rules do not, because neither the title prefix nor the favicon is ARTEX's.
 
 An hour earlier the first host accepted connections but reset every request, perhaps because of a source-IP filter or a restart. `-v` showed it as:
@@ -211,9 +213,9 @@ nuclei -t templates/ -l targets.txt
 
 ![Nuclei runs the 35 converted Athar templates against four local services and reports eight matches: the ARTEX family with brand ARTEX and NKW, the ARTEX variant, the rebrands rule, PentAGI by title and by its default certificate, and the Strix viewer](docs/images/athar-nuclei.png)
 
-Here Nuclei runs against four local services that answer like an ARTEX console, an NKW rebrand, PentAGI with its default certificate and a Strix viewer. The family template reads the brand out of the title, as `athar scan` does.
+Here Nuclei runs against four local services that answer like an ARTEX console, an NKW rebrand, PentAGI with its default certificate and a Strix viewer. The family template reads the brand out of the title, as `athar scan` does. Nuclei runs each template on its own, so it reports a family and its variant both; `athar scan` writes only the variant, with the values the family extracted.
 
-The rule's condition becomes one DSL matcher, so negations and nested conditions carry over. The template computes the page title the way `athar scan` does, reads certificate fields from an `ssl` block, and sends one more request for the favicon and for each custom probe. Its fidelity label compares it with `athar scan` on the same service. Title, header, body and certificate rules convert exactly. Favicon rules are approximate, because the template fetches `/favicon.ico` while the scanner first follows `<link rel="icon">`. Body hash rules are approximate too: Nuclei also hashes a body that was cut short, which the scanner never does. Each template names the rule's author and the DRL 1.1, and lists the rule's converted engine queries under `metadata`. When `nuclei` is installed, `go test` runs every template against the rule's own tests.
+The rule's condition becomes one DSL matcher, so negations and nested conditions carry over. The template computes the page title the way `athar scan` does, reads certificate fields from an `ssl` block, and sends one more request for the favicon and for each custom probe. Its fidelity label compares it with `athar scan` on the same service. Title, header, body and certificate rules convert exactly, except for a few headers that Nuclei's HTTP library removes or rewrites (`Transfer-Encoding`, `Connection`, `Trailer`, `Content-Length`, `Content-Encoding`, `Cache-Control`). Charsets are the exception: `athar scan` decodes a page from any charset it declares, while Nuclei only decodes some, and only if the `Content-Type` header names them (GBK and windows-1251, for example, but not Big5, EUC-KR or Shift_JIS, and none that only a `<meta>` tag declares). On the other pages that are not UTF-8, a template with non-ASCII text, such as a Korean title, doesn't match; on the ones Nuclei decodes, its body hashes are over the decoded text, the scanner's over the bytes as received. Favicon rules are approximate, because the template fetches `/favicon.ico` while the scanner first follows `<link rel="icon">`. Body hash rules are approximate too: Nuclei also hashes a body that was cut short, which the scanner never does. Each template names the rule's author and the DRL 1.1, and lists the rule's converted engine queries under `metadata`. When `nuclei` is installed, `go test` runs every template against the rule's own tests.
 
 **Nmap script.** `-t nse` runs the rules in [Nmap](https://nmap.org/). `-o` writes one script, `athar.nse`, and one data file per rule into `athar-rules/` next to it; Nmap runs the script on every open port it scans.
 
@@ -237,7 +239,7 @@ PORT     STATE SERVICE
 |_      brand: NKW
 ```
 
-The script collects what `athar scan` collects and matches the way it does: TLS first, `GET /` without following redirects, the favicon from `<link rel="icon">` or `/favicon.ico`, the same title, header and certificate values, and Go's regular expressions, which `athar convert` compiles into the data files. Every rule in the repository converts exactly. Not converted: the TLS version, cipher and ALPN, JARM, JA3S, the certificate DN and `self_signed`. Each match names the rule's author, and `-oX` writes it as `<table>` and `<elem>` elements. Nmap prints bytes outside printable ASCII, such as a Chinese brand name, as `\xHH`. Custom probes are sent only with `--script-args athar.probes`, as `athar scan` sends them only with `-probes`; `athar.rules` points the script at another folder, and `athar.timeout` changes the 3 s timeout. Known gap: against a TLS service that closes the connection without a `close_notify` alert, Nmap's Nsock drops what it read, so the script may report nothing where `athar scan` matches; the cause is in Nmap (seen with 7.97 and OpenSSL 3). When `nmap` is installed, `go test` runs the script against each rule's own tests and compares it with `athar scan` on the same responses. The script is MIT-licensed; the rules' data files keep the rules' own licence.
+The script collects what `athar scan` collects and matches the way it does: TLS first, `GET /` without following redirects, the favicon from `<link rel="icon">` or `/favicon.ico`, the same title, header and certificate values, and Go's regular expressions, which `athar convert` compiles into the data files. Like `athar scan`, it leaves a family out when one of its variants matched, and the variant's entry then also carries the values the family extracted. Every rule in the repository converts exactly. One difference remains: the script doesn't decode charsets. A page that is not UTF-8 (GBK, Big5, EUC-KR and the like) is matched on its raw bytes, while `athar scan` decodes it first, so a rule with non-ASCII text, such as a Chinese title, matches such a page in `athar scan` but not in Nmap. Not converted: the TLS version, cipher and ALPN, JARM, JA3S, the certificate DN and `self_signed`. Each match names the rule's author, and `-oX` writes it as `<table>` and `<elem>` elements. Nmap prints bytes outside printable ASCII, such as a Chinese brand name, as `\xHH`. Custom probes are sent only with `--script-args athar.probes`, as `athar scan` sends them only with `-probes`; `athar.rules` points the script at another folder, and `athar.timeout` changes the 3 s timeout. Known gap: against a TLS service that closes the connection without a `close_notify` alert, Nmap's Nsock drops what it read, so the script may report nothing where `athar scan` matches; the cause is in Nmap (seen with 7.97 and OpenSSL 3). When `nmap` is installed, `go test` runs the script against each rule's own tests and compares it with `athar scan` on the same responses. The script is MIT-licensed; the rules' data files keep the rules' own licence.
 
 **Search-engine queries.** Without `-t`, `athar convert` writes one query per engine:
 
@@ -252,7 +254,7 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 | Fidelity | Meaning |
 | --- | --- |
 | `exact` | Same result set as the rule on the engine's data. |
-| `approximate` | Same intent, looser operator: tokenised text, a prefix searched as a substring, case-sensitive equality. |
+| `approximate` | Same intent, looser operator: tokenised text, a prefix searched as a substring, case-sensitive equality. Also a query on an engine field whose mapping is not verified yet; a note names it. |
 | `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. Shodan can OR several values of one filter (`http.title:"a","b"`) but not different filters, so the ARTEX rule's `title starts with ARTEX or ARTEX favicon` is dropped there. |
 | `unsupported` | Nothing meaningful is left, and no query is printed. |
 
@@ -298,7 +300,7 @@ Other scanners and formats that rules could convert to are listed in [docs/conve
 
 ### Verify rules
 
-`athar verify` takes rule files or folders. It checks every rule against the spec (required fields, field names, modifiers, the condition) and runs the rule's `tests`:
+`athar verify` takes rule files or folders. It checks every rule against the spec (required fields, unknown keys, value ranges, field names, modifiers, the condition) and runs the rule's `tests`:
 
 ```bash
 git clone https://github.com/Athar-HQ/Athar.git
@@ -314,6 +316,7 @@ rules/offensive-tool/aof_artex_basic_auth_nov26.yml              2/2 tests passe
 rules/offensive-tool/aof_artex_frontend_files_nov26.yml          6/6 tests passed
 rules/offensive-tool/aof_artex_llm_console_nov26.yml             3/3 tests passed
 rules/offensive-tool/aof_artex_nov26.yml                         7/7 tests passed
+rules/offensive-tool/aof_artex_opx_nov26.yml                     3/3 tests passed
 rules/offensive-tool/aof_artex_rebrands_nov26.yml                7/7 tests passed
 rules/offensive-tool/aof_artex_stylesheet_nov26.yml              4/4 tests passed
 rules/offensive-tool/aof_autocve_favicon_nov26.yml               2/2 tests passed
@@ -342,7 +345,7 @@ rules/offensive-tool/aof_strix_favicon_sha256_nov26.yml          2/2 tests passe
 rules/offensive-tool/aof_strix_nov26.yml                         2/2 tests passed
 rules/offensive-tool/aof_strix_server_nov26.yml                  2/2 tests passed
 
-34 rules, 0 failed; 104/104 tests passed; 0 errors, 0 warnings
+35 rules, 0 failed; 107/107 tests passed; 0 errors, 0 warnings
 ```
 
 Use it while you write a rule. Here a test response lacks the body string the rule requires, and the rule has no negative test yet:
@@ -358,7 +361,7 @@ c2/example_panel.yml  FAIL  0/1 tests passed
 
 | Flag | Effect |
 | --- | --- |
-| `-strict` | Warnings fail too: a missing positive or negative test, an unused selection, an unknown top-level key. This repository's CI runs `athar verify -strict rules`. |
+| `-strict` | Warnings fail too: a missing positive or negative test, an unused selection, an unknown top-level key, a missing `category.*` tag. This repository's CI runs `athar verify -strict rules`. |
 | `-q` | Print only rules with problems, plus the summary. |
 | `-no-color` | No colours, as for `scan`. |
 
