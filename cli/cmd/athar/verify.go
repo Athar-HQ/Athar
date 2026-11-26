@@ -8,8 +8,12 @@ import (
 
 	"github.com/Athar-HQ/Athar/cli/internal/color"
 	"github.com/Athar-HQ/Athar/cli/internal/eval"
+	"github.com/Athar-HQ/Athar/cli/internal/probe"
 	"github.com/Athar-HQ/Athar/cli/internal/rule"
 )
+
+// A test's raw response is read by the scanner's own code.
+func init() { eval.RawHTTP = probe.HTTPFields }
 
 type verifyReport struct {
 	path     string

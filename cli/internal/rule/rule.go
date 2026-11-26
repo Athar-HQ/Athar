@@ -93,8 +93,9 @@ type Extract struct {
 type Test struct {
 	Name      string                    `yaml:"name"`
 	Expect    string                    `yaml:"expect"`
+	Raw       string                    `yaml:"raw"` // baseline HTTP response as received; see RawResponse
 	Response  map[string]any            `yaml:"response"`
-	Probes    map[string]map[string]any `yaml:"probes"` // custom probe responses, by probe id
+	Probes    map[string]map[string]any `yaml:"probes"` // custom probe responses, by probe id; may hold raw too
 	Extracted map[string]string         `yaml:"extracted"`
 }
 

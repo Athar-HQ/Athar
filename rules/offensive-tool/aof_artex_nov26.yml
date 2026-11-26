@@ -15,7 +15,7 @@ references:
   - https://x.com/SansLimit3/status/2118049610996564345
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
-modified: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -44,6 +44,16 @@ falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
   - Unrelated products whose title uses the same descriptive phrase
 tests:
+  # Captured landing page of an ARTEX console, body shortened.
+  - name: ARTEX landing page as received
+    expect: match
+    extracted: { brand: ARTEX }
+    raw: |
+      HTTP/1.1 200 OK
+      Accept-Ranges: bytes
+      Content-Type: text/html; charset=utf-8
+
+      <!DOCTYPE html><html id="__next_error__"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="preload" href="/_next/static/chunks/4384baud_6ozc.css" as="style"/><title>ARTEX — 自主渗透测试控制台</title><meta name="description" content="LLM 驱动的自主渗透测试系统控制台"/><link rel="icon" href="/favicon.ico?favicon.1uboyqwm7-s27.ico" sizes="48x48" type="image/x-icon"/></head><body></body></html>
   # Minimal samples built from the published titles, not captured responses.
   - name: ARTEX, Chinese title, em dash
     expect: match

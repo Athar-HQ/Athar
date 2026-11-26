@@ -261,7 +261,7 @@ related:
 
 These two sections are about the rule itself, not about the service it describes. `tests` is checked by a tool; `native` is a note.
 
-**`tests`** are example responses together with the result the rule must give for each. A test contacts nothing: it writes a response down as taxonomy fields, and `athar verify` runs the rule against it exactly as the scanner would run it against a live service. CI runs `athar verify` on every pull request, and a rule with a failing test does not merge.
+**`tests`** are example responses together with the result the rule must give for each. A test contacts nothing: it writes a response down, as taxonomy fields or as the HTTP response a server sent (`raw`), and `athar verify` runs the rule against it exactly as the scanner would run it against a live service. CI runs `athar verify` on every pull request, and a rule with a failing test does not merge.
 
 A rule needs both kinds:
 
@@ -285,10 +285,32 @@ tests:
 | Key | Required | Meaning |
 | --- | --- | --- |
 | `name` | yes | Short description of the case. |
-| `response` | yes, unless `probes` is given | Taxonomy fields and their values for the baseline probe. Fields not listed are absent. |
-| `probes` | no | Responses to custom probes, by probe id, with the same taxonomy fields. A custom probe the test does not list got no response, so selections bound to it do not hold. |
+| `raw` | no | One HTTP response to the baseline probe as received: status line, header lines, body. `athar verify` derives the fields from it; see below. |
+| `response` | yes, unless `raw` or `probes` is given | Taxonomy fields and their values for the baseline probe. Fields not listed are absent. Next to `raw`, they are added to the derived fields and win over them. |
+| `probes` | no | Responses to custom probes, by probe id, with the same taxonomy fields, or with `raw` for an HTTP probe. A custom probe the test does not list got no response, so selections bound to it do not hold. |
 | `expect` | yes | `match` or `no_match`. |
 | `extracted` | no | On a `match` test, the values `extract` must find in this response, by name. |
+
+A captured response goes under `raw`. `athar verify` reads it with the scanner's own code, so the test runs on the fields a live scan gives, and nobody has to work them out by hand. Here the title comes out as `ARTEX — Autonomous Penetration Testing Console`, and `response` adds the favicon, which an HTTP response does not carry:
+
+```yaml
+tests:
+  - name: Landing page as received
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      Content-Type: text/html; charset=utf-8
+
+      <html><head><title>ARTEX &mdash; Autonomous Penetration Testing Console</title></head></html>
+    response:
+      http.favicon.mmh3: -576220750
+```
+
+`raw` gives the fields the scanner reads from one HTTP response: `http.status_code`, `http.title`, `http.body`, the body hashes, `http.headers.<name>`, `http.headers_raw` and `service.protocol`. It gives no favicon, TLS or banner fields; list those under `response`. A `raw` that is not an HTTP response fails the test.
+
+- **Line ends.** The head is everything up to and including the first empty line. A head without a CR, as a YAML block scalar (`|`) gives it, is read with CRLF line ends, and its empty line may be left out when no body follows. A head that has a CR is taken as written.
+- **Body.** The body is taken byte for byte and read as the scanner reads it: it ends where `Content-Length` or the chunks say, or else at the end of the text, and a gzip body is decoded. A `|` block scalar ends with one newline and `|-` with none; without `Content-Length` that newline is part of the body and changes the body hashes.
+- **Exact bytes.** Write a double-quoted string with escapes, `"HTTP/1.1 200 OK\r\n\r\n…"`. Bytes that are not valid UTF-8 need `!!binary` with base64.
 
 A rule that checks a file's hash fetches the file with a custom probe, and its tests give the file's response under `probes`:
 

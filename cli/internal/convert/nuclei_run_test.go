@@ -854,20 +854,28 @@ func nucleiCheck(t *testing.T, bin string, rules []*rule.Rule, cases []nucleiCas
 
 // serveTest starts a server that answers like one rule test: the baseline
 // response at / and custom probe responses at their paths. It returns the
-// target URL, or false if the response can't be rebuilt from its fields.
+// target URL, or false if the response can't be rebuilt from its fields. A
+// raw response is sent as it is.
 func serveTest(t *testing.T, r *rule.Rule, tc rule.Test) (string, bool) {
 	t.Helper()
 	type page struct {
 		status  int
 		headers http.Header
 		body    string
+		raw     []byte // a captured response, sent as received
 	}
-	build := func(resp map[string]any) (page, bool) {
+	build := func(raw string, resp map[string]any) (page, bool) {
 		p := page{status: 200, headers: http.Header{}}
+		if raw != "" {
+			p.raw = rule.RawResponse(raw)
+		}
 		var title string
 		hasTitle := false
 		for k, v := range resp {
 			switch {
+			case k == "raw":
+			case p.raw != nil && strings.HasPrefix(k, "http."):
+				return p, false // a field that replaces part of the raw response
 			case k == "http.status_code":
 				fmt.Sscan(fmt.Sprint(v), &p.status)
 			case k == "http.title":
@@ -901,8 +909,8 @@ func serveTest(t *testing.T, r *rule.Rule, tc rule.Test) (string, bool) {
 		return p, true
 	}
 	pages := map[string]page{}
-	if tc.Response != nil {
-		p, ok := build(tc.Response)
+	if tc.Response != nil || tc.Raw != "" {
+		p, ok := build(tc.Raw, tc.Response)
 		if !ok {
 			return "", false
 		}
@@ -913,7 +921,8 @@ func serveTest(t *testing.T, r *rule.Rule, tc rule.Test) (string, bool) {
 		if !ok || pr.Request == nil {
 			return "", false
 		}
-		p, ok := build(resp)
+		raw, _ := resp["raw"].(string)
+		p, ok := build(raw, resp)
 		if !ok {
 			return "", false
 		}
@@ -927,6 +936,13 @@ func serveTest(t *testing.T, r *rule.Rule, tc rule.Test) (string, bool) {
 		p, ok := pages[req.URL.RequestURI()]
 		if !ok {
 			w.WriteHeader(404)
+			return
+		}
+		if p.raw != nil {
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				conn.Write(p.raw)
+				conn.Close()
+			}
 			return
 		}
 		for k, vs := range p.headers {
