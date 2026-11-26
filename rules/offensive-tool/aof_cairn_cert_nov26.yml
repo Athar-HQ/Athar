@@ -18,6 +18,7 @@ references:
   - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -53,3 +54,6 @@ tests:
       tls.cert.subject.o: 'Acme Co'
 native:
   modat: 'same_service(protocol="http" transport="tcp" tls.subject.common_name~"Cairn auto-generated TLS certificate")'
+  # urlscan.io has no field for the subject; the certificate is self-signed, so
+  # the issuer carries the same name.
+  urlscan: 'page.tlsIssuer:"Cairn auto-generated TLS certificate"'

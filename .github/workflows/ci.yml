@@ -18,7 +18,18 @@ jobs:
           go-version-file: go.mod
       - name: gofmt
         run: test -z "$(gofmt -l .)"
+      - name: Install Nmap and Nuclei
+        # The converter tests run the generated script and templates with the
+        # real scanners; without them those tests would be skipped.
+        env:
+          GOTOOLCHAIN: auto
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q nmap
+          go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.11.1
       - run: go vet ./...
       - run: go test ./...
+        env:
+          ATHAR_REQUIRE_SCANNERS: "1"
       - name: Verify rules
         run: go run ./cli/cmd/athar verify -strict rules

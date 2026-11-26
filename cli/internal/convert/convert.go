@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/Athar-HQ/Athar/cli/internal/condition"
 	"github.com/Athar-HQ/Athar/cli/internal/rule"
@@ -374,7 +375,12 @@ func (c *converter) lower(e expr) expr {
 			f       Fidelity
 			ok      bool
 		)
-		if pt, can := c.b.(probeTermer); x.probe == "default" {
+		_, query := backends[c.engine]
+		if pt, can := c.b.(probeTermer); query && strings.ContainsFunc(x.raw, unicode.IsControl) {
+			// A search-engine query is one line, and only Censys documents
+			// escapes for line breaks and tabs.
+			note = fmt.Sprintf("%s: control characters such as line breaks are not written into %s queries", describe(x), c.engine)
+		} else if x.probe == "default" {
 			s, f, note, ok = c.b.term(x)
 		} else if can {
 			s, f, note, ok = pt.probeTerm(x)
@@ -384,8 +390,21 @@ func (c *converter) lower(e expr) expr {
 		if !ok {
 			return c.drop(note)
 		}
+		if how := caseLost(c.engine, x); how != "" {
+			// A search that ignores case finds more than the term, so its
+			// negation finds less.
+			if x.negated {
+				return c.drop(widenedNote(x, how))
+			}
+			f, note = max(f, Approximate), joinNote(note, how)
+		}
 		if note != "" {
 			c.notes = append(c.notes, note)
+		}
+		if fieldTables[c.engine][x.field].unverified {
+			// Nobody checked that the engine field holds what the rule
+			// field holds, so the query can't be called exact.
+			c.worse(Approximate)
 		}
 		c.worse(f)
 		l := lit{s: s, neg: x.negated, tls: !x.negated && strings.HasPrefix(x.field, "tls.")}
@@ -554,10 +573,25 @@ func quote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
-// quoteRegex wraps a regular expression in double quotes, escaping only the
-// quotes, so regex escapes such as \. stay as they are.
+// quoteRegex wraps a Modat regex or wildcard pattern in double quotes,
+// escaping only the quotes, so escapes such as \. and \* stay as they are.
+// The pattern must not have a backslash in front of a quote or at its end;
+// modatValue, modatRegex and modatLiteral see to that.
 func quoteRegex(re string) string {
 	return `"` + strings.ReplaceAll(re, `"`, `\"`) + `"`
+}
+
+// escapeRunes puts a backslash in front of every character of s that is in
+// special.
+func escapeRunes(s, special string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if strings.ContainsRune(special, r) {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // regexLiteral escapes every ASCII punctuation character, which is valid in

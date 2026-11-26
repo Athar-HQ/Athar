@@ -1,6 +1,9 @@
 package convert
 
 import (
+	"encoding/json"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -215,8 +218,64 @@ condition: sel
 	check(t, r, map[string]want{
 		"fofa":   {`title=="Say \"hi\"" && cert.subject.cn=".example.org"`, Approximate},
 		"modat":  {`http.title="Say \"hi\"" and tls.subject.common_name=~"\.example\.org$"`, Exact},
-		"censys": {`host.services: (endpoints.http.html_title = "Say \"hi\"" and cert.parsed.subject.common_name =~ "\.example\.org$")`, Approximate},
+		"censys": {`host.services: (endpoints.http.html_title = "Say \"hi\"" and cert.parsed.subject.common_name =~ "\\.example\\.org$")`, Approximate},
 	})
+
+	// A quote or a backslash in a value never ends the quoted string.
+	for _, c := range []struct {
+		detection string
+		want      map[string]want
+	}{
+		// Modat: a quote in a regex is the class ["], written [\"].
+		{`http.headers.www-authenticate|startswith: 'Basic realm="ARTEX"'`, map[string]want{
+			"modat": {`http.headers: (key = "Www-Authenticate" and value =~ "^Basic realm=[\"]ARTEX[\"]")`, Exact},
+		}},
+		{`http.headers.www-authenticate|re: '^Basic realm="[^"]+", a\"b$'`, map[string]want{
+			"modat": {`http.headers: (key = "Www-Authenticate" and value =~ "^Basic realm=[\"][^\"]+[\"], a[\"]b$")`, Approximate},
+		}},
+		// Censys: the regex escapes the quote, the string doubles the backslash.
+		{`http.title|re: 'foo\"bar'`, map[string]want{
+			"censys": {`host.services: (endpoints.http.html_title =~ "foo\\\"bar")`, Approximate},
+			"modat":  {`http.title=~"foo[\"]bar"`, Approximate},
+		}},
+		{`http.title|re: '^\d+ "x"$'`, map[string]want{
+			"censys": {`host.services: (endpoints.http.html_title =~ "^\\d+ \\\"x\\\"$")`, Approximate},
+			"modat":  {`http.title=~"^\d+ [\"]x[\"]$"`, Approximate},
+		}},
+		// Only regex operators are escaped: no \= or \-.
+		{`tls.cert.subject.cn|startswith: 'a=b-c,d.e@f'`, map[string]want{
+			"censys": {`host.services: (cert.parsed.subject.common_name =~ "^a=b-c,d\\.e@f")`, Approximate},
+			"modat":  {`tls.subject.common_name=~"^a=b-c,d\.e[@]f"`, Exact},
+		}},
+		// Modat has no documented way to write a backslash, so the value is
+		// dropped; a literal * or ? keeps its backslash.
+		{`http.title|endswith: 'abc*\'`, map[string]want{
+			"modat":   {"", Unsupported},
+			"urlscan": {`page.title.keyword:/.*abc.*[\\]/`, Exact},
+		}},
+		{`http.title|contains: 'C:\\Users'`, map[string]want{
+			"modat":   {"", Unsupported},
+			"fofa":    {`title="C:\\Users"`, Exact},
+			"censys":  {`host.services: (endpoints.http.html_title: "C:\\Users")`, Approximate},
+			"urlscan": {`page.title.keyword:/.*c\:[\\]users.*/`, Exact},
+		}},
+		{`http.title|contains: 'a\*b "c" \?'`, map[string]want{
+			"modat": {`http.title~"a\*b \"c\" \?"`, Exact},
+		}},
+		{`http.title: 'a\*b "c" d*'`, map[string]want{
+			"modat": {`http.title="a\*b \"c\" d*"`, Exact},
+		}},
+		// A line break can't be written in a one-line query.
+		{`http.headers_raw|contains: "Server: x\r\nX-Y: z"`, map[string]want{
+			"fofa": {"", Unsupported}, "zoomeye": {"", Unsupported}, "shodan": {"", Unsupported}, "modat": {"", Unsupported},
+		}},
+	} {
+		check(t, ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n"), c.want)
+	}
+	res, _ := Convert(ruleFrom(t, "sel:\n  http.title|endswith: 'abc*\\'\ncondition: sel\n"), "modat")
+	if !strings.Contains(strings.Join(res.Notes, " "), "backslash") {
+		t.Errorf("modat: notes don't explain the dropped backslash: %v", res.Notes)
+	}
 
 	// Values lists: OR by default, AND with |all.
 	r = ruleFrom(t, "sel:\n  http.title|contains|all: [a, b]\nalt:\n  http.title|contains: [c, d]\ncondition: sel or alt\n")
@@ -237,6 +296,22 @@ condition: sel
 		"fofa":    {`app=="ARTEX" && port="8443"`, Exact},
 		"zoomeye": {`port="8443"`, Superset},
 	})
+}
+
+// A value YAML reads as a number reaches the engines as the author wrote it.
+func TestValuesAsWritten(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title: 0100\n  http.body|contains: 2.0\n  tls.cert.subject.cn|contains: 1_000\nicon:\n  http.favicon.mmh3: -576220750\ncondition: sel and icon\n")
+	check(t, r, map[string]want{
+		"fofa":  {`body="2.0" && title=="0100" && cert.subject.cn="1_000" && icon_hash="-576220750"`, Exact},
+		"modat": {`http.body~"2.0" and http.title="0100" and tls.subject.common_name~"1_000" and http.files.mmh3=-576220750`, Approximate},
+	})
+	// Only the values matter here, not the form of the matcher around them.
+	tmpl := nucleiFor(t, "sel:\n  http.title: 0100\n  http.body|contains: 2.0\ncondition: sel\n")
+	wantIn(t, tmpl, `"2.0")`)
+	wantIn(t, tmpl, `== "0100"`)
+	wantData(t, nseFor(t, "sel:\n  http.title: 0100\n  service.banner|hex|startswith: 0016\ncondition: sel\n"),
+		`{f = "http.title", m = "eq", v = "0100"}`,
+		`{f = "service.banner", m = "startswith", v = "\x00\x16", c = true}`)
 }
 
 func TestUnknownEngine(t *testing.T) {
@@ -460,4 +535,506 @@ func TestTargetTLS(t *testing.T) {
 	if res, _ := Convert(r, "shodan"); res.Fidelity != Unsupported || strings.Contains(strings.Join(res.Notes, " "), "target.tls") {
 		t.Errorf("unsupported: [%s] %v", res.Fidelity, res.Notes)
 	}
+}
+
+// Values with quotes, backslashes and line breaks must stay inside their
+// quotes on every engine, and what the engine reads back must be the value.
+func TestHostileValuesStayQuoted(t *testing.T) {
+	// Values as written in a rule: \\ is one backslash, and so is a single \.
+	raws := []string{
+		`"`, `a"b`, `Basic realm="ARTEX"`, `a'b`, "a`b",
+		`\\`, `a\\`, `a\`, `a\b`, `\"`, `a\"b`, `a\\"b`, `a\\\"b`, `"\\`,
+		`a/b`, `a\/b`, `a\\/`, "a\nb", "a\r\nb\\",
+	}
+	fields := []string{
+		"", "http.title", "http.body", "http.headers_raw", "http.headers.x-test", "http.headers.server",
+		"tls.cert.subject.cn", "tls.cert.issuer.cn", "service.banner",
+	}
+	mods := []string{"", "|contains", "|startswith", "|endswith", "|cased", "|contains|cased", "|startswith|cased", "|endswith|cased"}
+	converted := map[string]int{}
+	for _, raw := range raws {
+		value, _ := unwildcard(raw)
+		y, _ := json.Marshal(raw)
+		for _, field := range fields {
+			for _, mod := range mods {
+				detection := "sel:\n  " + field + mod + ": " + string(y) + "\ncondition: sel\n"
+				if field == "" {
+					if mod != "" {
+						continue
+					}
+					detection = "sel:\n  - " + string(y) + "\ncondition: sel\n"
+				}
+				op := strings.TrimSuffix(strings.TrimPrefix(mod, "|"), "|cased")
+				r := ruleFrom(t, detection)
+				for _, engine := range Engines {
+					res, err := Convert(r, engine)
+					if err != nil {
+						t.Fatalf("%s: %v", engine, err)
+					}
+					if res.Query == "" {
+						continue
+					}
+					converted[engine]++
+					if msg := checkLiteral(engine, res.Query, op, value, value); msg != "" {
+						t.Errorf("%s %s%s %q:\n  %s\n  %s", engine, field, mod, raw, res.Query, msg)
+					}
+				}
+			}
+		}
+	}
+	for _, engine := range Engines {
+		if converted[engine] == 0 {
+			t.Errorf("%s: no value converted", engine)
+		}
+	}
+
+	// Regular expressions, with a text each one matches.
+	regexes := [][2]string{
+		{`foo\"bar`, `foo"bar`},
+		{`a"b`, `a"b`},
+		{`^x[^"]+"$`, `xy"`},
+		{`^x[[:alpha:]"]+$`, `xy"`},
+		{`[]"]"`, `""`},
+		{`a\\b`, `a\b`},
+		{`a\\"b`, `a\"b`},
+		{`a\\`, `a\`},
+		{`a/b\.c`, `a/b.c`},
+		{`\d+\.\d"`, `1.2"`},
+	}
+	for _, re := range regexes {
+		y, _ := json.Marshal(re[0])
+		for _, field := range []string{"http.title", "http.headers.x-test", "tls.cert.subject.cn", "service.banner"} {
+			for _, mod := range []string{"|re", "|re|cased"} {
+				r := ruleFrom(t, "sel:\n  "+field+mod+": "+string(y)+"\ncondition: sel\n")
+				for _, engine := range Engines {
+					res, _ := Convert(r, engine)
+					if res.Query == "" {
+						continue
+					}
+					if msg := checkLiteral(engine, res.Query, "re", re[0], re[1]); msg != "" {
+						t.Errorf("%s %s%s %q:\n  %s\n  %s", engine, field, mod, re[0], res.Query, msg)
+					}
+				}
+			}
+		}
+	}
+}
+
+var literalHead = regexp.MustCompile(`^(value |[A-Za-z_.]+)? ?(=~|==~|==|=|~~|~|:)? ?$`)
+
+// checkLiteral reads a one-term query as the engine does: first the quoting
+// of the value, then, for a regex, the regex itself. It returns what is wrong
+// with the query, or "". op is the rule's operator, value the rule's value
+// and sample a text the value matches.
+func checkLiteral(engine, q, op, value, sample string) string {
+	if strings.ContainsFunc(q, func(r rune) bool { return r < ' ' || r == 0x7f }) {
+		return "control character in the query"
+	}
+	switch engine {
+	case "censys":
+		inner, ok := strings.CutPrefix(q, "host.services: (")
+		if !ok || !strings.HasSuffix(inner, ")") {
+			return "not wrapped in host.services: ( )"
+		}
+		q = strings.TrimSuffix(inner, ")")
+	case "modat":
+		if inner, ok := strings.CutPrefix(strings.Replace(q, `"Server"`, `"X-Test"`, 1), `http.headers: (key = "X-Test" and value `); ok {
+			if !strings.HasSuffix(inner, ")") {
+				return "the header group is not closed"
+			}
+			q = "value " + strings.TrimSuffix(inner, ")")
+		}
+	}
+	var (
+		i       = strings.Index(q, `"`)
+		unquote = unquotePairs
+		isRegex bool
+	)
+	switch engine {
+	case "modat":
+		unquote = unquoteModat
+	case "urlscan":
+		i = strings.Index(q, ":") + 1
+		switch {
+		case strings.HasPrefix(q[i:], "/"):
+			unquote, isRegex = unquoteSlashes, true
+		case !strings.HasPrefix(q[i:], `"`):
+			unquote = unquoteBare
+		}
+		value, sample = strings.ToLower(value), strings.ToLower(sample)
+	}
+	if i < 0 {
+		return "no quoted value"
+	}
+	head := strings.TrimSpace(q[:i])
+	if !literalHead.MatchString(head) {
+		return "unexpected text in front of the value: " + head
+	}
+	got, rest, ok := unquote(q[i:])
+	if !ok {
+		return "the value's quotes are not closed, or it has an escape the engine does not document"
+	}
+	if rest != "" {
+		return "text after the value: " + rest
+	}
+	if !isRegex && !strings.HasSuffix(head, "=~") {
+		if engine == "urlscan" {
+			got = strings.ToLower(got) // page.server is a text field
+		}
+		if got != value && got != "X-Test: "+value && got != "Server: "+value {
+			return "the engine reads the value " + got
+		}
+		return ""
+	}
+	flags := "(?s)"
+	if engine == "modat" && !strings.HasSuffix(head, "==~") {
+		flags = "(?is)" // =~ ignores case
+	}
+	if engine == "urlscan" {
+		got = "^(?:" + got + ")$" // Lucene anchors a regex at both ends
+	}
+	re, err := regexp.Compile(flags + got)
+	if err != nil {
+		return "the engine reads the regex " + got + ": " + err.Error()
+	}
+	texts := map[string][2][]string{ // operator: texts that match, texts that don't
+		"":           {{sample}, {"zz" + sample, sample + "zz"}},
+		"cased":      {{sample}, {"zz" + sample, sample + "zz"}},
+		"contains":   {{"zz" + sample + "zz"}, nil},
+		"startswith": {{sample + "zz"}, {"zz" + sample}},
+		"endswith":   {{"zz" + sample}, {sample + "zz"}},
+		"re":         {{sample}, nil},
+	}[op]
+	for _, s := range texts[0] {
+		if !re.MatchString(s) {
+			return "the engine reads the regex " + got + ", which does not match " + s
+		}
+	}
+	for _, s := range texts[1] {
+		if re.MatchString(s) {
+			return "the engine reads the regex " + got + ", which matches " + s
+		}
+	}
+	return ""
+}
+
+// unquotePairs reads a double-quoted value in which \\ is a backslash and \"
+// a quote, as on FOFA, ZoomEye, Shodan, Censys and in an Elasticsearch
+// query string. Any other backslash is an error.
+func unquotePairs(s string) (val, rest string, ok bool) {
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			return b.String(), s[i+1:], true
+		case '\\':
+			if i++; i == len(s) || (s[i] != '\\' && s[i] != '"') {
+				return "", "", false
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return "", "", false
+}
+
+// unquoteModat reads a double-quoted Modat value. Modat documents \" for a
+// quote and hands \. and \* on to the regex or wildcard search; it does not
+// say what \\ is. So \\ is an error, and so is a backslash in front of the
+// closing quote, which is read as \".
+func unquoteModat(s string) (val, rest string, ok bool) {
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		switch {
+		case s[i] == '"':
+			return b.String(), s[i+1:], true
+		case s[i] == '\\' && i+1 < len(s) && s[i+1] == '\\':
+			return "", "", false
+		case s[i] == '\\' && i+1 < len(s) && s[i+1] == '"':
+			i++
+		}
+		b.WriteByte(s[i])
+	}
+	return "", "", false
+}
+
+// unquoteSlashes reads a /regex/ of the Elasticsearch query string. Its lexer
+// takes \/ for a slash inside the regex and the longest text that ends in a
+// slash, so the regex must end at the first slash that has no backslash in
+// front: /a\\/ OR b:/c/ would be read as one regex.
+func unquoteSlashes(s string) (val, rest string, ok bool) {
+	for i := 1; i < len(s); i++ {
+		if s[i] == '/' && s[i-1] != '\\' {
+			return s[1:i], s[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+// unquoteBare reads an unquoted prefix term of the Elasticsearch query
+// string, such as gts\ ca*: reserved characters and spaces need a backslash.
+func unquoteBare(s string) (val, rest string, ok bool) {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '*':
+			return b.String(), s[i+1:], true
+		case s[i] == '\\' && i+1 < len(s):
+			i++
+		case strings.ContainsRune("+-=&|><!(){}[]^\"~?:/ ", rune(s[i])):
+			return "", "", false
+		}
+		b.WriteByte(s[i])
+	}
+	return "", "", false
+}
+
+const unverifiedNote = "is not verified against the"
+
+// Fields marked † in spec Appendix A are not checked against the engine's
+// documentation. A query that uses one is approximate at best and says so.
+func TestUnverifiedFields(t *testing.T) {
+	cases := []struct {
+		engine, detection, query string
+	}{
+		{"fofa", `http.headers.server|contains: nginx`, `server="nginx"`},
+		{"fofa", `http.status_code: 200`, `status_code="200"`},
+		{"fofa", `tls.cert.issuer.cn|contains: 'PentAGI CA'`, `cert.issuer.cn="PentAGI CA"`},
+		{"shodan", `http.body.mmh3: 123`, `http.html_hash:123`},
+		{"censys", `http.status_code: 200`, `host.services: (endpoints.http.status_code = "200")`},
+		{"censys", `tls.cert.subject.cn|cased: Cairn`, `host.services: (cert.parsed.subject.common_name = "Cairn")`},
+		{"censys", `tls.cert.issuer.cn|cased: 'PentAGI CA'`, `host.services: (cert.parsed.issuer.common_name = "PentAGI CA")`},
+		{"modat", `http.body.mmh3: 123`, `http.body_mmh3=123`},
+	}
+	for _, c := range cases {
+		r := ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n")
+		check(t, r, map[string]want{c.engine: {c.query, Approximate}})
+		res, _ := Convert(r, c.engine)
+		if !strings.Contains(strings.Join(res.Notes, " "), unverifiedNote+" "+c.engine+" docs") {
+			t.Errorf("%s %s: no note that the field is unverified: %v", c.engine, c.detection, res.Notes)
+		}
+	}
+
+	// Fields whose meaning on the engine is not recorded are not converted:
+	// FOFA's body_hash (algorithm undocumented, docs/decisions.md), Shodan's
+	// ssl.cert.fingerprint (hash not recorded), Censys headers and keywords.
+	dropped := []struct{ engine, detection string }{
+		{"fofa", "http.body.mmh3: 123"},
+		{"shodan", "tls.cert.sha256: " + strings.Repeat("ab", 32)},
+		{"censys", "http.headers.server|contains: nginx"},
+		{"censys", "- ARTEX"},
+	}
+	for _, c := range dropped {
+		r := ruleFrom(t, "sel:\n  "+c.detection+"\ncondition: sel\n")
+		check(t, r, map[string]want{c.engine: {"", Unsupported}})
+	}
+}
+
+// appendixRows gives a condition for every row of spec Appendix A.
+var appendixRows = map[string]string{
+	"`http.title`":          "http.title: x",
+	"`http.body`":           "http.body: x",
+	"`http.headers.server`": "http.headers.server: x",
+	"other headers":         "http.headers.x-athar: x",
+	"`http.status_code`":    "http.status_code: 200",
+	"`http.favicon.mmh3`":   "http.favicon.mmh3: 123",
+	"`http.favicon.md5`":    "http.favicon.md5: " + strings.Repeat("ab", 16),
+	"`http.favicon.sha256`": "http.favicon.sha256: " + strings.Repeat("ab", 32),
+	"`http.body.mmh3`":      "http.body.mmh3: 123",
+	"`http.body.sha256`":    "http.body.sha256: " + strings.Repeat("ab", 32),
+	"`tls.cert.subject.cn`": "tls.cert.subject.cn: x",
+	"`tls.cert.issuer.cn`":  "tls.cert.issuer.cn: x",
+	"`tls.cert.sha256`":     "tls.cert.sha256: " + strings.Repeat("ab", 32),
+	"`tls.jarm`":            "tls.jarm: " + strings.Repeat("ab", 31),
+	"`tls.ja3s`":            "tls.ja3s: " + strings.Repeat("ab", 16),
+	"`service.banner`":      "service.banner: x",
+	"`service.port`":        "service.port: 443",
+	"`keywords`":            "- x",
+}
+
+// Spec Appendix A and the backends agree. A cell that starts with a dash or
+// says "not converted" is a field no query uses; a cell marked † is a field
+// the query uses with the unverified note and never as exact; every other
+// cell is a field the query uses without that note.
+func TestAppendixAMatchesBackends(t *testing.T) {
+	spec, err := os.ReadFile("../../../spec/athar-spec.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, table, ok := strings.Cut(string(spec), "## Appendix A: Engine field mapping")
+	if !ok {
+		t.Fatal("spec has no Appendix A")
+	}
+	seen := map[string]bool{}   // rows found in the table
+	marked := map[string]bool{} // engine and field of the † cells
+	for _, line := range strings.Split(table, "\n") {
+		cells := strings.Split(strings.Trim(line, "| "), " | ")
+		detection, ok := appendixRows[cells[0]]
+		if !ok {
+			continue
+		}
+		if len(cells) != len(Engines)+1 {
+			t.Fatalf("row %s has %d engine cells, want %d", cells[0], len(cells)-1, len(Engines))
+		}
+		seen[cells[0]] = true
+		r := ruleFrom(t, "sel:\n  "+detection+"\ncondition: sel\n")
+		for i, engine := range Engines {
+			cell := cells[i+1]
+			res, err := Convert(r, engine)
+			if err != nil {
+				t.Fatal(err)
+			}
+			noted := strings.Contains(strings.Join(res.Notes, " "), unverifiedNote)
+			unverified := strings.Contains(cell, "†")
+			switch {
+			case strings.HasPrefix(cell, "—") || strings.Contains(cell, "not converted"):
+				if res.Query != "" {
+					t.Errorf("%s on %s: Appendix A says %q, but convert writes %s", cells[0], engine, cell, res.Query)
+				}
+				continue
+			case res.Query == "":
+				t.Errorf("%s on %s: Appendix A says %q, but convert writes no query: %v", cells[0], engine, cell, res.Notes)
+			case unverified && (!noted || res.Fidelity == Exact):
+				t.Errorf("%s on %s: Appendix A marks %q with †, but convert gives [%s] %s, notes %v", cells[0], engine, cell, res.Fidelity, res.Query, res.Notes)
+			case !unverified && noted:
+				t.Errorf("%s on %s: convert calls the field unverified, but Appendix A has no † on %q", cells[0], engine, cell)
+			}
+			if unverified {
+				marked[engine+" "+strings.Trim(cells[0], "`")] = true
+			}
+		}
+	}
+	for row := range appendixRows {
+		if !seen[row] {
+			t.Errorf("Appendix A has no row %s", row)
+		}
+	}
+	// Every field a backend marks as unverified has a † cell.
+	for engine, fields := range fieldTables {
+		for field, spec := range fields {
+			if spec.unverified && !marked[engine+" "+field] {
+				t.Errorf("%s: %s is unverified in backends.go but has no † cell in Appendix A", engine, field)
+			}
+		}
+	}
+}
+
+// An engine search that ignores case finds more than a |cased term. Under
+// not it would exclude services the rule matches, so the term is dropped;
+// case-sensitive operators (Modat's ~~ and ==, Censys =) stay.
+func TestNegatedCasedTerms(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|contains|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+		"shodan":  {`http.title:"Console"`, Superset},
+		"censys":  {`host.services: (endpoints.http.html_title: "Console")`, Superset},
+		"urlscan": {`page.title.keyword:/.*console.*/`, Superset},
+		"modat":   {`http.title~"Console" and not http.title~~"ARTEX"`, Exact},
+	})
+	for _, engine := range []string{"fofa", "zoomeye", "shodan", "censys", "urlscan"} {
+		res, _ := Convert(r, engine)
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, `not http.title|contains "ARTEX"`) || !strings.Contains(notes, "case") || !strings.Contains(notes, "would also exclude services the rule matches") {
+			t.Errorf("%s: notes don't explain the dropped filter: %v", engine, res.Notes)
+		}
+	}
+
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.headers_raw|contains|cased: Nginx\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+	})
+
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console" and not endpoints.http.html_title = "ARTEX")`, Approximate},
+		"modat":  {`http.title~"Console" and not http.title=="ARTEX"`, Exact},
+	})
+
+	// Censys does not document whether its regex ignores case.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|startswith|cased: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console")`, Superset},
+		"modat":  {`http.title~"Console" and not http.title==~"^ARTEX"`, Exact},
+	})
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.title|startswith: ARTEX\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"censys": {`host.services: (endpoints.http.html_title: "Console" and not endpoints.http.html_title =~ "^ARTEX")`, Approximate},
+	})
+}
+
+// A positive |cased term on an operator that ignores case over-matches, so
+// it is approximate, with a note.
+func TestCasedTerms(t *testing.T) {
+	r := ruleFrom(t, "sel:\n  http.title|contains|cased: ARTEX\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="ARTEX"`, Approximate},
+		"zoomeye": {`title="ARTEX"`, Approximate},
+		"shodan":  {`http.title:"ARTEX"`, Approximate},
+		"censys":  {`host.services: (endpoints.http.html_title: "ARTEX")`, Approximate},
+		"urlscan": {`page.title.keyword:/.*artex.*/`, Approximate},
+		"modat":   {`http.title~~"ARTEX"`, Exact},
+	})
+	for _, engine := range []string{"fofa", "zoomeye", "shodan", "censys", "urlscan"} {
+		res, _ := Convert(r, engine)
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "case") {
+			t.Errorf("%s: no note on the lost |cased: %v", engine, res.Notes)
+		}
+	}
+
+	// ZoomEye's == and Censys's = are case-sensitive.
+	r = ruleFrom(t, "sel:\n  http.title|cased: ARTEX\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title=="ARTEX"`, Approximate},
+		"zoomeye": {`title=="ARTEX"`, Exact},
+		"censys":  {`host.services: (endpoints.http.html_title = "ARTEX")`, Exact},
+		"modat":   {`http.title=="ARTEX"`, Exact},
+	})
+
+	// Hashes are searched with =, which only Censys matches by case.
+	r = ruleFrom(t, "sel:\n  tls.jarm|cased: ab12\ncondition: sel\n")
+	check(t, r, map[string]want{
+		"zoomeye": {`ssl.jarm="ab12"`, Approximate},
+		"modat":   {`tls.jarm="ab12"`, Approximate},
+		"censys":  {`host.services: (jarm.fingerprint = "ab12")`, Exact},
+	})
+}
+
+// A field the engine maps loosely matches more than the taxonomy field, so
+// its negation would exclude services the rule matches and is dropped.
+func TestNegatedLooseFields(t *testing.T) {
+	for _, field := range []string{"http.body.sha256", "http.favicon.sha256"} {
+		r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  "+field+": ABCDEF01\ncondition: sel and not filter\n")
+		check(t, r, map[string]want{"urlscan": {`page.title.keyword:/.*console.*/`, Superset}})
+		res, _ := Convert(r, "urlscan")
+		if notes := strings.Join(res.Notes, " "); !strings.Contains(notes, "not "+field) || !strings.Contains(notes, "would also exclude services the rule matches") {
+			t.Errorf("urlscan: notes don't explain the dropped filter: %v", res.Notes)
+		}
+	}
+
+	// Modat has a field for the body hash alone, so the filter stays.
+	r := ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.body.sha256: abcdef01\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{"modat": {`http.title~"Console" and not http.body_sha256="abcdef01"`, Exact}})
+
+	// No backend negates a loose field.
+	for engine, fields := range map[string]map[string]fieldSpec{
+		"fofa": fofaFields, "shodan": shodanFields, "censys": censysFields,
+		"zoomeye": zoomeyeFields, "modat": modatFields, "urlscan": urlscanFields,
+	} {
+		for field, spec := range fields {
+			if !spec.loose {
+				continue
+			}
+			if s, _, _, ok := backends[engine].term(term{field: field, op: "eq", value: "ab12", raw: "ab12", probe: "default", negated: true}); ok {
+				t.Errorf("%s: negated %s converts to %s", engine, field, s)
+			}
+		}
+	}
+
+	// One header searched in the whole header block, or as full text.
+	r = ruleFrom(t, "sel:\n  http.title|contains: Console\nfilter:\n  http.headers.x-powered-by|contains: Express\ncondition: sel and not filter\n")
+	check(t, r, map[string]want{
+		"fofa":    {`title="Console"`, Superset},
+		"zoomeye": {`title="Console"`, Superset},
+		"shodan":  {`http.title:"Console"`, Superset},
+	})
 }
