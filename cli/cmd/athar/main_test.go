@@ -122,6 +122,7 @@ func TestVerifySingleVariant(t *testing.T) {
 title: Fam family
 id: 11111111-1111-4111-8111-111111111111
 status: experimental
+tags: [category.c2]
 target: { protocol: http }
 detection:
   selection_title:
@@ -137,6 +138,7 @@ related:
   - id: 11111111-1111-4111-8111-111111111111
     type: variant-of
 status: experimental
+tags: [category.c2]
 target: { protocol: http }
 detection:
   selection_title:
