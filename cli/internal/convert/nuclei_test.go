@@ -169,3 +169,26 @@ condition: selection
 		t.Errorf("banner only: fidelity %s, template %q", res.Fidelity, res.Template)
 	}
 }
+
+// The scanner matches headers as received. Nuclei's variables come from Go's
+// net/http, which removes Transfer-Encoding and rewrites a few others.
+func TestNucleiHeadersNetHTTPRewrites(t *testing.T) {
+	res := nucleiFor(t, `
+selection:
+  http.title|contains: 'Console'
+  http.headers.transfer-encoding: 'chunked'
+condition: selection
+`)
+	if res.Fidelity != Superset || len(res.Notes) == 0 || !strings.Contains(res.Notes[0], "transfer-encoding") {
+		t.Errorf("transfer-encoding: fidelity %s, notes %q", res.Fidelity, res.Notes)
+	}
+	for _, name := range []string{"connection", "trailer", "content-length", "cache-control"} {
+		res = nucleiFor(t, "selection:\n  http.headers."+name+"|contains: 'x'\ncondition: selection\n")
+		if res.Fidelity != Approximate || len(res.Notes) == 0 {
+			t.Errorf("%s: fidelity %s, notes %q", name, res.Fidelity, res.Notes)
+		}
+	}
+	if res = nucleiFor(t, "selection:\n  http.headers.server|contains: 'x'\ncondition: selection\n"); res.Fidelity != Exact {
+		t.Errorf("server: fidelity %s, notes %q", res.Fidelity, res.Notes)
+	}
+}

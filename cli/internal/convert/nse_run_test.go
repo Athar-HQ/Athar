@@ -91,8 +91,10 @@ func TestNSEMatchesScan(t *testing.T) {
 	}
 	// Where athar scan matches, so that agreement is not just both missing.
 	plain := []string{"entities and headers", "chunked gzip", "HTTP/1.0 until close", "bare LF", "no body", "escaped favicon path", "custom probe",
-		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC"}
+		"gzip corrupt", "gzip truncated", "gzip header fields", "gzip header CRC",
+		"favicon link without a path", "favicon link without a hierarchy", "headers as received"}
 	expect := map[string][]string{
+		"diff headers as received": {"headers as received"},
 		"diff lists":               {"entities and headers", "TLS"},
 		"diff fold":                {"chunked gzip"},
 		"diff wildcard and regex":  {"entities and headers"},
@@ -606,6 +608,20 @@ func diffServers(t *testing.T) map[string]int {
 			"/":              httpResponse("HTTP/1.1 200 OK\r\n", `<title>esc</title><link href="img/a b.png" rel="ICON">`),
 			"/img/a%20b.png": httpResponse("HTTP/1.1 200 OK\r\n", "SPACE"),
 		}, nil, ""),
+		"favicon link without a path": rawServer(t, map[string]string{
+			"/":            httpResponse("HTTP/1.1 200 OK\r\n", `<title>self</title><link rel=icon href="?v=2#x">`),
+			"/?v=2":        httpResponse("HTTP/1.1 200 OK\r\n", `<title>self</title><link rel=icon href="?v=2#x">`),
+			"/favicon.ico": httpResponse("HTTP/1.1 200 OK\r\n", "ICO3"),
+		}, nil, ""),
+		"favicon link without a hierarchy": rawServer(t, map[string]string{
+			"/":            httpResponse("HTTP/1.1 200 OK\r\n", `<title>void</title><link rel=icon href="javascript:void(0)?v=3">`),
+			"/?v=3":        httpResponse("HTTP/1.1 200 OK\r\n", `<title>void</title>`),
+			"/favicon.ico": httpResponse("HTTP/1.1 200 OK\r\n", "ICO4"),
+		}, nil, ""),
+		"headers as received": rawServer(t, map[string]string{
+			"/": "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: Keep-Alive, close\r\nContent-Length: 7\r\ncontent-length: 7\r\n" +
+				"Trailer: X-Sum\r\nPragma: no-cache\r\n\r\n12\r\n<title>hdr</title>\r\n0\r\nX-Sum: 1\r\n\r\n",
+		}, nil, ""),
 		"custom probe": rawServer(t, map[string]string{
 			"/":           httpResponse("HTTP/1.1 200 OK\r\n", "<title>api</title>"),
 			"/api/health": "HTTP/1.1 204 No Content\r\nX-Health: ok\r\n\r\n",
@@ -654,6 +670,8 @@ extract:
   trailer: {field: http.headers.trailer, regex: '^(.*)$'}
   powered: {field: http.headers.x-powered-by, regex: '^(.*)$'}
   health: {field: http.headers.x-health, regex: '^(.*)$'}
+  pragma: {field: http.headers.pragma, regex: '^(.*)$'}
+  cache: {field: http.headers.cache-control, regex: '^(.*)$'}
   cn: {field: tls.cert.subject.cn, regex: '^(.*)$'}
   org: {field: tls.cert.subject.o, regex: '^(.*)$'}
   issuer_cn: {field: tls.cert.issuer.cn, regex: '^(.*)$'}
@@ -751,6 +769,20 @@ detection:
   selection:
     http.status_code|exists: true
   condition: selection
+`, `
+title: diff headers as received
+id: 10000000-0000-4000-8000-00000000000c
+target: {protocol: http}
+detection:
+  selection:
+    http.headers.transfer-encoding: 'chunked'
+    http.headers.connection: 'keep-alive, close'
+    http.headers.content-length|all: ['7']
+    http.headers.trailer: 'x-sum'
+    http.headers.pragma: 'no-cache'
+  filter:
+    http.headers.cache-control|exists: true
+  condition: selection and not filter
 `}
 	if banner {
 		src = append(src, `

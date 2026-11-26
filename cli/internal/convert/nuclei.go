@@ -58,6 +58,16 @@ func (n *nuclei) wrap(q string) string { return q }
 
 var nucleiHeaderRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
+// nucleiRewrittenHeaders are headers whose Nuclei variable can differ from
+// the header as received, which is what the scanner matches: Nuclei reads
+// responses with Go's net/http, which removes or rewrites them.
+var nucleiRewrittenHeaders = map[string]string{
+	"connection":     "nuclei's connection variable is empty when the header lists close",
+	"trailer":        "nuclei's trailer variable is empty when the body is chunked",
+	"content-length": "nuclei's content_length is the length of the body, also when the header is missing",
+	"cache-control":  "nuclei's cache_control is no-cache when the response only has Pragma: no-cache",
+}
+
 // faviconReq names the favicon request; # can't start a probe id.
 const faviconReq = "#favicon"
 
@@ -120,7 +130,14 @@ func (n *nuclei) render(t term, probe string) (string, Fidelity, string, bool) {
 		if !nucleiHeaderRe.MatchString(name) {
 			return no("nuclei has no variable for this header name")
 		}
-		return n.match(t, at("h:"+strings.ReplaceAll(name, "-", "_")), false)
+		if name == "transfer-encoding" {
+			return no("nuclei has no variable for this header: Go's net/http removes it")
+		}
+		s, fid, note, ok := n.match(t, at("h:"+strings.ReplaceAll(name, "-", "_")), false)
+		if why := nucleiRewrittenHeaders[name]; ok && why != "" {
+			fid, note = Approximate, why
+		}
+		return s, fid, note, ok
 	case f == "http.status_code":
 		return n.number(t, at("status_code"))
 	case f == "http.body.mmh3":
