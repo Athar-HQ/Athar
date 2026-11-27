@@ -13,7 +13,7 @@ references:
   - https://x.com/MalGamy12/status/2115089738403037207
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
-modified: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -29,6 +29,8 @@ detection:
       - '自主渗透测试控制台'
       - '자율 침투 테스트 콘솔'
       - 'Autonomous Penetration Testing Console'
+      - 'Console de teste de penetração autônomo'
+      - 'Консоль автономного пентеста'
   selection_brand:
     http.title|startswith: 'ARTEX'
   selection_icon:
@@ -55,6 +57,14 @@ tests:
     expect: match
     response:
       http.title: 'ARTEX: 자율 침투 테스트 콘솔'
+  - name: ARTEX, Russian title
+    expect: match
+    response:
+      http.title: 'ARTEX — Консоль автономного пентеста'
+  - name: ARTEX, Portuguese title
+    expect: match
+    response:
+      http.title: 'ARTEX — Console de teste de penetração autônomo'
   - name: Rebranded title with the ARTEX favicon
     expect: match
     response:
