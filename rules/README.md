@@ -35,17 +35,20 @@ rules/
 │   ├── aof_deepaudit_nov26.yml                     DeepAudit title
 │   ├── aof_deepaudit_favicon_nov26.yml             favicon, MurmurHash3
 │   ├── aof_deepaudit_favicon_sha256_nov26.yml      favicon, SHA-256
+│   ├── aof_luan1aoagent_nov26.yml                  LuaN1aoAgent workbench title
 │   ├── aof_pentagi_cert_nov26.yml                  default certificate, issuer
 │   ├── aof_pentagi_cert_san_nov26.yml              default certificate, DNS name
 │   ├── aof_pentagi_favicon_nov26.yml               favicons, MurmurHash3
 │   ├── aof_pentagi_favicon_sha256_nov26.yml        favicons, SHA-256
+│   ├── aof_pentestcode_nov26.yml                   PentestCode web interface title
 │   ├── aof_redamon_nov26.yml                       RedAmon title
 │   ├── aof_redamon_favicon_nov26.yml               favicons, MurmurHash3
 │   ├── aof_redamon_favicon_sha256_nov26.yml        favicons, SHA-256
 │   ├── aof_strix_nov26.yml                         Strix results viewer title
 │   ├── aof_strix_favicon_nov26.yml                 viewer icon, MurmurHash3
 │   ├── aof_strix_favicon_sha256_nov26.yml          viewer icon, SHA-256
-│   └── aof_strix_server_nov26.yml                  viewer Server header
+│   ├── aof_strix_server_nov26.yml                  viewer Server header
+│   └── aof_xalgorix_nov26.yml                      Xalgorix dashboard title
 ├── phishing-kit/
 └── …
 ```
