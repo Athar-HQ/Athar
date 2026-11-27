@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
@@ -26,12 +27,29 @@ import (
 // repoRules compiles the rules shipped in this repository.
 func repoRules(t *testing.T) []*eval.Compiled {
 	t.Helper()
+	return loadRules(t, func(string) bool { return true })
+}
+
+// aofRules compiles only the agentic offensive framework rules, which are all
+// HTTP rules. Tests that check which probes the scanner sends use them, so
+// rules for other protocols elsewhere in the repository don't change what
+// those tests expect.
+func aofRules(t *testing.T) []*eval.Compiled {
+	t.Helper()
+	return loadRules(t, func(f string) bool { return strings.HasPrefix(filepath.Base(f), "aof_") })
+}
+
+func loadRules(t *testing.T, keep func(string) bool) []*eval.Compiled {
+	t.Helper()
 	files, err := rule.Files([]string{"../../../rules"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out []*eval.Compiled
 	for _, f := range files {
+		if !keep(f) {
+			continue
+		}
 		r, err := rule.Load(f)
 		if err != nil {
 			t.Fatal(err)
@@ -445,7 +463,7 @@ func TestWarnsAboutALPN(t *testing.T) {
 }
 
 func TestNeedsAndWarnings(t *testing.T) {
-	s := New(repoRules(t), opts())
+	s := New(aofRules(t), opts())
 	if n := s.Needs(); !n.HTTP || !n.Favicon || n.Banner {
 		t.Errorf("needs for the ARTEX rules = %+v", n)
 	}
@@ -620,7 +638,7 @@ func TestLogSilentPort(t *testing.T) {
 	var log bytes.Buffer
 	o := opts()
 	o.Log = &log
-	s := New(repoRules(t), o)
+	s := New(aofRules(t), o)
 	for _, target := range []string{silent, web} {
 		tg, err := probe.ParseTarget(target)
 		if err != nil {
