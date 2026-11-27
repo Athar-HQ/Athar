@@ -6,7 +6,7 @@
 
 | Target | Output | Notes |
 | --- | --- | --- |
-| FOFA, Shodan, Censys, ZoomEye, Modat Magnify, urlscan.io, Hunt.io | Search queries | Find candidates in indexed scan data. See [spec section 10](../spec/athar-spec.md#10-conversion). |
+| FOFA, Shodan, Censys, ZoomEye, Modat Magnify, urlscan.io, Hunt.io | Search queries | Find candidates in indexed scan data. A Censys query covers hosts and web properties. See [spec section 10](../spec/athar-spec.md#10-conversion). |
 | [Nuclei](https://github.com/projectdiscovery/nuclei) | One template per rule (`-t nuclei`) | Runs the rule in Nuclei without Athar's scanner. The condition becomes one DSL matcher. Favicon rules are approximate, because the template fetches `/favicon.ico` while the scanner first follows `<link rel="icon">`. Body hash rules are approximate too: Nuclei also hashes a body that was cut short. |
 | [Nmap NSE](https://nmap.org/book/nse.html) | One script, `athar.nse`, plus one data file per rule (`-t nse`) | Runs the rules with `nmap --script`. The script probes and matches as Athar's scanner does, regular expressions included, so every rule in the repository converts exactly; a test compares the two on the same responses. Not converted: TLS version, cipher and ALPN, JARM, JA3S, certificate DN and `self_signed`. |
 
@@ -39,4 +39,5 @@ In the order they should be built.
 | [OpenVAS / Greenbone](https://github.com/greenbone/openvas-scanner) | Every rule would be a NASL script under the GPL, loading one means turning off signature checks, and a real-tool test needs most of the Greenbone stack. |
 | [fingerprintx](https://github.com/praetorian-inc/fingerprintx) / [Nerva](https://github.com/praetorian-inc/nerva) | Fingerprints are Go code; there is no way to load your own. fingerprintx is archived. |
 | [Zeek](https://docs.zeek.org/en/master/frameworks/signatures.html) | Signatures have no TLS conditions, and scripts would be code per rule. Suricata comes first. |
+| [Validin](https://docs.validin.com/docs/validin-query-language) | Its query language only matches whole values and only joins them with AND: no substring, OR or NOT. Favicons are hashed with MD5 only, and body text can't be searched. 8 of 36 rules would convert, most of them approximately. Advanced Search and its API are Enterprise only. |
 | [chainreactors fingers](https://github.com/chainreactors/fingers) (gogo, spray), [Nikto](https://github.com/sullo/nikto) user databases, [hfinger](https://github.com/HackAllSec/hfinger), [Burp BChecks](https://portswigger.net/burp/documentation/scanner/bchecks/bcheck-definition-reference) | Watched, not planned. fingers matches any one pattern, with no AND or NOT. Nikto knows only MD5 favicons and no certificates. hfinger fits Athar closely but has few users. BChecks needs a Burp Pro licence to test. |

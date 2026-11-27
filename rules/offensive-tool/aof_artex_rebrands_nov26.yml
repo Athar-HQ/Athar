@@ -19,6 +19,7 @@ references:
   - https://x.com/MalGamy12/status/2124782039555547288
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -34,6 +35,8 @@ detection:
       - '自主渗透测试控制台'
       - '자율 침투 테스트 콘솔'
       - 'Autonomous Penetration Testing Console'
+      - 'Console de teste de penetração autônomo'
+      - 'Консоль автономного пентеста'
   filter_artex_icon:
     http.favicon.mmh3: -576220750
   filter_artex_brand:
@@ -45,7 +48,7 @@ identifies:
 extract:
   brand:
     field: http.title
-    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console))'
+    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console|Console de teste de penetração autônomo|Консоль автономного пентеста))'
 confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
@@ -85,6 +88,21 @@ tests:
     response:
       http.title: 'NKW — Autonomous Penetration Testing Console'
       http.favicon.mmh3: -576220750
+  - name: Portuguese title, own favicon
+    expect: match
+    extracted: { brand: Pentex }
+    response:
+      http.title: 'Pentex — Console de teste de penetração autônomo'
+      http.favicon.mmh3: 1234567890
+  - name: Russian title, no favicon
+    expect: match
+    extracted: { brand: Pentex }
+    response:
+      http.title: 'Pentex: Консоль автономного пентеста'
+  - name: ARTEX in Russian
+    expect: no_match
+    response:
+      http.title: 'ARTEX — Консоль автономного пентеста'
   - name: Pentest vendor page
     expect: no_match
     response:

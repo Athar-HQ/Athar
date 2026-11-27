@@ -69,7 +69,8 @@ func Convert(r *rule.Rule, engine string) (Result, error) {
 		return Result{}, err
 	}
 	c := &converter{b: b, engine: engine}
-	out := c.lower(nnf(e, false))
+	nf := nnf(e, false)
+	out := c.lower(nf)
 	res := Result{Engine: engine, Fidelity: c.fid, Notes: dedup(c.notes)}
 	switch x := out.(type) {
 	case boolExpr:
@@ -81,7 +82,24 @@ func Convert(r *rule.Rule, engine string) (Result, error) {
 		}
 		return res, nil
 	}
-	res.Query = b.wrap(c.render(out, false))
+	res.Query = c.query(out)
+	if a, ok := b.(alternator); ok {
+		ac := &converter{b: a.alternate(), engine: engine}
+		aout := ac.lower(nf)
+		// A condition on a field the second record type doesn't have can't
+		// hold there. If nothing is left without it, the query asks for the
+		// first record type only.
+		how := ", so they are searched without that condition"
+		if _, none := aout.(boolExpr); none {
+			how = ", so the query leaves them out"
+		} else {
+			res.Query += b.orOp() + ac.query(aout)
+			res.Notes = dedup(append(res.Notes, ac.notes...))
+		}
+		for _, what := range dedup(ac.absent) {
+			res.Notes = append(res.Notes, what+how)
+		}
+	}
 	// target.tls is not part of a query. Leaving it out can only add
 	// results, so an exact query becomes a superset.
 	note := ""
@@ -114,6 +132,22 @@ type probeTermer interface {
 // scanner's in a way that applies to every query.
 type engineNoter interface{ notes() []string }
 
+// alternator is implemented by engines that keep services in a second record
+// type with field names of its own, as Censys does with web properties next
+// to hosts. The rule is converted for that record type as well, and the query
+// asks for either.
+type alternator interface{ alternate() backend }
+
+// absenter is implemented by the backend of such a second record type. absent
+// names what the record type lacks when it has no counterpart of a term's
+// field at all, and returns "" otherwise. Such a term is not dropped: it is
+// false for every record of that type, and true under not.
+type absenter interface{ absent(t term) string }
+
+// oneWrapper is implemented by engines that write a single positive
+// condition without the group wrap puts around a query.
+type oneWrapper interface{ wrapOne(q string) string }
+
 // negGrouper is implemented by engines with Lucene's boolean syntax, where a
 // NOT next to OR excludes from the whole group: a OR NOT b finds a and not b.
 // A negation inside an OR is put in its own group, a OR (NOT b), which keeps
@@ -141,13 +175,14 @@ type term struct {
 	negated bool
 }
 
-// lit is a term an engine could express, already rendered. key and val are
+// lit is a term an engine could express, already rendered. key and vals are
 // set by engines that can OR several values of one field (see keyer); neg
 // is set when the term is negated, tls when it only holds for a service
 // that spoke TLS.
 type lit struct {
-	s, key, val string
-	neg, tls    bool
+	s, key   string
+	vals     []string
+	neg, tls bool
 }
 
 // overTLS reports whether everything a lowered expression matches spoke TLS,
@@ -350,6 +385,7 @@ type converter struct {
 	engine string
 	fid    Fidelity
 	notes  []string
+	absent []string // what the record type has no field for (see absenter)
 }
 
 func (c *converter) worse(f Fidelity) {
@@ -375,6 +411,12 @@ func (c *converter) lower(e expr) expr {
 			f       Fidelity
 			ok      bool
 		)
+		if a, ok := c.b.(absenter); ok {
+			if what := a.absent(x); what != "" {
+				c.absent = append(c.absent, what)
+				return boolExpr(x.negated)
+			}
+		}
 		_, query := backends[c.engine]
 		if pt, can := c.b.(probeTermer); query && strings.ContainsFunc(x.raw, unicode.IsControl) {
 			// A search-engine query is one line, and only Censys documents
@@ -424,7 +466,9 @@ func (c *converter) lower(e expr) expr {
 		c.worse(f)
 		l := lit{s: s, neg: x.negated, tls: !x.negated && strings.HasPrefix(x.field, "tls.")}
 		if k, ok := c.b.(keyer); ok {
-			l.key, l.val = k.key(x)
+			if key, val := k.key(x); key != "" {
+				l.key, l.vals = key, []string{val}
+			}
 		}
 		return l
 	case andExpr:
@@ -480,6 +524,9 @@ func (c *converter) lower(e expr) expr {
 			c.notes = c.notes[:start]
 			return c.drop(fmt.Sprintf("%s can only OR values of one filter, not %s", c.engine, describeExpr(x)))
 		}
+		if out = c.valueLists(out); len(out) == 1 {
+			return out[0]
+		}
 		return out
 	case boolExpr:
 		return x
@@ -503,11 +550,58 @@ func (c *converter) sameField(alts orExpr) (expr, bool) {
 			return nil, false
 		}
 		key = l.key
-		vals = append(vals, l.val)
+		vals = append(vals, l.vals...)
 		tls = tls && l.tls
 	}
 	s := k.list(key, vals)
-	return lit{s: s, key: key, val: strings.Join(vals, ","), tls: tls}, true
+	return lit{s: s, key: key, vals: vals, tls: tls}, true
+}
+
+// valueLists shortens an OR on an engine that has both OR and value lists:
+// the alternatives that are values of one field become one list, in the
+// place of the first of them, and the others stay as they are.
+func (c *converter) valueLists(alts orExpr) orExpr {
+	if _, ok := c.b.(keyer); !ok {
+		return alts
+	}
+	count := map[string]int{}
+	for _, a := range alts {
+		if l, ok := a.(lit); ok && l.key != "" {
+			count[l.key]++
+		}
+	}
+	var out orExpr
+	done := map[string]bool{}
+	for _, a := range alts {
+		l, ok := a.(lit)
+		if !ok || count[l.key] < 2 {
+			out = append(out, a)
+			continue
+		}
+		if done[l.key] {
+			continue
+		}
+		done[l.key] = true
+		var same orExpr
+		for _, b := range alts {
+			if m, ok := b.(lit); ok && m.key == l.key {
+				same = append(same, m)
+			}
+		}
+		merged, _ := c.sameField(same)
+		out = append(out, merged)
+	}
+	return out
+}
+
+// query renders a lowered expression as the engine's query.
+func (c *converter) query(e expr) string {
+	if l, ok := e.(lit); ok && !l.neg {
+		if w, ok := c.b.(oneWrapper); ok {
+			return w.wrapOne(l.s)
+		}
+	}
+	return c.b.wrap(c.render(e, false))
 }
 
 func (c *converter) render(e expr, nested bool) string {
