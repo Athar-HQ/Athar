@@ -1,0 +1,46 @@
+title: C2 - Viper C2 title and landing page
+id: 7056bae7-3f81-44d9-b8e8-a36000bc8bb9
+status: experimental
+description: |
+  Viper, a C2 platform, titles its page "VIPER". The rule requires the
+  SHA-256 of the landing page as in the original query; the title alone is
+  too common. The original query's engine label product="Viper RAT" is
+  dropped. The original queries are kept under native.
+references:
+  - https://github.com/FunnyWolf/Viper
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.title: 'VIPER'
+    http.body.sha256: '771fb5f8203ca3b8c3a184ebc4347d5308fd75ad57895bc8fddebe7f355ef20a'
+  condition: selection_page
+identifies:
+  product: Viper
+  family: viper
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Landing page
+    expect: match
+    response:
+      http.title: 'VIPER'
+      http.body.sha256: '771fb5f8203ca3b8c3a184ebc4347d5308fd75ad57895bc8fddebe7f355ef20a'
+  - name: Same title, other page
+    expect: no_match
+    response:
+      http.title: 'VIPER'
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  modat: 'same_service(web.title="VIPER" web.html.sha256=771fb5f8203ca3b8c3a184ebc4347d5308fd75ad57895bc8fddebe7f355ef20a) OR same_service(service="http" transport="tcp" product="Viper RAT")'

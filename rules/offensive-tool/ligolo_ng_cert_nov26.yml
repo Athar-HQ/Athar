@@ -1,0 +1,46 @@
+title: Offensive Tool - Ligolo-ng certificate organisation
+id: ba924d8f-dc56-45dd-820b-662f058c4365
+status: experimental
+description: |
+  Ligolo-ng, a tunnelling tool used for pivoting, generates a self-signed
+  certificate with the organisation "ligolo" for subject and issuer.
+references:
+  - https://github.com/nicocha30/ligolo-ng
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+  - tunnel
+target:
+  protocol: tcp
+  tls: required
+  ports: [11601]
+detection:
+  selection_cert:
+    tls.cert.subject.o: 'ligolo'
+    tls.cert.issuer.o: 'ligolo'
+  condition: selection_cert
+identifies:
+  product: Ligolo-ng
+  family: ligolo
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.o: ['ligolo']
+      tls.cert.issuer.o: ['ligolo']
+  - name: Other organisation
+    expect: no_match
+    response:
+      tls.cert.subject.o: ['Example']
+      tls.cert.issuer.o: ['Example']
+native:
+  modat: 'same_service(service="unknown" transport="tcp" cert.subject.org="ligolo" cert.issuer.org="ligolo" )'

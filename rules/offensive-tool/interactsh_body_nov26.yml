@@ -1,0 +1,57 @@
+title: Offensive Tool - Interactsh server landing page
+id: 688d4e4e-3f32-40fc-b7ae-c6b55795abb3
+status: experimental
+description: |
+  Interactsh is an out-of-band (OAST) interaction server from
+  ProjectDiscovery. Its default landing page is titled "Interactsh Server"
+  and its replies carry the header "X-Interactsh-Version" unless disabled;
+  both come from pkg/server/http_server.go. The original query matched the
+  word "interactsh" in the banner. The original queries are kept under
+  native.
+references:
+  - https://github.com/projectdiscovery/interactsh
+  - https://raw.githubusercontent.com/projectdiscovery/interactsh/main/pkg/server/http_server.go
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+  - oast
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    - http.body|contains: '<h1> Interactsh Server </h1>'
+    - http.headers.x-interactsh-version|exists: true
+  condition: selection_page
+identifies:
+  product: Interactsh
+  family: interactsh
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Security teams that run their own OAST server
+tests:
+  # Sample built from the banner constant and header in pkg/server/http_server.go.
+  - name: Landing page
+    expect: match
+    response:
+      http.body: '<h1> Interactsh Server </h1>
+
+<a href=''https://github.com/projectdiscovery/interactsh''><b>Interactsh</b></a> is an open-source tool'
+  - name: Version header
+    expect: match
+    response:
+      http.headers.x-interactsh-version: '1.2.0'
+      http.body: '<html><head></head><body></body></html>'
+  - name: Mention in a blog
+    expect: no_match
+    response:
+      http.body: '<p>We tested with Interactsh last week.</p>'
+native:
+  modat: 'same_service(product="Interactsh"  tag="Security Tool") or banner~"interactsh" or same_service(port=53 service="dns"  banner.sha256=7e04d9c09faea19579f0f8dfa02a45633401b8502e58cb323748665ef6a367ad)'
+  censys: 'host.services.software.cpe:"cpe:2.3:a:interactsh:interactsh:*:*:*:*:*:*:*:*" or host.services.hardware.cpe:"cpe:2.3:a:interactsh:interactsh:*:*:*:*:*:*:*:*" or host.services.operating_systems.cpe:"cpe:2.3:a:interactsh:interactsh:*:*:*:*:*:*:*:*" or web.software.cpe:"cpe:2.3:a:interactsh:interactsh:*:*:*:*:*:*:*:*" or web.hardware.cpe:"cpe:2.3:a:interactsh:interactsh:*:*:*:*:*:*:*:*" or web.operating_systems.cpe:"cpe:2.3:a:interactsh:interactsh:*:*:*:*:*:*:*:*"'

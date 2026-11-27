@@ -1,0 +1,51 @@
+title: C2 - Covenant default certificate
+id: a3445369-574d-4eb2-84e1-432fceb2f9b0
+status: experimental
+description: |
+  Covenant, a .NET C2 framework, serves its team server on Kestrel with a
+  self-signed certificate "CN=Covenant" as both subject and issuer.
+references:
+  - https://github.com/cobbr/Covenant
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: required
+  ports: [7443]
+detection:
+  selection_cert:
+    tls.cert.subject.cn: 'Covenant'
+    tls.cert.issuer.cn: 'Covenant'
+  condition: selection_cert
+identifies:
+  product: Covenant
+  family: covenant
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'Covenant'
+      tls.cert.issuer.cn: 'Covenant'
+  - name: Issued by a public CA
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'Covenant'
+      tls.cert.issuer.cn: 'R11'
+  - name: Similar name
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'Covenant Eyes'
+      tls.cert.issuer.cn: 'Covenant Eyes'
+native:
+  modat: 'same_service(cert.issuer.cn="Covenant" cert.subject.cn="Covenant" ) OR same_service(web.title="Covenant"service="http" transport="tcp" technology="Kestrel" technology="Bootstrap")'
+  censys: 'host.services:(cert.parsed.subject_dn="CN=Covenant" and cert.parsed.issuer_dn="CN=Covenant") or ((host.services.software.product:"Kestrel web server" or host.services.hardware.product:"Kestrel web server" or host.services.operating_systems.product:"Kestrel web server") and host.services.endpoints.http.html_title="Covenant") or (web.cert.parsed.subject_dn="CN=Covenant" and web.cert.parsed.issuer_dn="CN=Covenant") or ((web.software.product:"Kestrel web server" or web.hardware.product:"Kestrel web server" or web.operating_systems.product:"Kestrel web server") and web.endpoints.http.html_title="Covenant")'

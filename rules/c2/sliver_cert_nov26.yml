@@ -1,0 +1,54 @@
+title: C2 - Sliver multiplayer certificate
+id: 6c452df0-40ef-49e9-9583-c6c09d305a78
+status: experimental
+description: |
+  Sliver's multiplayer (operator) listener presents a certificate issued by
+  a CA named "operators" for the subject "multiplayer". The original query
+  combined this with a second service on the same host (an HTTP banner
+  hash), which one rule can't express and which is dropped. The original
+  queries are kept under native.
+references:
+  - https://github.com/BishopFox/sliver
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+  ports: [31337]
+detection:
+  selection_cert:
+    tls.cert.subject.cn: 'multiplayer'
+    tls.cert.issuer.cn: 'operators'
+  condition: selection_cert
+identifies:
+  product: Sliver
+  family: sliver
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Multiplayer listener
+    expect: match
+    response:
+      tls.cert.subject.cn: 'multiplayer'
+      tls.cert.issuer.cn: 'operators'
+  - name: Subject only
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'multiplayer'
+      tls.cert.issuer.cn: 'Example CA'
+  - name: Issuer only
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'localhost'
+      tls.cert.issuer.cn: 'operators'
+native:
+  modat: 'same_service(service="unknown" transport="tcp" cert.issuer.cn="operators" cert.subject.cn="multiplayer")  and same_service(service="http" transport="tcp" banner.sha256=dba60000613d7556f0b129e77a9451d6ce5a83f52f2d4830314d2e6b52b7928c)'
+  censys: 'host.services:(cert.parsed.subject.common_name = "localhost" and banner_hash_sha256 = "d7cb6b1a0954fd0db5338315f9e2047afcd41b137f39aab03f6515c8acc9b8ce") or (web.endpoints.banner_hash_sha256 = "d7cb6b1a0954fd0db5338315f9e2047afcd41b137f39aab03f6515c8acc9b8ce" and web.cert.parsed.subject.common_name = "localhost" ) or host.services:(cert.parsed.subject.common_name="multiplayer" and cert.parsed.issuer.common_name = "operators")'

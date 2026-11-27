@@ -1,0 +1,48 @@
+title: C2 - DesRedTeam and DesShell title
+id: 9e45ff08-9728-490d-91f0-07fb11e813e3
+status: experimental
+description: |
+  DesRedTeam is a red-team platform with an integrated DesShell C2. The
+  title is "DesRedTeam", or "登录 - DesShell" on the C2 login page. The
+  favicon is covered by a separate rule.
+references:
+  - https://github.com/Desred7eam/DesRedTeam
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_title:
+    - http.title: 'DesRedTeam'
+    - http.title|contains: '登录 - DesShell'
+  condition: selection_title
+identifies:
+  product: DesRedTeam
+  family: desredteam
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Platform
+    expect: match
+    response:
+      http.title: 'DesRedTeam'
+  - name: C2 login
+    expect: match
+    response:
+      http.title: '登录 - DesShell'
+  - name: Lookalike
+    expect: no_match
+    response:
+      http.title: 'DesRedTeam Docs'
+native:
+  modat: 'http.files.sha256=e2f62688c9f991cad61d62137999d4f1f0d49fb297166c9c6c8b288fa606bb29 or http.title="DesRedTeam" or http.title~"登录 - DesShell"'

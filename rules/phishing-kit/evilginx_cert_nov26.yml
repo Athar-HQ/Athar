@@ -1,0 +1,42 @@
+title: Phishing Kit - Evilginx API certificate organisation
+id: a716710d-518e-4197-8684-b40c7b207bc2
+status: experimental
+description: |
+  Evilginx, a reverse-proxy phishing framework that bypasses MFA, runs an API
+  server whose certificate has the issuer organisation "Evilginx API". The
+  rule matches that organisation.
+references:
+  - https://github.com/kgretzky/evilginx2
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.phishing-kit
+target:
+  protocol: http
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.issuer.o: 'Evilginx API'
+  condition: selection_cert
+identifies:
+  product: Evilginx
+  family: evilginx
+  category: phishing-kit
+confidence: high
+falsepositives:
+  - Authorised phishing simulations and red-team engagements
+  - Security awareness teams that run Evilginx for simulations
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: API certificate
+    expect: match
+    response:
+      tls.cert.issuer.o: ['Evilginx API']
+  - name: Other issuer
+    expect: no_match
+    response:
+      tls.cert.issuer.o: ['Example CA']
+native:
+  modat: 'same_service(service="http" transport="tcp" (web.title~"Evilginx" or web.title~"evilgophish" or cert.issuer.org="Evilginx API")) or product="Evilginx"'

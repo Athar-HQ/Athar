@@ -1,0 +1,41 @@
+title: C2 - Vshell C2 favicon
+id: 578d04b2-3599-42e1-8b5e-6db5c369be48
+status: experimental
+description: |
+  Favicon of the Vshell C2 management panel, by its SHA-256. It finds Vshell
+  panels whatever their title says; the panel rule matches the page text.
+references:
+  - https://censys.com/blog/vshell
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_icon:
+    http.favicon.sha256: '562982402c04a4549dbcf4ef8108ecf5b62be48bc285eee127f5445840e0c3e0'
+  condition: selection_icon
+identifies:
+  product: Vshell C2
+  family: vshell
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Panel favicon
+    expect: match
+    response:
+      http.favicon.sha256: '562982402c04a4549dbcf4ef8108ecf5b62be48bc285eee127f5445840e0c3e0'
+  - name: Other favicon
+    expect: no_match
+    response:
+      http.favicon.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  modat: 'http.body~"VShell 管理平台" or http.files.sha256=562982402c04a4549dbcf4ef8108ecf5b62be48bc285eee127f5445840e0c3e0'

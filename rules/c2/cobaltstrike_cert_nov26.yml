@@ -1,0 +1,66 @@
+title: C2 - Cobalt Strike default certificates
+id: 079e9b98-a01e-4f47-a59f-b22e414d2aa2
+status: experimental
+description: |
+  Certificates seen on Cobalt Strike team servers and redirectors: the
+  "Major Cobalt Strike" default, the Pwn3rs variant and the forged Google
+  Spider and Microsoft Windows identities. The original query's Cloudflare
+  Origin look-alike also needs a banner hash, which has no taxonomy field,
+  so it is left out. Certificate fingerprints are in their own rule. The
+  original queries are kept under native.
+references:
+  - https://attack.mitre.org/software/S0154/
+  - https://github.com/frknaykc/Awesome-Malicious-Infra-Hunting-Queries
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+  ports: [50050, 443]
+detection:
+  selection_cs:
+    - tls.cert.subject.cn: 'Major Cobalt Strike'
+      tls.cert.issuer.cn: 'Major Cobalt Strike'
+    - tls.cert.subject.cn: 'Pwn3rs Striked'
+      tls.cert.issuer.cn: 'Pwn3rs Striked'
+    - tls.cert.subject.dn|contains: 'CN=Google Spider'
+      tls.cert.issuer.dn|contains: 'O=Alphabet Inc'
+    - tls.cert.subject.dn|contains: 'CN=Microsoft Windows'
+      tls.cert.issuer.dn|contains: 'OU=MOPR'
+  condition: selection_cs
+identifies:
+  product: Cobalt Strike
+  family: cobaltstrike
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'Major Cobalt Strike'
+      tls.cert.issuer.cn: 'Major Cobalt Strike'
+  - name: Pwn3rs variant
+    expect: match
+    response:
+      tls.cert.subject.cn: 'Pwn3rs Striked'
+      tls.cert.issuer.cn: 'Pwn3rs Striked'
+  - name: Google Spider forgery
+    expect: match
+    response:
+      tls.cert.subject.dn: 'CN=Google Spider,OU=Google.com,O=Alphabet Inc,L=Sacramento,ST=California,C=US'
+      tls.cert.issuer.dn: 'CN=Google Spider,OU=Google.com,O=Alphabet Inc,L=Sacramento,ST=California,C=US'
+  - name: Real Microsoft certificate
+    expect: no_match
+    response:
+      tls.cert.subject.dn: 'CN=www.microsoft.com,O=Microsoft Corporation,C=US'
+      tls.cert.issuer.dn: 'CN=Microsoft Azure RSA TLS Issuing CA 03,O=Microsoft Corporation,C=US'
+native:
+  modat: 'same_service(service="unknown" transport="tcp" (cert="Issuer: C=Earth, ST=Cyberspace, L=Somewhere, O=cobaltstrike, OU=AdvancedPenTesting, CN=Major Cobalt Strike" cert="Subject: C=Earth, ST=Cyberspace, L=Somewhere, O=cobaltstrike, OU=AdvancedPenTesting, CN=Major Cobalt Strike") or (cert="Issuer: C=There, ST=Over, L=Around, O=Pwn3rs, OU=AdvancedReversing, CN=Pwn3rs Striked" cert="Subject: C=There, ST=Over, L=Around, O=Pwn3rs, OU=AdvancedReversing, CN=Pwn3rs Striked")) OR same_service(service="http" transport="tcp" banner.sha256=ef301fdba87a1f94a8b87e2164041ba18e86a3d495bb6a2f9be19e3d799b1b9b cert.issuer.org="CloudFlare, Inc." cert.subject.org="CloudFlare, Inc." cert.issuer.ou="CloudFlare Origin SSL Certificate Authority" cert.subject.ou="CloudFlare Origin CA" cert.subject.cn="CloudFlare Origin Certificate") or same_service(transport="tcp" cert.fingerprint.sha256=87f2085c32b6a2cc709b365f55873e207a9caa10bffecf2fd16d3cf9d94d390c) or same_service(transport="tcp" cert="Issuer: C=US, ST=California, L=Sacramento, O=Alphabet Inc, OU=Google.com, CN=Google Spider" cert="Subject: C=US, ST=California, L=Sacramento, O=Alphabet Inc, OU=Google.com, CN=Google Spider") or same_service(transport="tcp" cert="Issuer: C=US, ST=Washington, L=Redmond, O=Microsoft Corporation, OU=MOPR, CN=Microsoft Windows" cert="Subject: C=US, ST=Washington, L=Redmond, O=Microsoft Corporation, OU=MOPR, CN=Microsoft Windows")'

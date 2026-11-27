@@ -1,0 +1,45 @@
+title: C2 - Salt Typhoon ClosedSSH banner
+id: e15079c1-037b-4421-9334-6b40fb3c04e0
+status: experimental
+description: |
+  The SSH identification string "SSH-2.0-ClosedSSH_13.14", which the
+  original query attributes to infrastructure of Salt Typhoon. "ClosedSSH"
+  is also the name of a commercial SSH account service, so the banner is
+  medium confidence. The original queries are kept under native.
+references:
+  - https://attack.mitre.org/groups/G1045/
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1583
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: ssh
+  tls: none
+  ports: [22]
+detection:
+  selection_banner:
+    ssh.banner|startswith: 'SSH-2.0-ClosedSSH_13.14'
+  condition: selection_banner
+identifies:
+  product: Salt Typhoon SSH
+  family: salt-typhoon
+  category: c2
+confidence: medium
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - SSH account resellers that use the ClosedSSH build
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Banner
+    expect: match
+    response:
+      ssh.banner: 'SSH-2.0-ClosedSSH_13.14'
+  - name: OpenSSH
+    expect: no_match
+    response:
+      ssh.banner: 'SSH-2.0-OpenSSH_9.6'
+native:
+  modat: 'banner~"SSH-2.0-ClosedSSH_13.14"'

@@ -1,0 +1,51 @@
+title: C2 - Hak5 Cloud C2 page hashes
+id: 23c7d901-184f-42be-9de5-82be4c9e0cd2
+status: experimental
+description: |
+  SHA-256 of the Cloud C2 landing page in five builds. The hashes come from
+  the original query and are not re-measured here. The original queries are
+  kept under native.
+references:
+  - https://docs.hak5.org/cloud-c2
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_body:
+    http.body.sha256:
+      - '231f850bab2ab756238ec7cbb735754807e130f55df9372220cfa2145aa2397d'
+      - 'e44ede0890d5baf4805a34185e65a28c5cfd53052b080ba72026d69445f636a8'
+      - 'e9fd968b026e008fb928498ad0dff4e3ad094ff674b8fc39d31fb75aa3a16af2'
+      - '5740925e5d95c895c23c63865975682756342a212829948c085c7676f8e3db35'
+      - 'ae046e373993140119157173e488ab5da820420f2d57e21a6860c81660fe02c7'
+  condition: selection_body
+identifies:
+  product: Hak5 Cloud C2
+  family: hak5-cloudc2
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: First build
+    expect: match
+    response:
+      http.body.sha256: '231f850bab2ab756238ec7cbb735754807e130f55df9372220cfa2145aa2397d'
+  - name: Fifth build
+    expect: match
+    response:
+      http.body.sha256: 'ae046e373993140119157173e488ab5da820420f2d57e21a6860c81660fe02c7'
+  - name: One character different
+    expect: no_match
+    response:
+      http.body.sha256: 'ae046e373993140119157173e488ab5da820420f2d57e21a6860c81660fe02c8'
+native:
+  modat: 'same_service(service="http" transport="tcp" web.html.sha256=231f850bab2ab756238ec7cbb735754807e130f55df9372220cfa2145aa2397d or web.html.sha256=e44ede0890d5baf4805a34185e65a28c5cfd53052b080ba72026d69445f636a8 or web.html.sha256=e9fd968b026e008fb928498ad0dff4e3ad094ff674b8fc39d31fb75aa3a16af2  or web.html.sha256=5740925e5d95c895c23c63865975682756342a212829948c085c7676f8e3db35 or web.html.sha256=ae046e373993140119157173e488ab5da820420f2d57e21a6860c81660fe02c7 or web.title~"Hak5 Cloud")'

@@ -1,0 +1,42 @@
+title: C2 - Space X 1337 C2 login title
+id: 7a64aedc-42ca-4618-b618-71c637fb3bf3
+status: experimental
+description: |
+  Login page of the Space X 1337 C2, titled "SPACE X 1337 Login". The
+  original query's second alternative, a banner hash, has no taxonomy field
+  and is dropped.
+references:
+  - Internal Research
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_title:
+    http.title|contains: 'SPACE X 1337 Login'
+  condition: selection_title
+identifies:
+  product: Space X 1337 C2
+  family: spacex1337
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Login page
+    expect: match
+    response:
+      http.title: 'SPACE X 1337 Login'
+  - name: SpaceX site
+    expect: no_match
+    response:
+      http.title: 'SpaceX - Launches'
+native:
+  modat: 'web.title~"SPACE X 1337 Login" or banner.sha256=0909e4f79f2a3d54b6abe5ef80b4f38f9556cc2cd656ac773fc79e5bb71e8a58'

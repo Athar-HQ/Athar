@@ -1,0 +1,50 @@
+title: C2 - Nighthawk C2 default response
+id: fde3a03b-7b5b-4d63-92b9-c0f5765baacf
+status: experimental
+description: |
+  Nighthawk's default HTTP reply: a 404 with the header "X-Test: 2", "Server:
+  Apache" and a fixed 20 byte body, matched by the body's SHA-256. The
+  combination of the test header and the body hash is specific to Nighthawk.
+references:
+  - https://github.com/frknaykc/Awesome-Malicious-Infra-Hunting-Queries
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.001
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.status_code: 404
+    http.headers.x-test: '2'
+    http.headers.server: 'Apache'
+    http.body.sha256: 'd872e8e4176213ea84ebc76d8fb621c31b4ca116fd0a51258813e804fe110ca4'
+  condition: selection_page
+identifies:
+  product: Nighthawk C2
+  family: nighthawk
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default reply
+    expect: match
+    response:
+      http.status_code: 404
+      http.headers.x-test: '2'
+      http.headers.server: 'Apache'
+      http.body.sha256: 'd872e8e4176213ea84ebc76d8fb621c31b4ca116fd0a51258813e804fe110ca4'
+  - name: Apache 404
+    expect: no_match
+    response:
+      http.status_code: 404
+      http.headers.server: 'Apache'
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  censys: 'host.services:(banner="HTTP/1.1 404 Not Found\r\nDate:  <REDACTED>\r\nX-Test: 2\r\nServer: Apache\r\nContent-Length: 20\r\n" and endpoints.http.body_hash_sha256="d872e8e4176213ea84ebc76d8fb621c31b4ca116fd0a51258813e804fe110ca4") or (web.endpoints.banner="HTTP/1.1 404 Not Found\r\nDate:  <REDACTED>\r\nX-Test: 2\r\nServer: Apache\r\nContent-Length: 20\r\n" and web.endpoints.http.body_hash_sha256="d872e8e4176213ea84ebc76d8fb621c31b4ca116fd0a51258813e804fe110ca4")'

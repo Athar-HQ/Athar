@@ -1,0 +1,46 @@
+title: C2 - AdaptixC2 landing page
+id: e792dfb1-23de-443f-9a4d-d18f32853fc8
+status: experimental
+description: |
+  AdaptixC2, an extensible post-exploitation framework. The rule matches the
+  SHA-256 of the landing page given in the original query. The original
+  query also searched the header-block hash, the banner hash and the engine
+  label product="AdaptixC2", which have no taxonomy field. The original
+  queries are kept under native.
+references:
+  - https://github.com/Adaptix-Framework/AdaptixC2
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.body.sha256: 'af98111ef3078ab381b276c64d8c1bcd9e6a9bd1534ea10c57b716763fe86941'
+  condition: selection_page
+identifies:
+  product: AdaptixC2
+  family: adaptixc2
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Pages with identical content on non-Adaptix servers
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Listener page
+    expect: match
+    response:
+      http.body.sha256: 'af98111ef3078ab381b276c64d8c1bcd9e6a9bd1534ea10c57b716763fe86941'
+  - name: Other page
+    expect: no_match
+    response:
+      http.body.sha256: 'af98111ef3078ab381b276c64d8c1bcd9e6a9bd1534ea10c57b716763fe86942'
+native:
+  modat: 'product="AdaptixC2" or same_service(web.headers.sha256=1e9ab7506e252661628ae95dcc38debba4e0be708f10e4adc35c73735ea414fd web.html.sha256=af98111ef3078ab381b276c64d8c1bcd9e6a9bd1534ea10c57b716763fe86941)'
+  censys: 'host.services.banner_hash_sha256="5f7c6cac22d17c4d049144dc89e296fb18f357d258e48cdca19877422276199f" or web.endpoints.banner_hash_sha256="5f7c6cac22d17c4d049144dc89e296fb18f357d258e48cdca19877422276199f"'

@@ -1,0 +1,44 @@
+title: C2 - Vshell management panel
+id: 2030c78a-f142-42cb-92ba-f190b797296f
+status: experimental
+description: |
+  Vshell, a Chinese-language C2 framework, serves a management panel whose
+  body contains "VShell 管理平台" (VShell management platform). The favicon of
+  the panel is covered by a separate rule.
+references:
+  - https://censys.com/blog/vshell
+  - https://github.com/kylinsec-ai/vshell
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_body:
+    http.body|contains: 'VShell 管理平台'
+  condition: selection_body
+identifies:
+  product: Vshell C2
+  family: vshell
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - The incomplete open-source re-implementation of Vshell
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Panel
+    expect: match
+    response:
+      http.body: '<title>登录</title><div>VShell 管理平台</div>'
+  - name: Another panel
+    expect: no_match
+    response:
+      http.body: '<div>管理平台</div>'
+native:
+  modat: 'http.body~"VShell 管理平台" or http.files.sha256=562982402c04a4549dbcf4ef8108ecf5b62be48bc285eee127f5445840e0c3e0'

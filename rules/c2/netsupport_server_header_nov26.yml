@@ -1,0 +1,44 @@
+title: C2 - NetSupport Gateway server header
+id: e8a938f9-33a0-44df-a8a2-160da5da4365
+status: experimental
+description: |
+  NetSupport Manager gateways answer with the server header "NetSupport
+  Gateway/". The tool is also a legitimate remote-administration product
+  that attackers abuse as NetSupportRAT, so the match is medium confidence.
+references:
+  - https://github.com/frknaykc/Awesome-Malicious-Infra-Hunting-Queries
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.001
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_server:
+    http.headers.server|startswith: 'NetSupport Gateway/'
+  condition: selection_server
+identifies:
+  product: NetSupport RAT
+  family: netsupport
+  category: c2
+confidence: medium
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Legitimate NetSupport Manager gateways
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Gateway
+    expect: match
+    response:
+      http.headers.server: 'NetSupport Gateway/1.0'
+  - name: Other server
+    expect: no_match
+    response:
+      http.headers.server: 'nginx'
+native:
+  modat: 'same_service(transport="tcp" banner~"Server: NetSupport Gateway/")'
+  censys: 'host.services.endpoints.http.headers:(key="Server" and value=~"^NetSupport Gateway/.*") or web.endpoints.http.headers:(key="Server" and value=~"^NetSupport Gateway/.*")'

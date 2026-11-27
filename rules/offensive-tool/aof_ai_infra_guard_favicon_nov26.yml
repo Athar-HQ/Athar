@@ -1,0 +1,43 @@
+title: Agentic Offensive Framework - AI-Infra-Guard favicon
+id: 3be4e2ac-2ea7-4891-9de2-523901901c28
+status: experimental
+description: |
+  Favicon of Tencent's AI-Infra-Guard, an AI red-teaming and
+  infrastructure-scanning platform, by its SHA-256. It finds the console
+  whatever its title says. The original queries are kept under native.
+references:
+  - https://github.com/Tencent/AI-Infra-Guard
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_icon:
+    http.favicon.sha256: '1c2f5c97e23371796d06b04d50070011c629eb7ccb5f7d0dab67f99c4e137aa7'
+  condition: selection_icon
+identifies:
+  product: AI-Infra-Guard
+  family: ai-infra-guard
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Authorised use by security teams (the tool is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Favicon
+    expect: match
+    response:
+      http.favicon.sha256: '1c2f5c97e23371796d06b04d50070011c629eb7ccb5f7d0dab67f99c4e137aa7'
+  - name: Other favicon
+    expect: no_match
+    response:
+      http.favicon.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  modat: 'http.body_sha256=19bc0c9515de8830dbd42aa7f7852923d71d2eec4ca788beb0b1865bdb637277 or http.files.sha256=1c2f5c97e23371796d06b04d50070011c629eb7ccb5f7d0dab67f99c4e137aa7'

@@ -1,0 +1,52 @@
+title: C2 - Cobalt Strike certificate fingerprints
+id: e13fcf2d-9341-4dc7-b6d2-61383d0ab215
+status: experimental
+description: |
+  SHA-256 fingerprints of two certificates attributed to Cobalt Strike servers
+  in the original queries (87f2085c... on Modat, 87f2085c... and 64257fc0...
+  on Censys). A fingerprint is exact, but the certificates are known only from
+  those queries; they were not re-measured here. The original queries are kept
+  under native.
+references:
+  - https://attack.mitre.org/software/S0154/
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.sha256:
+      - '87f2085c32b6a2cc709b365f55873e207a9caa10bffecf2fd16d3cf9d94d390c'
+      - '64257fc0fac31c01a5ccd816c73ea86e639260da1604d04db869bb603c2886e6'
+  condition: selection_cert
+identifies:
+  product: Cobalt Strike
+  family: cobaltstrike
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: First fingerprint
+    expect: match
+    response:
+      tls.cert.sha256: '87f2085c32b6a2cc709b365f55873e207a9caa10bffecf2fd16d3cf9d94d390c'
+  - name: Second fingerprint
+    expect: match
+    response:
+      tls.cert.sha256: '64257fc0fac31c01a5ccd816c73ea86e639260da1604d04db869bb603c2886e6'
+  - name: Other certificate
+    expect: no_match
+    response:
+      tls.cert.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  modat: 'same_service(service="unknown" transport="tcp" (cert="Issuer: C=Earth, ST=Cyberspace, L=Somewhere, O=cobaltstrike, OU=AdvancedPenTesting, CN=Major Cobalt Strike" cert="Subject: C=Earth, ST=Cyberspace, L=Somewhere, O=cobaltstrike, OU=AdvancedPenTesting, CN=Major Cobalt Strike") or (cert="Issuer: C=There, ST=Over, L=Around, O=Pwn3rs, OU=AdvancedReversing, CN=Pwn3rs Striked" cert="Subject: C=There, ST=Over, L=Around, O=Pwn3rs, OU=AdvancedReversing, CN=Pwn3rs Striked")) OR same_service(service="http" transport="tcp" banner.sha256=ef301fdba87a1f94a8b87e2164041ba18e86a3d495bb6a2f9be19e3d799b1b9b cert.issuer.org="CloudFlare, Inc." cert.subject.org="CloudFlare, Inc." cert.issuer.ou="CloudFlare Origin SSL Certificate Authority" cert.subject.ou="CloudFlare Origin CA" cert.subject.cn="CloudFlare Origin Certificate") or same_service(transport="tcp" cert.fingerprint.sha256=87f2085c32b6a2cc709b365f55873e207a9caa10bffecf2fd16d3cf9d94d390c) or same_service(transport="tcp" cert="Issuer: C=US, ST=California, L=Sacramento, O=Alphabet Inc, OU=Google.com, CN=Google Spider" cert="Subject: C=US, ST=California, L=Sacramento, O=Alphabet Inc, OU=Google.com, CN=Google Spider") or same_service(transport="tcp" cert="Issuer: C=US, ST=Washington, L=Redmond, O=Microsoft Corporation, OU=MOPR, CN=Microsoft Windows" cert="Subject: C=US, ST=Washington, L=Redmond, O=Microsoft Corporation, OU=MOPR, CN=Microsoft Windows")'
+  # Censys Search syntax
+  censys: 'same_service(services.http.response.protocol=''HTTP/1.1'' AND services.http.response.status_code=''404'' AND services.http.response.status_reason=''Not Found'' AND services.http.response.headers.Content_Type=''text/plain'' AND services.http.response.headers.Content_Length=''0'' AND NOT services.http.response.headers.connection={''close'',''keep-alive''} AND NOT services.software.product={''Apache'',''Kony'',''nginx'',''IIS''} AND NOT services.software.vendor={''Apache'',''Kony'',''nginx'',''IIS''}) AND NOT services.http.response.html_title=''Fireware XTM User Authentication'' OR services.certificate=''64257fc0fac31c01a5ccd816c73ea86e639260da1604d04db869bb603c2886e6'' OR services.certificate=''87f2085c32b6a2cc709b365f55873e207a9caa10bffecf2fd16d3cf9d94d390c'' OR services.tls.certificates.leaf_data.issuer.common_name=''Major Cobalt Strike'' OR services.tls.certificates.leaf_data.subject.common_name=''Major Cobalt Strike'' OR services.http.response.body_hashes=''sha256:2d837e24ec2f537eb001980abc1b672f3ae2177a060ec4ba744d8d0daec9253d'' OR services.tls.certificates.leaf_data.subject_dn=''C=, ST=, L=, O=, OU=, CN='' OR services.tls.certificates.leaf_data.issuer_dn=''C=US, ST=California, L=Sacramento, O=Alphabet Inc, OU=Google.com, CN=Google Spider'' OR services.tls.certificates.leaf_data.subject_dn=''C=US, ST=Washington, L=Redmond, O=Microsoft Corporation, OU=MOPR, CN=Microsoft Windows'' OR services.service_name=`COBALT_STRIKE` OR services.banner_hashes=''sha256:ca05da7ef97cbd40616eaeb7d83fa367a1e35e82846c6702bbbf9f6aaf149f36'' OR services.tls.certificates.leaf_data.subject_dn=''C=There, ST=Over, L=Around, O=Pwn3rs, OU=AdvancedReversing, CN=Pwn3rs Striked'' OR same_service(services.banner_hashes=''sha256:6b7480985c13791b2f64e08e83eeac1c5aae86eb571dd2a7fe6d158e8b57abe0'' and ''*Cloudflare*'') OR services.banner_hashes=''sha256:1104f7163aea4586c599eb8510df2039ea45064101f1a774cf4a9c0b2d5669d5'' OR services.jarm.fingerprint: { 15d3fd16d00000000042d43d00041d6d5ac0931aa1a1c36f5f4f6d6e5e457e, 15d3fd16d21d21d00042d43d00041dfb8ded729e5899dcf86327a042f6c343}'

@@ -1,0 +1,54 @@
+title: C2 - Supershell C2 page
+id: b3246ad7-2e07-41bd-b341-2c24b2781969
+status: experimental
+description: |
+  Supershell, a web-based reverse shell management platform, titles its
+  pages "Supershell - " followed by a page name, or is found by the SHA-256
+  of its page. The original query's engine label product="Supershell C2" has
+  no taxonomy field and is dropped. The original queries are kept under
+  native.
+references:
+  - https://github.com/tdragon6/Supershell
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    - http.title|startswith: 'Supershell - '
+    - http.body.sha256: '21ec9c71669486c5b874b1be3b9c341133e83939fdbeefa2080df1b1703c4928'
+  condition: selection_page
+identifies:
+  product: Supershell
+  family: supershell
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Login page
+    expect: match
+    response:
+      http.title: 'Supershell - 登录'
+  - name: Page hash
+    expect: match
+    response:
+      http.body.sha256: '21ec9c71669486c5b874b1be3b9c341133e83939fdbeefa2080df1b1703c4928'
+  - name: Other title
+    expect: no_match
+    response:
+      http.title: 'Supershell'
+  - name: Other page
+    expect: no_match
+    response:
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  censys: 'host.services.endpoints.http.html_title="Supershell - __" or host.services.endpoints.http.body_hash_sha256="21ec9c71669486c5b874b1be3b9c341133e83939fdbeefa2080df1b1703c4928" or web.endpoints.http.html_title="Supershell - __" or web.endpoints.http.body_hash_sha256="21ec9c71669486c5b874b1be3b9c341133e83939fdbeefa2080df1b1703c4928"'
+  modat: 'same_service(service="http" transport="tcp" product="Supershell C2")'

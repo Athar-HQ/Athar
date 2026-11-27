@@ -1,0 +1,44 @@
+title: C2 - SMOKEDHAM page hashes
+id: 9f1b7ca5-10a5-4598-b1e2-d28f99cff76c
+status: experimental
+description: |
+  Three SHA-256 values of landing pages served by SMOKEDHAM infrastructure,
+  from the original query. The original queries are kept under native.
+references:
+  - https://attack.mitre.org/software/S0649/
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.001
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.body.sha256:
+      - 'a0fead5739855354638feb2b2c642862ef33a4c0b6eaf70e21b2ad9af73a81df'
+      - '4c7e05b023a5e19f6921ad4a65e78461b6ea632f9f63d62abf7d5d77506e9da1'
+      - '6bebf3ccd8629dff39e8c35832ce8f7d431d25bc68a47ab7ffb630e18bc09048'
+  condition: selection_page
+identifies:
+  product: SMOKEDHAM
+  family: smokedham
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: First hash
+    expect: match
+    response:
+      http.body.sha256: 'a0fead5739855354638feb2b2c642862ef33a4c0b6eaf70e21b2ad9af73a81df'
+  - name: Other body
+    expect: no_match
+    response:
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  modat: 'web.html.sha256=a0fead5739855354638feb2b2c642862ef33a4c0b6eaf70e21b2ad9af73a81df OR web.html.sha256=4c7e05b023a5e19f6921ad4a65e78461b6ea632f9f63d62abf7d5d77506e9da1 OR web.html.sha256=6bebf3ccd8629dff39e8c35832ce8f7d431d25bc68a47ab7ffb630e18bc09048'
