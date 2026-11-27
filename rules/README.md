@@ -17,7 +17,7 @@ rules/
 │   ├── covenant_title_nov26.yml                    Covenant web console title
 │   ├── cyberc2_title_nov26.yml                     CyberC2 title
 │   ├── dcrat_cert_nov26.yml                        DcRat default server certificate
-│   ├── deimos_page_nov26.yml                       DeimosC2 console page and default certificate
+│   ├── deimos_page_nov26.yml                       DeimosC2 Go 404 page and example certificate
 │   ├── desredteam_favicon_nov26.yml                DesRedTeam favicon
 │   ├── desredteam_title_nov26.yml                  DesRedTeam and DesShell title
 │   ├── geacon_pro_cert_nov26.yml                   Geacon_Pro certificate

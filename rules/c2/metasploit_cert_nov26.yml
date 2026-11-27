@@ -2,11 +2,12 @@ title: C2 - Metasploit self-signed CA certificate
 id: 693865f3-e873-4230-99f9-653159b4a0d3
 status: experimental
 description: |
-  Certificates whose issuer common name contains "MetasploitSelfSignedCA", a
-  name seen on Metasploit HTTPS handlers. The current Metasploit source
-  (rex-socket) generates a random issuer by default, so this name comes from
-  handlers configured with it, not from a default in the code; confidence is
-  medium. The original queries are kept under native.
+  Certificates whose issuer common name contains "MetasploitSelfSignedCA". On
+  FOFA most hosts with it are the Metasploit Pro web interface ("Metasploit -
+  Setup and Configuration"); HTTPS handlers configured with the name carry it
+  too. The current Metasploit Framework source (rex-socket) generates a random
+  issuer for handlers by default, so handlers without this name are not found;
+  confidence is medium. The original queries are kept under native.
 references:
   - https://github.com/rapid7/metasploit-framework
 author: Shared by trusted source
@@ -34,7 +35,7 @@ falsepositives:
   - Lab setups that copied the name
 tests:
   # Minimal samples built from the published indicators, not captured responses.
-  - name: Handler certificate
+  - name: Metasploit certificate
     expect: match
     response:
       tls.cert.issuer.cn: 'MetasploitSelfSignedCA'

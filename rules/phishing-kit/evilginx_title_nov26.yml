@@ -3,10 +3,11 @@ id: d547098c-4754-4b94-85d6-0ad4d1b3c2db
 status: experimental
 description: |
   Evilginx is a reverse-proxy phishing framework that bypasses MFA;
-  evilgophish combines it with GoPhish. Panels and API servers carry
-  "Evilginx" or "evilgophish" in the title. The original query also matched
-  the engine label product="Evilginx" and an issuer organisation, which are
-  covered separately. The original queries are kept under native.
+  evilgophish combines it with GoPhish. Their panels put the name first in the
+  title, as in "Evilginx - Login" and "evilgophish - Login". The rule matches
+  titles that start with "Evilginx" or "evilgophish", so pages that only
+  mention the tool, such as its documentation ("Introduction | Evilginx"), do
+  not match. The original queries are kept under native.
 references:
   - https://github.com/kgretzky/evilginx2
   - https://github.com/fin3ss3g0d/evilgophish
@@ -21,7 +22,7 @@ target:
   tls: auto
 detection:
   selection_title:
-    http.title|contains:
+    http.title|startswith:
       - 'Evilginx'
       - 'evilgophish'
   condition: selection_title
@@ -33,7 +34,6 @@ confidence: medium
 falsepositives:
   - Authorised phishing simulations and red-team engagements
   - Security awareness teams that run Evilginx for simulations
-  - Articles about the tool
 tests:
   # Minimal samples built from the published indicators, not captured responses.
   - name: Evilginx title
@@ -44,6 +44,10 @@ tests:
     expect: match
     response:
       http.title: 'evilgophish'
+  - name: Documentation page
+    expect: no_match
+    response:
+      http.title: 'Introduction | Evilginx'
   - name: Generic phishing title
     expect: no_match
     response:
