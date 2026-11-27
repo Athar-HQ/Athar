@@ -258,7 +258,7 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 | `superset` | Conditions the engine can't express were dropped, so the query can only return more hosts, never fewer. Shodan can OR several values of one filter (`http.title:"a","b"`) but not different filters, so the ARTEX rule's `title starts with ARTEX or ARTEX favicon` is dropped there. |
 | `unsupported` | Nothing meaningful is left, and no query is printed. |
 
-Censys Platform queries are CenQL, wrapped in `host.services: ( … )` so every condition holds on one service. `:` ignores case but tokenises, so it only carries a plain `contains`; everything else becomes a regex with `=~`, which Censys reads case-sensitively and unanchored, so the converter adds `(?i)` unless the rule says `|cased` and `^` or `$` for exact, prefix and suffix matches. Single headers convert as `endpoints.http.headers: (key = "Server" and value =~ "…")`. Regex searches need a Starter account or above, and JARM, JA3S and JA4S the Adversary Investigation module.
+Censys Platform queries are CenQL. Censys keeps a service in two kinds of records: as a service of a host, which it found by scanning an IP address, and as a web property, which it found by asking for a hostname. A converted query asks for both, `host.services: ( … ) or ( … )` with `web.` fields in the second half, so every condition holds on one service and the query also finds consoles that only answer by name. `:` ignores case but tokenises, so it only carries a plain `contains`; everything else becomes a regex with `=~`, which Censys reads case-sensitively and unanchored, so the converter adds `(?i)` unless the rule says `|cased` and `^` or `$` for exact, prefix and suffix matches. Single headers convert as `endpoints.http.headers: (key = "Server" and value =~ "…")`. Regex searches need a Starter account or above, and JARM, JA3S and JA4S the Adversary Investigation module.
 
 urlscan.io is a different kind of source. It records pages that a browser loaded for URLs people submitted, not every service on the internet, and it has no field for the body, banner, port or any header but `Server`. Title rules convert exactly; most others become a superset. File hashes are the exception: urlscan stores the SHA-256 of every file a page loads, so a rule that checks a file's hash with a custom probe converts to a `hash:` search. The ARTEX frontend files rule finds 1,103 scans there, 60 of them rebrands without the family title.
 
@@ -268,7 +268,7 @@ Hunt.io takes SQL. Its query is a whole statement, `SELECT ip, service.port FROM
 
 | Platform | Result |
 | --- | --- |
-| Censys | 243 hosts. Censys's own software label `artex` is on 239 of them. |
+| Censys | 243 hosts. Censys's own software label `artex` is on 239 of them. The query then searched hosts only. With web properties, which Andrew Northern suggested ([#63](https://github.com/Athar-HQ/Athar/issues/63)), the current family query finds 4,953 results, 1,879 of them hosts (27 November 2026). |
 | ZoomEye | About 525 results. |
 | Modat Magnify | 1,433 services. Modat's own product label `Artex` is on about 1,390 of them. Most run on port 8787. |
 | Shodan | No results. The route sits in an inline script near the end of a 12 KB page, which Shodan's `http.html` index does not reach. The title condition alone finds 292 hosts. |

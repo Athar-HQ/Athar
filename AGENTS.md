@@ -55,8 +55,8 @@ Values in angle brackets are placeholders. "contains" means `field|contains: val
 | FOFA `server=` · ZoomEye `http.header.server=` · Modat `http.headers: (key = "Server" and value ~ "x")` · urlscan `page.server:` · Hunt.io `http.headers.server LIKE` | `http.headers.server` contains |
 | Modat `http.headers: (key = "<Name>" and value = "x")` · Censys `…endpoints.http.headers: (key = "<Name>" and value = "x")` or `value =~ "x"` · Hunt.io `http.headers.x_powered_by`, `http.headers.etag` | `http.headers.<name>` (lowercase name, `-` for Hunt.io's `_`), exact for `=` and `==`, contains for `~`, `:` or `LIKE '%x%'`. A Censys `value =~` follows the regex row above. |
 | FOFA, ZoomEye `status_code=` · Shodan `http.status:` · Modat `http.status_code=` · urlscan `page.status:` · Hunt.io `http.headers.status.code ==` | `http.status_code` exact |
-| FOFA `icon_hash=` · Shodan `http.favicon.hash:` · ZoomEye `iconhash=` with an integer · Modat `http.files.mmh3=` · Hunt.io `favicon.hash.mmh3 ==` | `http.favicon.mmh3` exact. Hunt.io's `favicon.hash.mmh3_fofa` is not mapped: its schema doesn't say how it differs. |
-| ZoomEye `iconhash=` with 32 hex characters · Hunt.io `favicon.hash.md5 ==` | `http.favicon.md5` exact |
+| FOFA `icon_hash=` · Shodan `http.favicon.hash:` · ZoomEye `iconhash=` with an integer · Modat `http.files.mmh3=` · Censys `…http.favicons.hash_shodan` · Hunt.io `favicon.hash.mmh3 ==` | `http.favicon.mmh3` exact. Hunt.io's `favicon.hash.mmh3_fofa` is not mapped: its schema doesn't say how it differs. |
+| ZoomEye `iconhash=` with 32 hex characters · Censys `…http.favicons.hash_md5` · Hunt.io `favicon.hash.md5 ==` | `http.favicon.md5` exact |
 | Censys `…http.favicons.hash_sha256` · Modat `http.files.sha256` · Hunt.io `favicon.hash.sha256 ==` | `http.favicon.sha256` exact |
 | Censys `…http.body_hash_sha256` · Modat `http.body_sha256` · Hunt.io `html.body.hash.sha256 ==` | `http.body.sha256` exact |
 | Shodan `http.html_hash:` · Modat `http.body_mmh3` | `http.body.mmh3` exact |
@@ -76,8 +76,9 @@ Values in angle brackets are placeholders. "contains" means `field|contains: val
 | Bare quoted text (FOFA, ZoomEye, Shodan, Modat) | The field where the response shows the text (`http.title`, `http.body`, `http.headers.<name>`, `service.banner`). Use a `keywords` selection only if you can't tell. |
 | `port` on any engine | `target.ports` |
 | Censys `field: *` · Censys `field > "x"`, `>=`, `<`, `<=` | `field\|exists: true` · `field\|gt`, `\|gte`, `\|lt`, `\|lte` |
-| FOFA, ZoomEye `&&`, `\|\|` · Censys, Modat `and`, `or` · urlscan, Hunt.io `AND`, `OR` · Shodan space (AND) and `field:"a","b"` (any of the values) | Several fields in one selection are AND; a list of values is OR; a list of maps (several field-value pairs, each starting with `-`) is OR across fields; separate selections combine in `condition` |
+| FOFA, ZoomEye `&&`, `\|\|` · Censys, Modat `and`, `or` · urlscan, Hunt.io `AND`, `OR` · Shodan space (AND) and `field:"a","b"` (any of the values) · Censys `field: {"a", "b"}` (any of the values) | Several fields in one selection are AND; a list of values is OR; a list of maps (several field-value pairs, each starting with `-`) is OR across fields; separate selections combine in `condition` |
 | Censys `host.services: (…)` · Modat `same_service(…)` · Hunt.io `same_port(…)` | One rule; all of its selections already hold on one service. A Censys, Modat or Hunt.io host query without these may combine two services of one host, which one rule can't express (spec section 11); ask the user which service the rule is about. |
+| Censys `web.endpoints.http.…`, `web.cert.…`, `web.jarm.…`, `web.port` | The same fields as under `host.services.`: a web property is one service that Censys reached by hostname. `athar convert -t censys` writes every rule for hosts and for web properties, joined with `or`, so a query that had only one of the two halves comes back with both; tell the user. |
 
 Field names follow spec section 5 and Appendix A. If a filter has no row here and no field in the spec, tell the user rather than inventing a field.
 

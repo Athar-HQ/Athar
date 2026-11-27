@@ -57,9 +57,9 @@ const (
 	shodanBodyNote = "shodan does not index all of a large body; a body condition can miss hosts the scanner finds"
 	// https://docs.censys.com/docs/platform-host-dataset: host service
 	// endpoints index the first 64 KB of a body and the first 2 KB of the
-	// header block. The 6 KB figure applies to name-based web properties,
-	// which a host.services query does not search.
-	censysBodyNote     = "censys indexes the first 64 KB of an http body on a host service; a body condition deeper in the page can miss hosts the scanner finds"
+	// header block. A web property with a name indexes the first 6 KB of a
+	// body (https://docs.censys.com/docs/platform-web-property-dataset).
+	censysBodyNote     = "censys indexes the first 64 KB of an http body on a host service and the first 6 KB on a web property with a name; a body condition deeper in the page can miss services the scanner finds"
 	censysBodyHashNote = "censys hashes the first 64 KB of a body, the rule the whole body; the two differ for bodies over 64 KB"
 	censysHeaderNote   = "censys indexes the first 2 KB of a header block; a header beyond that can miss hosts the scanner finds"
 	censysModuleNote   = "jarm, ja3s and ja4s need access to the censys Adversary Investigation module"
@@ -109,20 +109,24 @@ var (
 		"service.banner":      {kind: fullText},
 		"service.port":        {name: "port", kind: exactOnly},
 	}
-	// Censys Platform field names are relative to host.services, because
-	// every query is wrapped in host.services: ( … ) to stay on one service
-	// (https://docs.censys.com/docs/platform-host-dataset).
+	// Censys Platform field names are relative to a service: to host.services
+	// on a host (https://docs.censys.com/docs/platform-host-dataset) and to
+	// web on a web property, which is one hostname and port. Both record
+	// types name these fields alike, as the data definitions at
+	// platform.censys.io/search/definitions list them; censys.absent names
+	// the ones a web property doesn't have.
 	censysFields = map[string]fieldSpec{
 		"http.title":          {name: "endpoints.http.html_title", kind: words, regex: true},
 		"http.body":           {name: "endpoints.http.body", kind: words, regex: true, note: censysBodyNote},
 		"http.headers.server": {name: "server", kind: oneHeader},
 		"http.status_code":    {name: "endpoints.http.status_code", kind: exactOnly},
+		"http.favicon.mmh3":   {name: "endpoints.http.favicons.hash_shodan", kind: exactOnly},
 		"http.favicon.md5":    {name: "endpoints.http.favicons.hash_md5", kind: exactOnly},
 		"http.favicon.sha256": {name: "endpoints.http.favicons.hash_sha256", kind: exactOnly},
 		"http.body.sha256":    {name: "endpoints.http.body_hash_sha256", kind: exactOnly, note: censysBodyHashNote},
-		// cert.* under host.services is the service's certificate; the
-		// common-name fields use a subdomain analyzer, so ":" matches whole
-		// domain labels and a substring search needs a regex.
+		// cert.* is the service's certificate; the common-name fields use a
+		// subdomain analyzer, so ":" matches whole domain labels and a
+		// substring search needs a regex.
 		"tls.cert.subject.cn": {name: "cert.parsed.subject.common_name", kind: words, regex: true, analyzed: true},
 		"tls.cert.issuer.cn":  {name: "cert.parsed.issuer.common_name", kind: words, regex: true, analyzed: true},
 		"tls.cert.subject.dn": {name: "cert.parsed.subject_dn", kind: words, regex: true},
@@ -493,14 +497,63 @@ func (shodan) list(field string, values []string) string {
 
 // ---- Censys Platform ----
 
-type censys struct{}
+// censys writes CenQL. Censys keeps a service in two record types: under
+// host.services on a host, found by scanning an IP address, and as a web
+// property, found by asking for a hostname. The rule is converted for both
+// (see alternate), and web says which of the two a value writes.
+type censys struct{ web bool }
 
-func (censys) andOp() string        { return " and " }
-func (censys) orOp() string         { return " or " }
-func (censys) canOr() bool          { return true }
-func (censys) wrap(q string) string { return "host.services: (" + q + ")" }
+func (censys) andOp() string { return " and " }
+func (censys) orOp() string  { return " or " }
+func (censys) canOr() bool   { return true }
 
-func (censys) term(t term) (string, Fidelity, string, bool) {
+// alternate returns the backend for web properties.
+func (censys) alternate() backend { return censys{web: true} }
+
+// wrap keeps the conditions on one service. A host has many, so they go into
+// the nested form host.services: ( … ). A web property is one service, so its
+// fields are written in full.
+func (c censys) wrap(q string) string {
+	if c.web {
+		return "(" + q + ")"
+	}
+	return "host.services: (" + q + ")"
+}
+
+// wrapOne writes a single positive condition, which needs no group. A
+// condition that reads as a negation, such as |exists: false, keeps it.
+func (c censys) wrapOne(q string) string {
+	switch {
+	case strings.HasPrefix(q, "not "):
+		return c.wrap(q)
+	case c.web:
+		return q
+	}
+	return "host.services." + q
+}
+
+// absent reports the fields only a host has: a web property has a banner per
+// endpoint and none of its own, and x-censys names are relative to
+// host.services.
+func (c censys) absent(t term) string {
+	if c.web && (t.field == "service.banner" || strings.HasPrefix(t.field, "x-censys.")) {
+		return "censys web properties have no field for " + t.field
+	}
+	return ""
+}
+
+// path returns a field name where the query uses it: relative to
+// host.services, or in full on a web property.
+func (c censys) path(name string) string {
+	if c.web {
+		return "web." + name
+	}
+	return name
+}
+
+const censysRegexNote = "censys's regex dialect is smaller than RE2"
+
+func (c censys) term(t term) (string, Fidelity, string, bool) {
 	if t.field == "" {
 		return "", 0, "censys full-text search can't be nested in host.services", false
 	}
@@ -515,12 +568,17 @@ func (censys) term(t term) (string, Fidelity, string, bool) {
 	if !ok {
 		return "", 0, note, false
 	}
-	if spec.kind == oneHeader {
+	switch {
+	case spec.kind == oneHeader:
 		// Header values take "=" and "=~" inside the nested group, and
 		// every header search reads the same truncated block.
 		spec.regex = true
 		note = joinNote(note, censysHeaderNote)
+	case strings.HasPrefix(t.field, "x-censys."):
+		// A field the rule names itself is searched like a text field.
+		spec.regex = true
 	}
+	name := c.path(spec.name)
 	not := ""
 	if t.negated {
 		not = "not "
@@ -537,21 +595,22 @@ func (censys) term(t term) (string, Fidelity, string, bool) {
 		} else {
 			not = ""
 		}
-		return not + spec.name + ": *", Exact, note, true
+		return not + name + ": *", Exact, note, true
 	case "gt", "gte", "lt", "lte":
 		if spec.kind != exactOnly {
 			return "", 0, fmt.Sprintf("%s: censys compares only numbers, dates and addresses, not %s", describe(t), spec.name), false
 		}
 		op := map[string]string{"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[t.op]
 		// Censys wants integers and dates quoted.
-		return not + spec.name + " " + op + " " + quote(t.value), Exact, note, true
+		return not + name + " " + op + " " + quote(t.value), Exact, note, true
 	}
 
 	if spec.kind == exactOnly {
 		if t.op != "eq" || t.wild {
 			return "", 0, fmt.Sprintf("%s: censys only supports equality on %s", describe(t), spec.name), false
 		}
-		return not + spec.name + " = " + quote(t.value), Exact, note, true
+		// Numbers are quoted too, which a negative favicon hash needs.
+		return not + name + " = " + quote(hashCase(t)), Exact, note, true
 	}
 	if !spec.regex {
 		return "", 0, describe(t) + ": not supported on censys", false
@@ -571,16 +630,16 @@ func (censys) term(t term) (string, Fidelity, string, bool) {
 			// An exact, case-sensitive value needs no regex.
 			cond, f, headNote = "value = "+quote(t.value), Exact, note
 		}
-		return not + "endpoints.http.headers: (key = " + quote(key) + " and " + cond + ")", f, headNote, true
+		return not + c.path("endpoints.http.headers") + ": (key = " + quote(key) + " and " + cond + ")", f, headNote, true
 	}
 	if t.op == "eq" && t.cased {
 		// "=" is an exact, case-sensitive match on a string field.
-		return not + spec.name + " = " + quote(t.value), Exact, note, true
+		return not + name + " = " + quote(t.value), Exact, note, true
 	}
-	if t.op == "contains" && !t.cased && !t.wild && !spec.analyzed {
+	if censysWords(t, spec) {
 		// ":" is case-insensitive, but it tokenises: it matches the words of
 		// the value in order, not an arbitrary substring.
-		return not + spec.name + ": " + quote(t.value), Approximate, note, true
+		return not + name + ": " + quote(t.value), Approximate, note, true
 	}
 	note = joinNote(note, reNote)
 	if spec.analyzed {
@@ -588,7 +647,38 @@ func (censys) term(t term) (string, Fidelity, string, bool) {
 	}
 	// Two layers: the regex, then the double-quoted string, in which
 	// Censys wants every backslash of the regex doubled ("\\.").
-	return not + spec.name + " =~ " + quote(re), f, note, true
+	return not + name + " =~ " + quote(re), f, note, true
+}
+
+// censysWords reports whether a term is searched with ":": a plain contains
+// on a text field that the subdomain analyzer doesn't split.
+func censysWords(t term, spec fieldSpec) bool {
+	return t.op == "contains" && !t.cased && !t.wild && !spec.analyzed && spec.kind != oneHeader
+}
+
+// key lets an OR of values that one field contains become a set,
+// field: {"a", "b"}, which Censys documents for ":".
+func (c censys) key(t term) (string, string) {
+	spec, ok := censysFields[t.field]
+	if !ok || t.negated || t.hex || spec.kind != words || !censysWords(t, spec) {
+		return "", ""
+	}
+	return c.path(spec.name), quote(t.value)
+}
+
+func (censys) list(field string, values []string) string {
+	return field + ": {" + strings.Join(values, ", ") + "}"
+}
+
+// hashCase returns the value of a hash or number as engines store it, in
+// lowercase. An operator that compares by case, such as Censys's = and
+// hunt.io's ==, would otherwise miss a hash the rule spells in capitals; the
+// scanner compares without regard to case unless the rule says |cased.
+func hashCase(t term) string {
+	if t.cased {
+		return t.value
+	}
+	return strings.ToLower(t.value)
 }
 
 // censysPattern builds the regex for a term on a field that supports "=~".
@@ -602,11 +692,11 @@ func censysPattern(t term) (string, Fidelity, string, bool) {
 	if t.op == "re" {
 		// The rule's regex is RE2 and already says whether it ignores
 		// case, so it is passed through as written.
-		re := censysRegex(t.raw)
-		if !censysAnchorsOK(re) {
-			return "", 0, describe(t) + ": censys allows ^ and $ only at the ends of a regex", false
+		re, ok := censysRegex(t.raw)
+		if !ok {
+			return "", 0, describe(t) + ": censys allows ^ only at the start of a regex, $ only at its end and no flag but (?i)", false
 		}
-		return re, Approximate, "censys's regex dialect is smaller than RE2", true
+		return re, Approximate, censysRegexNote, true
 	}
 	lit := escapeRunes(t.value, censysSpecial)
 	if t.wild {
@@ -663,59 +753,59 @@ func censysWildcard(raw string) string {
 	return b.String()
 }
 
-// censysAnchorsOK reports whether every ^ and $ of a regex sits where Censys
-// accepts it: ^ as the first character after any flags, $ as the last.
-// Elsewhere the query fails. Inside [ ] a ^ negates the class and is fine.
-func censysAnchorsOK(re string) bool {
-	body := re
-	for {
-		rest, ok := strings.CutPrefix(body, "(?i)")
-		if !ok {
-			break
-		}
-		body = rest
-	}
-	inClass := false
-	for i := 0; i < len(body); i++ {
-		switch c := body[i]; {
-		case c == '\\':
-			i++
-		case inClass:
-			if c == ']' {
-				inClass = false
-			}
-		case c == '[':
-			inClass = true
-		case c == '^' && i != 0:
-			return false
-		case c == '$' && i != len(body)-1:
-			return false
-		}
-	}
-	return true
-}
-
 // censysSpecial lists the characters the Censys regex docs say to escape
 // with a backslash, and | for alternatives.
 const censysSpecial = `\.+*?()[]{}|^$":/`
 
 // censysRegex escapes the quotes in a rule's regex that have no backslash
-// yet, as Censys asks for.
-func censysRegex(re string) string {
+// yet, as Censys asks for. It is false for a regex Censys rejects: one with
+// ^ anywhere but at its start or $ anywhere but at its end, or with a flag
+// group other than (?i) at its start. A character class may hold both.
+func censysRegex(re string) (string, bool) {
 	var b strings.Builder
-	for i := 0; i < len(re); i++ {
+	start := 0
+	if strings.HasPrefix(re, "(?i)") {
+		start = len("(?i)")
+		b.WriteString(re[:start])
+	}
+	class := false
+	for i := start; i < len(re); i++ {
 		switch c := re[i]; {
 		case c == '\\' && i+1 < len(re):
 			b.WriteByte(c)
 			i++
 			b.WriteByte(re[i])
+		case class && strings.HasPrefix(re[i:], "[:") && strings.Contains(re[i:], ":]"):
+			// A named class such as [:alpha:] inside a class.
+			end := i + strings.Index(re[i:], ":]") + 1
+			b.WriteString(re[i : end+1])
+			i = end
+		case class && c == '"':
+			b.WriteString(`\"`)
+		case class:
+			class = c != ']'
+			b.WriteByte(c)
+		case c == '[':
+			class = true
+			b.WriteByte(c)
+			// A ] right after [ or [^ is a literal.
+			for _, lit := range []byte("^]") {
+				if i+1 < len(re) && re[i+1] == lit {
+					i++
+					b.WriteByte(lit)
+				}
+			}
+		case c == '^' && i != start, c == '$' && i != len(re)-1:
+			return "", false
+		case c == '(' && strings.HasPrefix(re[i:], "(?") && !strings.HasPrefix(re[i:], "(?:"):
+			return "", false
 		case c == '"':
 			b.WriteString(`\"`)
 		default:
 			b.WriteByte(c)
 		}
 	}
-	return b.String()
+	return b.String(), true
 }
 
 // ---- Modat Magnify ----
@@ -1182,7 +1272,7 @@ func (huntio) term(t term) (string, Fidelity, string, bool) {
 		if t.op != "eq" || t.wild {
 			return "", 0, fmt.Sprintf("%s: huntio only supports equality on %s", describe(t), spec.name), false
 		}
-		v := t.value
+		v := hashCase(t)
 		if huntioInts[t.field] {
 			if !huntioNumber.MatchString(v) {
 				return "", 0, fmt.Sprintf("%s: huntio's %s holds integers", describe(t), spec.name), false
