@@ -25,6 +25,7 @@ detection:
   condition: selection_title
 identifies:
   product: Xalgorix
+  family: xalgorix
   category: offensive-tool
 confidence: high
 falsepositives:

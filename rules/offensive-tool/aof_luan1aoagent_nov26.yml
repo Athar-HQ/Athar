@@ -25,6 +25,7 @@ detection:
   condition: selection_title
 identifies:
   product: LuaN1aoAgent
+  family: luan1aoagent
   category: offensive-tool
 confidence: high
 falsepositives:
