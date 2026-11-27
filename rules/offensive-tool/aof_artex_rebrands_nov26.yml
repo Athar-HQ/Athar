@@ -13,13 +13,15 @@ description: |
   favicon. This rule also excludes titles that start with ARTEX, so it
   matches exactly what the family rule matches and the ARTEX rule does not:
   every family console is either ARTEX or a rebrand. A rebrand that kept the
-  ARTEX favicon counts as ARTEX. The brand comes from the title, as in the
-  family rule.
+  ARTEX favicon counts as ARTEX, except ScopeWeaver: the fork ships that
+  favicon unchanged, so titles that start with ScopeWeaver count as a rebrand
+  whatever their favicon. The brand comes from the title, as in the family
+  rule.
 references:
   - https://x.com/MalGamy12/status/2124782039555547288
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
-modified: 2026-11-26
+modified: 2026-11-27
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -41,7 +43,9 @@ detection:
     http.favicon.mmh3: -576220750
   filter_artex_brand:
     http.title|startswith: 'ARTEX'
-  condition: selection_title and not 1 of filter_*
+  selection_scopeweaver:
+    http.title|startswith: 'ScopeWeaver'
+  condition: selection_title and (selection_scopeweaver or not 1 of filter_*)
 identifies:
   family: artex
   category: offensive-tool
@@ -87,6 +91,12 @@ tests:
     expect: no_match
     response:
       http.title: 'NKW — Autonomous Penetration Testing Console'
+      http.favicon.mmh3: -576220750
+  - name: ScopeWeaver, which ships the ARTEX favicon
+    expect: match
+    extracted: { brand: ScopeWeaver }
+    response:
+      http.title: 'ScopeWeaver — Autonomous Penetration Testing Console'
       http.favicon.mmh3: -576220750
   - name: Portuguese title, own favicon
     expect: match
