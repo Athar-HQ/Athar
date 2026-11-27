@@ -104,11 +104,24 @@ func TestSpecExamples(t *testing.T) {
 	})
 	check(t, ruleFrom(t, specBasicAuth), map[string]want{
 		"modat":   {`http.headers: (key = "Www-Authenticate" and value = "Basic realm=\"ARTEX\", charset=\"UTF-8\"")`, Exact},
-		"fofa":    {`header="Basic realm=\"ARTEX\", charset=\"UTF-8\""`, Approximate},
-		"zoomeye": {`http.header="Basic realm=\"ARTEX\", charset=\"UTF-8\""`, Approximate},
+		"fofa":    {`header="Www-Authenticate: Basic realm=\"ARTEX\", charset=\"UTF-8\""`, Approximate},
+		"zoomeye": {`http.header="Www-Authenticate: Basic realm=\"ARTEX\", charset=\"UTF-8\""`, Approximate},
 		"censys":  {"", Unsupported},
 		"urlscan": {"", Unsupported},
 		"huntio":  {`SELECT ip, service.port FROM ip.current WHERE same_port(http.headers.bytes.content LIKE '%Basic realm="ARTEX", charset="UTF-8"%')`, Approximate},
+	})
+}
+
+// A named header is searched as "Name: value" on engines that only search the
+// raw header block, so a short value doesn't match any header that contains
+// it (a Nighthawk rule's X-Test: 2 became header="2" before).
+func TestNamedHeaderInRawBlock(t *testing.T) {
+	check(t, ruleFrom(t, `sel:
+  http.headers.x-test: '2'
+condition: sel
+`), map[string]want{
+		"fofa":    {`header="X-Test: 2"`, Approximate},
+		"zoomeye": {`http.header="X-Test: 2"`, Approximate},
 	})
 }
 

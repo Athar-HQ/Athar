@@ -345,6 +345,14 @@ func fofaLike(engine string, fields map[string]fieldSpec, t term, exactOp string
 			}
 			return q, Approximate, joinNote(note, fmt.Sprintf("%s searches the header block for %q as a substring", engine, t.value)), true
 		}
+		if !t.negated && (t.op == "eq" || t.op == "startswith") {
+			// A named header with a value at its start: search "Name: value",
+			// so a short value such as "2" doesn't match any header that
+			// contains it.
+			line := textproto.CanonicalMIMEHeaderKey(strings.TrimPrefix(t.field, "http.headers.")) + ": " + t.value
+			return spec.name + "=" + quote(line), Approximate,
+				joinNote(note, fmt.Sprintf("%s searches the header block for %q as a substring", engine, line)), true
+		}
 		return q, Approximate,
 			joinNote(note, fmt.Sprintf("%s searches the whole header block for %q, not one header", engine, t.value)), true
 	}
