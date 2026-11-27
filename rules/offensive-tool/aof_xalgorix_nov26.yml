@@ -38,3 +38,7 @@ tests:
     expect: no_match
     response:
       http.title: 'Security Scanner'
+  - name: Other Xalgorix page title
+    expect: no_match
+    response:
+      http.title: 'Xalgorix — Access Terminal'

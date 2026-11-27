@@ -38,3 +38,7 @@ tests:
     expect: no_match
     response:
       http.title: 'Agent Workbench'
+  - name: Other workbench with the same suffix
+    expect: no_match
+    response:
+      http.title: '文献精读工作台 · Agent Workbench'
