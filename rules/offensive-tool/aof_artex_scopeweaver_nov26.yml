@@ -1,0 +1,74 @@
+title: Agentic Offensive Framework - ScopeWeaver
+id: c87c6a06-00af-4945-affd-853952295987
+related:
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b   # Agentic Offensive Framework - ARTEX family
+    type: variant-of
+status: experimental
+description: |
+  The ScopeWeaver-branded deployment of the ARTEX family. ScopeWeaver is a
+  public fork of ARTEX that adds English and Korean localisation; Censys
+  tracks it under its own threat label. Its console title is the family's,
+  'ScopeWeaver — Autonomous Penetration Testing Console' in English (the
+  default) or 'ScopeWeaver — 자율 침투 테스트 콘솔' in Korean, so the rule is
+  the family title plus the ScopeWeaver brand at the start of the title.
+  The fork ships ARTEX's favicon unchanged (MurmurHash3 -576220750), so the
+  favicon does not tell it apart: the ARTEX rule, which accepts that favicon
+  on its own, also matches ScopeWeaver consoles.
+references:
+  - https://x.com/ex_raritas/status/2125745259925962999
+  - https://github.com/cskwork/scopeweaver
+author: Florian Roth
+date: 2026-11-27
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [8787, 8443, 443, 80]   # the fork's documented default is 8787, as for ARTEX
+detection:
+  selection_title:
+    http.title|contains:
+      - '自主渗透测试控制台'
+      - '자율 침투 테스트 콘솔'
+      - 'Autonomous Penetration Testing Console'
+      - 'Console de teste de penetração autônomo'
+      - 'Консоль автономного пентеста'
+  selection_brand:
+    http.title|startswith: 'ScopeWeaver'
+  condition: selection_title and selection_brand
+identifies:
+  product: ScopeWeaver
+  family: artex
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Titles and favicon hash taken from the fork's public source
+  # (web/src/i18n/messages/interface.ts and web/src/app/favicon.ico,
+  # 2026-11-27), not from captured responses or a search engine's record.
+  - name: ScopeWeaver, English title
+    expect: match
+    response:
+      http.title: 'ScopeWeaver — Autonomous Penetration Testing Console'
+      http.favicon.mmh3: -576220750
+  - name: ScopeWeaver, Korean title
+    expect: match
+    response:
+      http.title: 'ScopeWeaver — 자율 침투 테스트 콘솔'
+  - name: ScopeWeaver, Simplified Chinese title
+    expect: match
+    response:
+      http.title: 'ScopeWeaver — 自主渗透测试控制台'
+  - name: ARTEX with the same favicon
+    expect: no_match
+    response:
+      http.title: 'ARTEX — Autonomous Penetration Testing Console'
+      http.favicon.mmh3: -576220750
+  - name: ScopeWeaver brand on another page
+    expect: no_match
+    response:
+      http.title: 'ScopeWeaver — Login'
