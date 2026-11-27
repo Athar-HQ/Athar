@@ -451,8 +451,8 @@ the rule's case-insensitive match):
     (key = "Www-Authenticate"
      and value =~ "(?i)^Basic realm=\\\"ARTEX\\\", charset=\\\"UTF-8\\\"$")
 
-Basic auth, FOFA (approximate: the value is searched in the whole header block):
-  header="Basic realm=\"ARTEX\", charset=\"UTF-8\""
+Basic auth, FOFA (approximate: "Name: value" is searched in the whole header block):
+  header="Www-Authenticate: Basic realm=\"ARTEX\", charset=\"UTF-8\""
 
 Basic auth, urlscan.io (unsupported): urlscan indexes no header but Server.
 ```
