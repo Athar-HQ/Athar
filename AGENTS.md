@@ -48,15 +48,15 @@ Values in angle brackets are placeholders. "contains" means `field|contains: val
 | FOFA, ZoomEye `title="x"` · Shodan `http.title:"x"` · Censys `…http.html_title: "x"` · Modat `http.title~"x"` · urlscan `page.title:"x"` or `page.title.keyword:/.*x.*/` · Hunt.io `html.head.title LIKE '%x%'` | `http.title` contains `x` |
 | FOFA, ZoomEye `title=="x"` · Censys `…http.html_title = "x"` · Modat `http.title="x"` · Hunt.io `html.head.title == 'x'` | `http.title` exact `x` |
 | Hunt.io `LIKE 'x%'`, `LIKE '%x'` | `\|startswith`, `\|endswith`. `%` and `_` inside a `LIKE` pattern are Sigma's `*` and `?`. |
-| Censys `=~` · Modat `=~` (case-insensitive) · urlscan `/regex/` on a `.keyword` field · Hunt.io `RLIKE`, `REGEXP` | `http.title\|re`, with `(?i)` where the engine ignored case; urlscan and Hunt.io regexes are anchored at both ends. `athar convert` doesn't write `RLIKE` (its dialect is undocumented), so on Hunt.io the round trip drops it. |
-| Modat `==`, `~~`, `==~` | the same with `\|cased` added |
+| Censys `=~` (case-insensitive only with `(?i)` at its start) · Modat `=~` (case-insensitive) · urlscan `/regex/` on a `.keyword` field · Hunt.io `RLIKE`, `REGEXP` | `http.title\|re`, with `(?i)` where the engine ignored case; urlscan and Hunt.io regexes are anchored at both ends. `athar convert` doesn't write `RLIKE` (its dialect is undocumented), so on Hunt.io the round trip drops it. |
+| Modat `==`, `~~`, `==~` · Censys `=~` without `(?i)` | the same with `\|cased` added |
 | FOFA `body=` · ZoomEye `http.body=` · Shodan `http.html:` · Censys `…http.body` · Modat `http.body~` · Hunt.io `html.body.content LIKE` | `http.body` contains |
 | FOFA `header=` · ZoomEye `http.header=` · Hunt.io `http.headers.bytes.content LIKE` or `http.headers.raw LIKE` | `http.headers_raw` contains, or `http.headers.<name>` if the response shows which header holds it |
 | FOFA `server=` · ZoomEye `http.header.server=` · Modat `http.headers: (key = "Server" and value ~ "x")` · urlscan `page.server:` · Hunt.io `http.headers.server LIKE` | `http.headers.server` contains |
-| Modat `http.headers: (key = "<Name>" and value = "x")` · Censys `…http.headers` key and value · Hunt.io `http.headers.x_powered_by`, `http.headers.etag` | `http.headers.<name>` (lowercase name, `-` for Hunt.io's `_`), exact for `=` and `==`, contains for `~`, `:` or `LIKE '%x%'`. `athar convert` doesn't write Censys header searches yet (the field is unverified), so on Censys the round trip drops them. |
+| Modat `http.headers: (key = "<Name>" and value = "x")` · Censys `…http.headers` key and value · Hunt.io `http.headers.x_powered_by`, `http.headers.etag` | `http.headers.<name>` (lowercase name, `-` for Hunt.io's `_`), exact for `=` and `==`, contains for `~`, `:` or `LIKE '%x%'`. `athar convert` doesn't write Censys header searches yet (the nested form inside `host.services: ( … )` is unverified), so on Censys the round trip drops them. |
 | FOFA, ZoomEye `status_code=` · Shodan `http.status:` · Modat `http.status_code=` · urlscan `page.status:` · Hunt.io `http.headers.status.code ==` | `http.status_code` exact |
-| FOFA `icon_hash=` · Shodan `http.favicon.hash:` · ZoomEye `iconhash=` with an integer · Modat `http.files.mmh3=` · Hunt.io `favicon.hash.mmh3 ==` | `http.favicon.mmh3` exact. Hunt.io's `favicon.hash.mmh3_fofa` is not mapped: its schema doesn't say how it differs. |
-| ZoomEye `iconhash=` with 32 hex characters · Hunt.io `favicon.hash.md5 ==` | `http.favicon.md5` exact |
+| FOFA `icon_hash=` · Shodan `http.favicon.hash:` · ZoomEye `iconhash=` with an integer · Modat `http.files.mmh3=` · Censys `…http.favicons.hash_shodan` · Hunt.io `favicon.hash.mmh3 ==` | `http.favicon.mmh3` exact. Hunt.io's `favicon.hash.mmh3_fofa` is not mapped: its schema doesn't say how it differs. |
+| ZoomEye `iconhash=` with 32 hex characters · Censys `…http.favicons.hash_md5` · Hunt.io `favicon.hash.md5 ==` | `http.favicon.md5` exact |
 | Censys `…http.favicons.hash_sha256` · Modat `http.files.sha256` · Hunt.io `favicon.hash.sha256 ==` | `http.favicon.sha256` exact |
 | Censys `…http.body_hash_sha256` · Modat `http.body_sha256` · Hunt.io `html.body.hash.sha256 ==` | `http.body.sha256` exact |
 | Shodan `http.html_hash:` · Modat `http.body_mmh3` | `http.body.mmh3` exact |
@@ -67,12 +67,13 @@ Values in angle brackets are placeholders. "contains" means `field|contains: val
 | Censys `…cert.fingerprint_sha256` · Modat `tls.fingerprint_sha256` · Hunt.io `tls.cert.hash.sha256 ==` | `tls.cert.sha256` exact |
 | Shodan `ssl.cert.fingerprint:` | `tls.cert.sha256` exact for 64 hex characters, `tls.cert.sha1` for 40. Which hash Shodan stores there is not checked, so `athar convert` doesn't write it and the round trip on Shodan drops it. |
 | FOFA `jarm=` · Shodan `ssl.jarm:` · ZoomEye `ssl.jarm=` · Censys `…jarm.fingerprint` · Modat `tls.jarm` · Hunt.io `jarm.fingerprint ==` | `tls.jarm` exact |
-| Shodan `ssl.ja3s:` · ZoomEye `ssl.ja3s=` · Modat `tls.ja3s` | `tls.ja3s` exact |
+| Shodan `ssl.ja3s:` · ZoomEye `ssl.ja3s=` · Modat `tls.ja3s` · Censys `…tls.ja3s` | `tls.ja3s` exact |
 | FOFA, ZoomEye `banner=` · Censys `…banner` · Modat `banner~` | `service.banner` contains. Hunt.io's `protocol.data` is not mapped: its schema doesn't say which probe's answer it holds. |
 | Bare quoted text (FOFA, ZoomEye, Shodan, Modat) | The field where the response shows the text (`http.title`, `http.body`, `http.headers.<name>`, `service.banner`). Use a `keywords` selection only if you can't tell. |
 | `port` on any engine | `target.ports` |
-| FOFA, ZoomEye `&&`, `\|\|` · Censys, Modat `and`, `or` · urlscan, Hunt.io `AND`, `OR` · Shodan space (AND) and `field:"a","b"` (any of the values) | Several fields in one selection are AND; a list of values is OR; a list of maps (several field-value pairs, each starting with `-`) is OR across fields; separate selections combine in `condition` |
+| FOFA, ZoomEye `&&`, `\|\|` · Censys, Modat `and`, `or` · urlscan, Hunt.io `AND`, `OR` · Shodan space (AND) and `field:"a","b"` (any of the values) · Censys `field: {"a", "b"}` (any of the values) | Several fields in one selection are AND; a list of values is OR; a list of maps (several field-value pairs, each starting with `-`) is OR across fields; separate selections combine in `condition` |
 | Censys `host.services: (…)` · Modat `same_service(…)` · Hunt.io `same_port(…)` | One rule; all of its selections already hold on one service. A Censys, Modat or Hunt.io host query without these may combine two services of one host, which one rule can't express (spec section 11); ask the user which service the rule is about. |
+| Censys `web.endpoints.http.…`, `web.cert.…`, `web.jarm.…`, `web.port` | The same fields as under `host.services.`: a web property is one service that Censys reached by hostname. `athar convert -t censys` writes every rule for hosts and for web properties, joined with `or`, so a query that had only one of the two halves comes back with both; tell the user. |
 
 Field names follow spec section 5 and Appendix A. If a filter has no row here and no field in the spec, tell the user rather than inventing a field.
 

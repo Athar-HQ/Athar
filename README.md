@@ -260,13 +260,15 @@ Every query carries a fidelity label, and the notes say what was lost and why:
 
 urlscan.io is a different kind of source. It records pages that a browser loaded for URLs people submitted, not every service on the internet, and it has no field for the body, banner, port or any header but `Server`. Title rules convert exactly; most others become a superset. File hashes are the exception: urlscan stores the SHA-256 of every file a page loads, so a rule that checks a file's hash with a custom probe converts to a `hash:` search. The ARTEX frontend files rule finds 1,103 scans there, 60 of them rebrands without the family title.
 
+Censys keeps a service in two kinds of records: as a service of a host, which it found by scanning an IP address, and as a web property, which it found by asking for a hostname. A converted query asks for both, `host.services: ( … ) or ( … )` with `web.` fields in the second half, so it also finds consoles that only answer by name. Regexes get the flag `(?i)`, because Censys's `=~` matches by case and a rule doesn't.
+
 Hunt.io takes SQL. Its query is a whole statement, `SELECT ip, service.port FROM ip.current WHERE same_port( … )`, that runs as pasted into the portal's SQL editor; `same_port` keeps the conditions on one service. `LIKE` and `==` are case-sensitive there, so title and body conditions are approximate unless they use `|cased`, while favicon, hash, port and status conditions convert exactly. Regexes don't convert.
 
 **One converted query on the platforms.** On 25 November 2026, before the family rule learned the Chinese and Korean titles, it required the English title and the `/function/tasks` route. Its converted queries, run on each platform:
 
 | Platform | Result |
 | --- | --- |
-| Censys | 243 hosts. Censys's own software label `artex` is on 239 of them. |
+| Censys | 243 hosts. Censys's own software label `artex` is on 239 of them. The query then searched hosts only. With web properties, which Andrew Northern suggested ([#63](https://github.com/Athar-HQ/Athar/issues/63)), the current family query finds 4,953 results, 1,879 of them hosts (27 November 2026). |
 | ZoomEye | About 525 results. |
 | Modat Magnify | 1,433 services. Modat's own product label `Artex` is on about 1,390 of them. Most run on port 8787. |
 | Shodan | No results. The route sits in an inline script near the end of a 12 KB page, which Shodan's `http.html` index does not reach. The title condition alone finds 292 hosts. |
