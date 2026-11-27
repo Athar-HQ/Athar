@@ -433,6 +433,11 @@ func (c *converter) lower(e expr) expr {
 			return c.drop(note)
 		}
 		spec := fieldTables[c.engine][x.field]
+		if spec.loose {
+			// The engine field holds more than the rule field. fieldFor
+			// already dropped the term under not.
+			f = max(f, Approximate)
+		}
 		if spec.dnsOnly && ipLike(x) {
 			// The engine misses IP addresses in the SAN. Under not that
 			// only excludes less, so the term stays.

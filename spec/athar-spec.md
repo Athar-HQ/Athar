@@ -355,20 +355,21 @@ A backend turns a rule into one engine's query and labels the result with its fi
 
 **Operators do not line up across engines:**
 
-- `contains` is native on FOFA and ZoomEye (`=`) and on Modat (`~`) for fields such as `http.title`. It is approximate on Shodan and Censys (`:`), which tokenize text, on Modat's `http.body`, `http.headers` and `banner`, which only match whole words, and on Hunt.io (`LIKE '%…%'`), which is case-sensitive.
-- Exact match is `==` on FOFA, ZoomEye and Hunt.io and `=` on Censys and Modat; Shodan has none. Modat's `==` and `~~` are the case-sensitive forms, for `cased`; Hunt.io's `==` and `LIKE` are always case-sensitive, so only `cased` matches convert exactly there. Where an engine's search ignores case, a `cased` match is approximate.
-- `startswith` and `endswith` only convert exactly on Censys and Modat (`=~` with anchors), and `re` converts only there, approximately, since neither dialect is RE2. Censys's `=~` matches by case, so the regex gets the flag `(?i)` unless the match is `cased`: `=~ "(?i)^ARTEX"`. Censys allows `^` only at the start of a regex and `$` only at its end; other regexes are unconvertible there. It refuses regex searches from visitors who are not signed in. On Modat this works on `http.title`, certificate names and single headers, not on the body or banner, and only for patterns its smaller regex dialect can express. Hunt.io's `LIKE` is anchored, so `startswith` and `endswith` convert there (`'value%'`, `'%value'`), but `re` does not. Elsewhere they degrade to `contains`.
+- `contains` is native on FOFA and ZoomEye (`=`) and on Modat (`~`) for fields such as `http.title`. It is approximate on Shodan and Censys (`:`), which tokenize text, on Modat's `http.body`, `http.headers` and `banner`, which only match whole words, and on Hunt.io (`LIKE '%…%'`), which is case-sensitive. On Censys a `cased` or wildcard `contains`, and one on a field its subdomain analyzer splits, goes through `=~` instead and stays exact.
+- Exact match is `==` on FOFA, ZoomEye and Hunt.io and `=` on Censys and Modat; Shodan has none. Modat's `==` and `~~` are the case-sensitive forms, for `cased`; Censys's `=` is case-sensitive too, so it carries a `cased` match and an exact match that ignores case becomes an anchored `(?i)` regex. Hunt.io's `==` and `LIKE` are always case-sensitive, so only `cased` matches convert exactly there. Where an engine's search ignores case, a `cased` match is approximate.
+- `startswith` and `endswith` only convert exactly on Censys and Modat (`=~` with anchors), and `re` converts only there, approximately, since neither dialect is RE2. On Modat this works on `http.title`, certificate names and single headers, not on the body or banner, and only for patterns its smaller regex dialect can express. On Censys they work on every text field, including single headers, with the limits in the Censys bullet below. Hunt.io's `LIKE` is anchored, so `startswith` and `endswith` convert there (`'value%'`, `'%value'`), but `re` does not. Elsewhere they degrade to `contains`.
 - Under `not` a looser operator excludes too much: `not startswith "ARTEX"` as FOFA's `title!="ARTEX"` would also hide titles that only contain ARTEX, which the rule matches. A negated exact, prefix or suffix match that an engine can only search as a substring or as words, a negated `cased` match that it can only search without regard to case, and a negated field that it maps to a wider one (a single header searched in the whole header block, a body or favicon SHA-256 as urlscan's `hash`) count as unconvertible and are dropped by the superset rule.
 - Value lists: alternative values of one field become Shodan's comma list, `http.title:"a","b"`, the only OR Shodan has, and on Censys a set, `…html_title: {"a", "b"}`, for `contains`.
 - Hashes are written in lowercase on Censys and Hunt.io, whose `=` and `==` compare by case, unless the match is `cased`. Censys wants integers quoted, a negative favicon hash included: `…favicons.hash_shodan = "-576220750"`.
 - Quoting: a quote or backslash in a value is escaped as the engine documents it, in the quoted string and, for `=~`, in the regex inside it, so it can never end the string. A character an engine documents no spelling for is unconvertible: a backslash on Modat and Hunt.io, and a control character such as a line break in any query.
-- Certificate names: Censys, Modat and Hunt.io index the DNS names of the Subject Alternative Names, but `tls.cert.san` holds its IP addresses too, so a `tls.cert.san` condition that an address could meet (`192.0.2.1`, `contains: '10.'`, any `re`) is approximate there. Modat documents only `=` on its SAN fields, and wildcards only on certificate common names and `fqdns`. Hunt.io doesn't document whether `tls.cert.dns_names` is searched one name at a time, so a `tls.cert.san` condition is approximate there and dropped under `not`.
-- Single headers: Modat searches one header by name and value, `http.headers: (key = "Server" and value ~ "nginx")`, which matches `http.headers.<name>` exactly. FOFA and ZoomEye search the raw header block and Shodan only full text.
+- Certificate names: `tls.cert.san` holds the DNS names and IP addresses of the Subject Alternative Names. Censys searches it in `cert.names`, which holds all names in the certificate, the common name included, so a `tls.cert.san` condition is approximate there and dropped under `not`. Modat and Hunt.io index the DNS names only, so a condition that an address could meet (`192.0.2.1`, `contains: '10.'`, any `re`) is approximate there. Modat documents only `=` on its SAN fields, and wildcards only on certificate common names and `fqdns`. Hunt.io doesn't document whether `tls.cert.dns_names` is searched one name at a time, so a `tls.cert.san` condition is approximate there and dropped under `not`.
+- Single headers: Modat searches one header by name and value, `http.headers: (key = "Server" and value ~ "nginx")`, and Censys the same way, `…endpoints.http.headers: (key = "Server" and value =~ "(?i)^nginx$")`; both match `http.headers.<name>` exactly. Neither can test a header for presence alone. FOFA and ZoomEye search the raw header block and Shodan only full text.
 - Same service: Censys needs the nested form `host.services: ( … )` on hosts. It also keeps a service as a web property, a record of its own for one hostname and port, whose fields start with `web.`; a query asks for both, `host.services: ( … ) or ( … )`, so that it also finds services Censys only reached by name. A single condition needs no group: `host.services.endpoints.http.html_title: "x" or web.endpoints.http.html_title: "x"`. A web property has no banner of its own, so a banner condition only searches hosts. Modat records are per service at service level; at host level the query goes into `same_service( … )`. Hunt.io's `ip.current` has one row per IP with its services nested under it, so the condition goes into `same_port( … )`. FOFA, ZoomEye and Shodan records are already per service.
+- Censys Platform is searched with CenQL. `:` ignores case but tokenizes, so it carries a plain `contains` and nothing else; every other operator goes through `=~`, whose regex is case-sensitive and unanchored. The backend therefore adds `(?i)` unless the match is `cased`, and `^` or `$` for an exact, prefix or suffix match: `=~ "(?i)^ARTEX"`. A `re` expression is passed on as written, because the scanner too reads it by case unless it sets `(?i)` itself. Censys accepts `^` only as the first character of a pattern and `$` only as the last, and documents no flag but `(?i)`, so a rule regex that anchors anywhere else or sets another flag does not convert; its dialect is also smaller than RE2, which keeps `re` approximate. `=` is an exact, case-sensitive match. `*` and `?` stopped being wildcards outside regex, so Sigma wildcards convert as `.*` and `.`. `field: *` tests for presence, and `<`, `<=`, `>`, `>=` compare numbers, dates and addresses with the value quoted. The certificate common names and `cert.names` run through a subdomain analyzer that matches whole domain labels, so a substring on them uses a regex too. Regex searches need a Starter tier account or above, and `jarm`, `ja3s` and `ja4s` the Adversary Investigation module.
 - urlscan.io records pages, not services: what a browser showed for a URL someone submitted, after redirects. It has no field for the body, banner, port, certificate subject or any header but `Server`, so most rules convert to a superset. It indexes every value in lowercase and uses the Elasticsearch query string (`AND`, `OR`, `NOT`). `http.title` converts exactly with regexes on `page.title.keyword`, which urlscan anchors at both ends: `contains` becomes `/.*value.*/`, `startswith` becomes `/value.*/`. Regex searches need a signed-in account. `re` does not convert, because urlscan's regex dialect is not RE2. urlscan is the one engine that indexes more than the baseline probe: it stores the SHA-256 of every file a page loads, so the `http.body.sha256` of a custom probe that fetches a file converts to `hash:` (approximate: it finds the pages that loaded the file). No other engine searches custom probes. Lucene reads `a OR NOT b` as `a AND NOT b`, so a negation inside OR gets its own group: `a OR (NOT b)`.
 - Hunt.io is searched with HuntSQL, a read-only SQL dialect. A query is a complete statement on the `ip.current` table, `SELECT ip, service.port FROM ip.current WHERE same_port( … )`. `LIKE` follows SQL: anchored at both ends, `%` and `_` as wildcards, so Sigma's `*` and `?` become `%` and `_`, and a literal `%` or `_` in a value makes the match approximate. Negations become `NOT ( … )`. `RLIKE` is anchored at both ends too, and its regex dialect is not documented, so `re` does not convert. Values are written in single quotes, or in double quotes when they hold a single quote; HuntSQL documents no escapes, so a value with a backslash or with both kinds of quotes is unconvertible. Hunt.io has no full-text field and no JA3S. Without a timestamp condition it searches the rows of the last 30 days.
 
-**Body truncation.** Engines index only part of large bodies; Censys [searches the first 6 KB](https://docs.censys.com/changelog/august-24-2026) for name-based web endpoints. A `body` match deep in a page can be missed by the engine but found by the scanner.
+**Body truncation.** Engines index only part of large bodies; a Censys host service endpoint [indexes the first 64 KB of a body and the first 2 KB of the header block](https://docs.censys.com/docs/platform-host-dataset), and its body hash covers the same 64 KB. A web property with a name has only [the first 6 KB](https://docs.censys.com/changelog/august-24-2026) of its body indexed. A `body` match deep in a page, or a header past the first 2 KB, can be missed by the engine but found by the scanner.
 
 Example conversions of the ARTEX rules in [rules/offensive-tool/](../rules/offensive-tool/), as `athar convert` prints them. The family rule is three alternative titles:
 
@@ -435,12 +436,21 @@ ARTEX, urlscan.io (superset): urlscan has no favicon mmh3, so the
 alternative is dropped and the family query remains.
 ```
 
-The Basic auth rule matches one header, which only Modat can search by name:
+The Basic auth rule matches one header, which Censys and Modat can search by name:
 
 ```text
 Basic auth, Modat at service level (exact):
   http.headers: (key = "Www-Authenticate"
                  and value = "Basic realm=\"ARTEX\", charset=\"UTF-8\"")
+
+Basic auth, Censys Platform (exact: the regex is anchored and (?i) restores
+the rule's case-insensitive match):
+  host.services.endpoints.http.headers:
+    (key = "Www-Authenticate"
+     and value =~ "(?i)^Basic realm=\\\"ARTEX\\\", charset=\\\"UTF-8\\\"$")
+  or web.endpoints.http.headers:
+    (key = "Www-Authenticate"
+     and value =~ "(?i)^Basic realm=\\\"ARTEX\\\", charset=\\\"UTF-8\\\"$")
 
 Basic auth, FOFA (approximate: "Name: value" is searched in the whole header block):
   header="Www-Authenticate: Basic realm=\"ARTEX\", charset=\"UTF-8\""
@@ -466,34 +476,40 @@ Informative. This is the first draft of the mapping backends use. Cells marked �
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `http.title` | `title=` | `http.title:` | `…endpoints.http.html_title` | `title=` | `http.title` | `page.title.keyword` (regex) | `html.head.title` |
 | `http.body` | `body=` | `http.html:` | `…endpoints.http.body` | `http.body=` | `http.body` (whole words) | — | `html.body.content` |
-| `http.headers.server` | `server=`† | full text `"Server: …"` | `…endpoints.http.headers` key and value (not converted) | `http.header.server=` | `http.headers: (key = "Server" and value …)` | `page.server` (words) | `http.headers.server` |
-| other headers | `header=` on raw block | full text | `…endpoints.http.headers` key and value (not converted) | `http.header=` on raw block | `http.headers: (key = "…" and value …)` | — | `http.headers.bytes.content` on raw block; `http.headers.x_powered_by`, `http.headers.etag` by name |
+| `http.headers.server` | `server=`† | full text `"Server: …"` | `…endpoints.http.headers: (key = "Server" and value …)` | `http.header.server=` | `http.headers: (key = "Server" and value …)` | `page.server` (words) | `http.headers.server` |
+| other headers | `header=` on raw block | full text | `…endpoints.http.headers: (key = "…" and value …)` | `http.header=` on raw block | `http.headers: (key = "…" and value …)` | — | `http.headers.bytes.content` on raw block; `http.headers.x_powered_by`, `http.headers.etag` by name |
 | `http.status_code` | `status_code=`† | `http.status:` | `…endpoints.http.status_code` | `http.header.status_code=` | `http.status_code` | `page.status` | `http.headers.status.code` |
 | `http.favicon.mmh3` | `icon_hash=` | `http.favicon.hash:` | `…endpoints.http.favicons.hash_shodan` | `iconhash=` | `http.files.mmh3` | — | `favicon.hash.mmh3` |
 | `http.favicon.md5` | — | — | `…endpoints.http.favicons.hash_md5` | `iconhash=` | — | — | `favicon.hash.md5` |
 | `http.favicon.sha256` | — | — | `…endpoints.http.favicons.hash_sha256` | — | `http.files.sha256` | `hash` (any response) | `favicon.hash.sha256` |
 | `http.body.mmh3` | `body_hash=`† (algorithm undocumented, not converted) | `http.html_hash:`† | — | — | `http.body_mmh3`† | — | `html.body.hash.murmur3`† (variant undocumented, not converted) |
 | `http.body.sha256` | — | — | `…endpoints.http.body_hash_sha256` | — | `http.body_sha256` | `hash` (any response) | `html.body.hash.sha256` |
-| `tls.cert.subject.cn` | `cert.subject.cn=` | `ssl.cert.subject.cn:` | `…cert.parsed.subject.common_name` | `ssl.cert.subject.cn=` | `tls.subject.common_name` | — | `tls.cert.subject.common_name` |
-| `tls.cert.issuer.cn` | `cert.issuer.cn=`† | `ssl.cert.issuer.cn:` | `…cert.parsed.issuer.common_name` | `ssl.cert.issuer.cn=` | `tls.issuer.common_name` | `page.tlsIssuer` | `tls.cert.issuer.common_name` |
-| `tls.cert.subject.o` | `cert.subject.org=`† | — | `…cert.parsed.subject.organization`† | — | `tls.subject.organization` | — | `tls.cert.subject.organization` |
-| `tls.cert.issuer.o` | `cert.issuer.org=`† | — | `…cert.parsed.issuer.organization`† | — | `tls.issuer.organization` | — | `tls.cert.issuer.organization` |
-| `tls.cert.san` | — (`cert.domain` is documented as a result field only) | — | `…cert.parsed.extensions.subject_alt_name.dns_names`† (DNS names only) | — | `tls.extensions.subject_alt_name.dns` (equality only; DNS names only) | — | `tls.cert.dns_names` (DNS names only; whether it is searched name by name is not documented) |
+| `tls.cert.subject.cn` | `cert.subject.cn=` | `ssl.cert.subject.cn:` | `…cert.parsed.subject.common_name` (subdomain analyzer) | `ssl.cert.subject.cn=` | `tls.subject.common_name` | — | `tls.cert.subject.common_name` |
+| `tls.cert.issuer.cn` | `cert.issuer.cn=`† | `ssl.cert.issuer.cn:` | `…cert.parsed.issuer.common_name` (subdomain analyzer) | `ssl.cert.issuer.cn=` | `tls.issuer.common_name` | `page.tlsIssuer` | `tls.cert.issuer.common_name` |
+| `tls.cert.subject.dn` | — | — | `…cert.parsed.subject_dn` | — | — | — | — |
+| `tls.cert.issuer.dn` | — | — | `…cert.parsed.issuer_dn` | — | — | — | — |
+| `tls.cert.subject.o` | `cert.subject.org=`† | — | `…cert.parsed.subject.organization` | — | `tls.subject.organization` | — | `tls.cert.subject.organization` |
+| `tls.cert.issuer.o` | `cert.issuer.org=`† | — | `…cert.parsed.issuer.organization` | — | `tls.issuer.organization` | — | `tls.cert.issuer.organization` |
+| `tls.cert.san` | — (`cert.domain` is documented as a result field only) | — | `…cert.names` (subdomain analyzer; also holds the common name) | — | `tls.extensions.subject_alt_name.dns` (equality only; DNS names only) | — | `tls.cert.dns_names` (DNS names only; whether it is searched name by name is not documented) |
 | `tls.cert.sha256` | —† | `ssl.cert.fingerprint:`† (hash algorithm unchecked, not converted) | `…cert.fingerprint_sha256` | —† | `tls.fingerprint_sha256` | — | `tls.cert.hash.sha256` |
+| `tls.cert.sha1` | — | — | `…cert.fingerprint_sha1` | — | — | — | — |
 | `tls.jarm` | `jarm=` | `ssl.jarm:` | `…jarm.fingerprint` | `ssl.jarm=` | `tls.jarm` | — | `jarm.fingerprint` |
 | `tls.ja3s` | —† | `ssl.ja3s:` | `…tls.ja3s` | `ssl.ja3s=` | `tls.ja3s` | — | — |
+| `tls.ja4s` | — | — | `…tls.ja4s` | — | — | — | — |
 | `service.banner` | `banner=` | full text | `host.services.banner` (hosts only) | `banner=` | `banner` (whole words) | — | `protocol.data`† (probe undocumented, not converted) |
 | `service.port` | `port=` | `port:` | `…port` | `port=` | `port` | — | `service.port` |
-| `keywords` | bare `"…"` | bare terms | full-document query (not converted: it can't be combined with `host.services`) | bare `"…"` | bare terms | — | — |
+| `keywords` | bare `"…"` | bare terms | full-text query (not converted: it can't be nested in `host.services`) | bare `"…"` | bare terms | — | — |
 
 Engine references:
 
-- [Censys Query Language](https://docs.censys.com/docs/censys-query-language)
-- [Censys regex: case sensitivity, anchors, escaping](https://docs.censys.com/docs/platform-regex-cenql)
-- [Censys Platform host dataset (nested fields)](https://docs.censys.com/docs/platform-host-dataset)
+- [Censys Query Language](https://docs.censys.com/docs/censys-query-language): operators, tokenization, aliases, nested fields
+- [Regex in CenQL](https://docs.censys.com/docs/platform-regex-cenql): `=~` is case-sensitive and unanchored, `(?i)` and the dialect's operators
+- [Censys Platform host dataset (nested fields)](https://docs.censys.com/docs/platform-host-dataset): index limits (64 KB body, 2 KB headers, 384 KB favicon)
+- [Censys Platform TLS data](https://docs.censys.com/docs/platform-tls-data)
 - [Censys Platform web property dataset](https://docs.censys.com/docs/platform-web-property-dataset)
 - [Censys data definitions (every field of hosts and web properties)](https://platform.censys.io/search/definitions)
 - [Censys Platform JARM fields](https://docs.censys.com/docs/platform-jarm-fingerprints)
+- [Censys Platform syntax differences](https://docs.censys.com/docs/censys-platform-syntax-differences): `*` and `?` are no longer wildcards outside regex
 - [Censys Platform certificate dataset (example record with organisation and SAN fields)](https://docs.censys.com/docs/platform-certificate-dataset)
 - [Shodan: property hashes](https://help.shodan.io/mastery/property-hashes)
 - [ZoomEye search syntax guide](https://dev.to/stark_zhuang_df5076f35c68/a-complete-guide-to-the-latest-zoomeye-search-syntax-4loo)

@@ -78,6 +78,7 @@ Decided on 2026-11-26, not built yet. Today the baseline probe follows no redire
 - **Licensing.** Rules are under DRL 1.1 (decided above). The licence for the CLI, the spec and the docs is still to be chosen. JA4+ fields stay optional because of the FoxIO licence, and [JARM and HASSH are reportedly patented](https://hdm.io/posts/20230927111137909613461915/), which needs checking. Nothing may be copied from `nmap-service-probes`.
 - **Active probing policy.** Scanning infrastructure you don't own carries legal and ethical limits. Proposal: baseline probe only by default, custom probes opt-in, safe methods only, rate limits in the reference scanner.
 - **Format versioning.** A top-level `format: 1` key would let converters reject rules written for a newer spec.
+- **Pivoting on engine results.** An `athar hunt` command would search an engine with an existing rule, report field values that no rule in the family covers yet, check that they are specific to the product and draft variant rules for review. Proposal in [hunt.md](hunt.md).
 
 ## Deferred
 
