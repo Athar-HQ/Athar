@@ -11,9 +11,11 @@ description: |
   'ScopeWeaver — Autonomous Penetration Testing Console' in English (the
   default) or 'ScopeWeaver — 자율 침투 테스트 콘솔' in Korean, so the rule is
   the family title plus the ScopeWeaver brand at the start of the title.
-  The fork ships ARTEX's favicon unchanged (MurmurHash3 -576220750), so the
-  favicon does not tell it apart: the ARTEX rule, which accepts that favicon
-  on its own, also matches ScopeWeaver consoles.
+  The fork ships ARTEX's favicon and stylesheets unchanged (favicon
+  MurmurHash3 -576220750), so they do not tell it apart: the ARTEX rule,
+  which accepts that favicon on its own, also matches ScopeWeaver consoles.
+  The meta description 'Console for an LLM-driven autonomous penetration
+  testing system' is the English form of the family's.
 references:
   - https://x.com/ex_raritas/status/2125745259925962999
   - https://github.com/cskwork/scopeweaver
@@ -47,10 +49,21 @@ confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
 tests:
-  # Titles and favicon hash taken from the fork's public source
+  # Captured landing page of a ScopeWeaver console (2026-11-27), body
+  # shortened to the head.
+  - name: ScopeWeaver landing page as received
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      Server: nginx
+      Content-Type: text/html; charset=utf-8
+      Accept-Ranges: bytes
+
+      <!DOCTYPE html><html id="__next_error__"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>ScopeWeaver — Autonomous Penetration Testing Console</title><meta name="description" content="Console for an LLM-driven autonomous penetration testing system"/><link rel="icon" href="/favicon.ico?favicon.1uboyqwm7-s27.ico" sizes="48x48" type="image/x-icon"/><link rel="icon" href="/icon.svg?icon.4201tn0y0--si.svg" sizes="any" type="image/svg+xml"/></head><body></body></html>
+  # The other titles and the favicon hash come from the fork's public source
   # (web/src/i18n/messages/interface.ts and web/src/app/favicon.ico,
-  # 2026-11-27), not from captured responses or a search engine's record.
-  - name: ScopeWeaver, English title
+  # 2026-11-27). Modat's stored record shows the same favicon hashes.
+  - name: ScopeWeaver, English title with the ARTEX favicon
     expect: match
     response:
       http.title: 'ScopeWeaver — Autonomous Penetration Testing Console'
@@ -72,3 +85,5 @@ tests:
     expect: no_match
     response:
       http.title: 'ScopeWeaver — Login'
+native:
+  modat: 'web.title~"ScopeWeaver"'
