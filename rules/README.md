@@ -139,7 +139,8 @@ rules/
 │   ├── evilginx_cert_nov26.yml                     Evilginx API certificate organisation
 │   ├── evilginx_title_nov26.yml                    Evilginx and evilgophish title
 │   ├── gophish_cert_nov26.yml                      Gophish admin default certificate
-│   └── gophish_redirect_nov26.yml                  Gophish admin login redirect
+│   ├── gophish_redirect_nov26.yml                  Gophish admin login redirect
+│   └── modlishka_cert_nov26.yml                    Modlishka generated certificate
 └── …
 ```
 
