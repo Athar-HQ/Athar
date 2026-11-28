@@ -1,0 +1,69 @@
+title: AI Infrastructure - TensorBoard
+id: 23a2e482-3547-464a-8dd3-2b38d681ddc0
+status: experimental
+description: |
+  TensorBoard, the visualisation dashboard of TensorFlow, also used with
+  PyTorch and other frameworks to follow training runs. Its page is one
+  large HTML file that begins with a meta tag only TensorBoard writes,
+  name="tb-relative-root", and is titled "TensorBoard". The rule requires
+  both. TensorBoard has no authentication of its own, so an exposed instance
+  shows the training data, metrics and hyperparameters of every run in its
+  log directory.
+references:
+  - https://github.com/tensorflow/tensorboard
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - category.ai-infrastructure
+target:
+  protocol: http
+  tls: auto
+  ports: [6006]   # TensorBoard's default port
+detection:
+  selection_page:
+    http.title: 'TensorBoard'
+    http.body|contains: '<meta name="tb-relative-root"'
+  condition: selection_page
+identifies:
+  product: TensorBoard
+  vendor: Google
+  family: tensorboard
+  category: ai-infrastructure
+confidence: high
+falsepositives:
+  - Services that embed TensorBoard behind their own interface, such as notebook platforms
+tests:
+  # Captured on 2026-11-28 from TensorBoard 2.21.0 started on localhost. The
+  # headers are as received, without Content-Length; of the 205 KB body only
+  # its first line and the head up to the title are kept, and the long
+  # Content-Security-Policy value is cut.
+  - name: Dashboard page
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      Server: Werkzeug/3.1.9 Python/3.12.10
+      Date: Sat, 28 Nov 2026 16:05:06 GMT
+      X-Content-Type-Options: nosniff
+      Content-Encoding: identity
+      Expires: 0
+      Cache-Control: no-cache, must-revalidate
+      Content-Security-Policy: default-src 'self';font-src 'self' data:;frame-src 'self' https://ui.perfetto.dev;img-src 'self' data: blob:;object-src 'none'
+      Content-Type: text/html; charset=utf-8
+      Connection: close
+
+      <!doctype html><meta name="tb-relative-root" content="./"><!doctype html><!--
+      @license
+      Copyright 2019 The TensorFlow Authors. All Rights Reserved.
+      --><html><head><meta charset="utf-8">
+      <title>TensorBoard</title>
+  # Made-up near misses.
+  - name: Tutorial page
+    expect: no_match
+    response:
+      http.title: 'TensorBoard'
+      http.body: '<h1>Getting started with TensorBoard</h1>'
+  - name: Page with a longer title
+    expect: no_match
+    response:
+      http.title: 'TensorBoard | TensorFlow'
+      http.body: '<meta name="description" content="TensorBoard">'

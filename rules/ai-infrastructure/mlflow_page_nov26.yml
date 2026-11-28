@@ -1,0 +1,67 @@
+title: AI Infrastructure - MLflow tracking server
+id: 175102cb-1fc4-4edf-b532-0082cec1f0fc
+status: experimental
+description: |
+  Web interface of an MLflow tracking server, the open-source platform for
+  recording machine-learning experiments, models and, in current versions,
+  LLM traces. The landing page is a small shell for a JavaScript application:
+  its title is "MLflow" and its two containers carry the class
+  "mlflow-ui-container". The rule requires both, because the bare title also
+  heads documentation and unrelated pages. MLflow has no authentication
+  unless the operator enables it, so an exposed server usually lets anyone
+  read experiments and registered models.
+references:
+  - https://github.com/mlflow/mlflow
+  - https://mlflow.org/docs/latest/
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - category.ai-infrastructure
+target:
+  protocol: http
+  tls: auto
+  ports: [5000]   # default port of "mlflow server"
+detection:
+  selection_page:
+    http.title: 'MLflow'
+    http.body|contains: 'mlflow-ui-container'
+  condition: selection_page
+identifies:
+  product: MLflow
+  family: mlflow
+  category: ai-infrastructure
+confidence: high
+falsepositives:
+  - Pages that embed or copy the MLflow interface
+tests:
+  # Captured on 2026-11-28 from "mlflow server" 3.18.0 started on localhost.
+  - name: Landing page
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      date: Sat, 28 Nov 2026 16:05:05 GMT
+      server: uvicorn
+      content-disposition: inline; filename=index.html
+      content-type: text/html; charset=utf-8
+      content-length: 701
+      last-modified: Sat, 28 Nov 2026 16:04:00 GMT
+      cache-control: no-cache
+      etag: "1795881840.975487-701-3436264518"
+      date: Sat, 28 Nov 2026 16:05:06 GMT
+      accept-ranges: bytes
+      x-content-type-options: nosniff
+      x-frame-options: SAMEORIGIN
+      vary: Origin
+
+      <!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no"/><link rel="shortcut icon" href="./static-files/favicon.ico"/><meta name="theme-color" content="#000000"/><link rel="manifest" href="./static-files/manifest.json" crossorigin="use-credentials"/><title>MLflow</title><script defer="defer" src="static-files/static/js/main.00d66947.js"></script><link href="static-files/static/css/main.b0f58ef9.css" rel="stylesheet"></head><body><noscript>You need to enable JavaScript to run this app.</noscript><div id="root" class="mlflow-ui-container"></div><div id="modal" class="mlflow-ui-container"></div></body></html>
+  # Made-up near misses.
+  - name: Documentation page
+    expect: no_match
+    response:
+      http.title: 'MLflow Tracking | MLflow'
+      http.body: '<div class="docs">MLflow Tracking</div>'
+  - name: Unrelated page with the same title
+    expect: no_match
+    response:
+      http.title: 'MLflow'
+      http.body: '<h1>MLflow consulting</h1>'

@@ -1,0 +1,65 @@
+title: AI Infrastructure - LiteLLM proxy
+id: d2a72771-48a3-48c6-80e8-e1af686a8030
+status: experimental
+description: |
+  LiteLLM proxy, an open-source gateway that puts one OpenAI-compatible API
+  in front of many model providers and holds their API keys. Its root path
+  serves the interactive API documentation, a Swagger UI page titled
+  "LiteLLM API - Swagger UI". The rule matches that title. The proxy needs a
+  master key for its API, but the documentation page is public, so the title
+  shows on every exposed proxy that has not disabled its docs.
+references:
+  - https://github.com/BerriAI/litellm
+  - https://docs.litellm.ai/docs/proxy/quick_start
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - category.ai-infrastructure
+target:
+  protocol: http
+  tls: auto
+  ports: [4000]   # default port of the LiteLLM proxy
+detection:
+  selection_title:
+    http.title: 'LiteLLM API - Swagger UI'
+  condition: selection_title
+identifies:
+  product: LiteLLM
+  vendor: BerriAI
+  family: litellm
+  category: ai-infrastructure
+confidence: high
+falsepositives:
+  - Mirrors of the project's API documentation
+tests:
+  # Captured on 2026-11-28 from the LiteLLM proxy 1.111.0 started on
+  # localhost. The headers are as received, without content-length; the body
+  # is cut after the head.
+  - name: API documentation page
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      date: Sat, 28 Nov 2026 16:07:44 GMT
+      content-type: text/html; charset=utf-8
+      vary: Origin
+      x-frame-options: DENY
+      content-security-policy: frame-ancestors 'none'
+      x-content-type-options: nosniff
+
+          <!DOCTYPE html>
+          <html>
+          <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link type="text/css" rel="stylesheet" href="/swagger/swagger-ui.css">
+          <link rel="shortcut icon" href="/swagger/favicon.png">
+          <title>LiteLLM API - Swagger UI</title>
+          </head>
+  # Made-up near misses.
+  - name: Swagger UI of another FastAPI application
+    expect: no_match
+    response:
+      http.title: 'FastAPI - Swagger UI'
+  - name: Project documentation site
+    expect: no_match
+    response:
+      http.title: 'LiteLLM - Getting Started | liteLLM'
