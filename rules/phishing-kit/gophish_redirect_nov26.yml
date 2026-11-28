@@ -24,7 +24,7 @@ references:
   - https://github.com/gophish/gophish
   - https://github.com/gophish/gophish/blob/master/middleware/middleware.go
   - https://github.com/gophish/gophish/blob/master/controllers/route.go
-author: debugactiveprocess
+author: Ialle Teixeira
 date: 2026-11-28
 tags:
   - attack.resource_development

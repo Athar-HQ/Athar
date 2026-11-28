@@ -17,7 +17,7 @@ description: |
 references:
   - https://github.com/gophish/gophish
   - https://github.com/gophish/gophish/blob/master/util/util.go
-author: debugactiveprocess
+author: Ialle Teixeira
 date: 2026-11-28
 tags:
   - attack.resource_development

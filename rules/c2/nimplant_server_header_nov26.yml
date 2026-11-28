@@ -16,7 +16,7 @@ description: |
 references:
   - https://github.com/chvancooten/NimPlant
   - https://github.com/chvancooten/NimPlant/blob/main/server/util/listener.py
-author: debugactiveprocess
+author: Ialle Teixeira
 date: 2026-11-28
 tags:
   - attack.resource_development

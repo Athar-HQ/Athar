@@ -17,7 +17,7 @@ description: |
 references:
   - https://github.com/smicallef/spiderfoot
   - https://github.com/smicallef/spiderfoot/blob/master/spiderfoot/static/img/spiderfoot-icon.png
-author: debugactiveprocess
+author: Ialle Teixeira
 date: 2026-11-28
 tags:
   - attack.reconnaissance
