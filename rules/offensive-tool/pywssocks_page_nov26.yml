@@ -1,0 +1,47 @@
+title: Offensive Tool - Pywssocks server page
+id: 5bc6045c-b661-4356-acd1-eaa9107153a0
+status: experimental
+description: |
+  Pywssocks, a SOCKS5 proxy over WebSocket (forward and reverse), answers
+  its root with a page that names it and says "is running but API is not
+  enabled. Please check the documentation.".
+references:
+  - https://github.com/linksocks/pywssocks
+  - https://pywssocks.zetx.tech
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+  - tunnel
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_body:
+    http.body|contains|all:
+      - 'Pywssocks'
+      - 'is running but API is not enabled. Please check the documentation.'
+  condition: selection_body
+identifies:
+  product: Pywssocks
+  family: pywssocks
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Legitimate use of the proxy
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Server page
+    expect: match
+    response:
+      http.body: 'Pywssocks is running but API is not enabled. Please check the documentation.'
+  - name: Name only
+    expect: no_match
+    response:
+      http.body: '<p>About Pywssocks</p>'
+native:
+  modat: 'same_service(web.html~"Pywssocks" and web.html~"is running but API is not enabled. Please check the documentation." service="http" transport="tcp" technology="Python" )'

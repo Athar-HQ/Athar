@@ -1,0 +1,48 @@
+title: C2 - Geacon_Pro certificate
+id: c9841bc6-3c24-4a3a-8ba2-37534cf1dd8c
+status: experimental
+description: |
+  Certificate "C=KZ, O=NN Fern Sub, OU=NN Fern, CN=foren.zik" seen on
+  infrastructure of Geacon_Pro, a Go implementation of Cobalt Strike's
+  beacon.
+references:
+  - https://github.com/frknaykc/Awesome-Malicious-Infra-Hunting-Queries
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.subject.cn: 'foren.zik'
+    tls.cert.issuer.cn: 'foren.zik'
+    tls.cert.subject.o: 'NN Fern Sub'
+  condition: selection_cert
+identifies:
+  product: Geacon_Pro
+  family: geacon
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'foren.zik'
+      tls.cert.issuer.cn: 'foren.zik'
+      tls.cert.subject.o: ['NN Fern Sub']
+  - name: Other organisation
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'foren.zik'
+      tls.cert.issuer.cn: 'foren.zik'
+      tls.cert.subject.o: ['Example']
+native:
+  modat: 'same_service(transport="tcp" cert="Issuer: C=KZ, ST=KZ, L=, O=NN Fern Sub, OU=NN Fern, CN=foren.zik" cert="Subject: C=KZ, ST=KZ, L=, O=NN Fern Sub, OU=NN Fern, CN=foren.zik")'

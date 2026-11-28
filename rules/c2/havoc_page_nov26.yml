@@ -1,0 +1,56 @@
+title: C2 - Havoc 404 page
+id: 27595477-b49f-44a3-9756-615d901a836f
+status: experimental
+description: |
+  Havoc answers unknown requests with a fixed nginx-style 404 page
+  (teamserver/pkg/handlers/404.html) and the header "X-Havoc: true". The
+  rule matches the SHA-256 of that page, which was re-computed from the
+  project file, and also the header on its own. The header is a Havoc
+  default in the teamserver source, but operators can strip it.
+references:
+  - https://github.com/HavocFramework/Havoc
+  - https://github.com/HavocFramework/Havoc/blob/main/teamserver/pkg/handlers/http.go
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.body.sha256: '55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0'
+  selection_header:
+    http.headers.x-havoc: 'true'
+  condition: selection_page or selection_header
+identifies:
+  product: Havoc
+  family: havoc
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Fake 404 page
+    expect: match
+    response:
+      http.status_code: 404
+      http.body.sha256: '55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0'
+  - name: X-Havoc header
+    expect: match
+    response:
+      http.status_code: 404
+      http.headers.x-havoc: 'true'
+  - name: Ordinary nginx 404
+    expect: no_match
+    response:
+      http.status_code: 404
+      http.headers.server: 'nginx'
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  modat: 'same_service(service="http" transport="tcp" web.html.sha256=55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0 banner.sha256=aaf8ab7e7292fd056c68428897c203f3f28eb238600cbd6c26e8f08a8977f72a) or product="Havoc"'
+  censys: 'host.services:(cert.parsed.issuer.organization=~"^(Acme|ACME|acme|Partners|PARTNERS|partners|Tech|TECH|tech|Cloud|CLOUD|cloud|Synergy|SYNERGY|synergy|Test|TEST|test|Debug|DEBUG|debug)? ?(Co|CO|co|Llc|LLC|llc|Inc|INC|inc|Corp|CORP|corp|Ltd|LTD|ltd)?$" and cert.parsed.issuer.country="US" and cert.parsed.issuer.postal_code=~"^[0-9]{4}$") or host.services.endpoints.http.headers.key:"X-Havoc" or host.services.banner_hash_sha256="f5a45c4aa478a7ba9b44654a929bddc2f6453cd8d6f37cd893dda47220ad9870" or host.services:(cert.parsed.issuer.common_name="0.0.0.0" and cert.parsed.issuer.street_address="" and (endpoints.http.body_hash_sha256="55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0" or endpoints.http.body_size="0")) or (web.cert.parsed.issuer.organization=~"^(Acme|ACME|acme|Partners|PARTNERS|partners|Tech|TECH|tech|Cloud|CLOUD|cloud|Synergy|SYNERGY|synergy|Test|TEST|test|Debug|DEBUG|debug)? ?(Co|CO|co|Llc|LLC|llc|Inc|INC|inc|Corp|CORP|corp|Ltd|LTD|ltd)?$" and web.cert.parsed.issuer.country="US" and web.cert.parsed.issuer.postal_code=~"^[0-9]{4}$") or web.endpoints.http.headers.key:"X-Havoc" or web.endpoints.banner_hash_sha256="f5a45c4aa478a7ba9b44654a929bddc2f6453cd8d6f37cd893dda47220ad9870" or (web.cert.parsed.issuer.common_name="0.0.0.0" and web.cert.parsed.issuer.street_address="" and (web.endpoints.http.body_hash_sha256="55f7d9e99b8e2d4e0e193b2f0275501e6d9c1ebd29cadbea6a0da48a8587e3e0" or web.endpoints.http.body_size="0"))'

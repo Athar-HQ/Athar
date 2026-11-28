@@ -1,0 +1,66 @@
+title: Offensive Tool - wstunnel default page and certificate
+id: b8af1036-a19e-43ba-a3db-f4e35a51ece9
+status: experimental
+description: |
+  wstunnel, a WebSocket and HTTP/2 tunnelling server, ships a default
+  self-signed certificate with country FR, state and locality Paris and the
+  organisation "Internet Widgits Pty Ltd". The rule requires the SHA-256 of
+  its landing page as well. The original query excluded Squid, TorGuard and
+  OpenVPN lookalikes by engine label, which are not taxonomy fields. The
+  original queries are kept under native.
+references:
+  - https://github.com/erebe/wstunnel
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+  - tunnel
+target:
+  protocol: http
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.subject.dn|contains|all:
+      - 'C=FR'
+      - 'ST=Paris'
+      - 'L=Paris'
+      - 'O=Internet Widgits Pty Ltd'
+  selection_page:
+    http.body.sha256: '0006ee27ee8b5c2441fa27aacc3df004e67aaad45f0dc666daefe71f6de666a8'
+  filter_torguard:
+    tls.cert.issuer.dn|contains: 'TorGuard VPN Server CA 2'
+  filter_sfast:
+    tls.cert.subject.dn|contains: 'sfastvpn.com'
+  condition: selection_cert and selection_page and not 1 of filter_*
+identifies:
+  product: wstunnel
+  family: wstunnel
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default setup
+    expect: match
+    response:
+      http.body.sha256: '0006ee27ee8b5c2441fa27aacc3df004e67aaad45f0dc666daefe71f6de666a8'
+      tls.cert.subject.dn: 'O=Internet Widgits Pty Ltd,L=Paris,ST=Paris,C=FR'
+      tls.cert.issuer.dn: 'O=Internet Widgits Pty Ltd,L=Paris,ST=Paris,C=FR'
+  - name: Certificate only
+    expect: no_match
+    response:
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+      tls.cert.subject.dn: 'O=Internet Widgits Pty Ltd,L=Paris,ST=Paris,C=FR'
+      tls.cert.issuer.dn: 'O=Internet Widgits Pty Ltd,L=Paris,ST=Paris,C=FR'
+  - name: TorGuard server
+    expect: no_match
+    response:
+      http.body.sha256: '0006ee27ee8b5c2441fa27aacc3df004e67aaad45f0dc666daefe71f6de666a8'
+      tls.cert.subject.dn: 'O=Internet Widgits Pty Ltd,L=Paris,ST=Paris,C=FR'
+      tls.cert.issuer.dn: 'CN=TorGuard VPN Server CA 2,O=TorGuard'
+native:
+  modat: 'same_service(service="http" transport="tcp" cert="Issuer: C=FR, ST=Paris, L=Paris, O=Internet Widgits Pty Ltd" cert="Subject: C=FR, ST=Paris, L=Paris, O=Internet Widgits Pty Ltd" banner.sha256="1455a24c029c25945b2e3425c48cd3dff3fe8866a8e77db1e3a7380670e1bbcc" web.html.sha256="0006ee27ee8b5c2441fa27aacc3df004e67aaad45f0dc666daefe71f6de666a8")  technology!="Squid Proxy" cert!="Issuer: O=TorGuard, CN=TorGuard VPN Server CA 2" cert!~"Subject: C=RU, ST=Moscow, L=Moscow, O=sfastvpn.com, CN=sfastvpn.com," service!=openvpn'

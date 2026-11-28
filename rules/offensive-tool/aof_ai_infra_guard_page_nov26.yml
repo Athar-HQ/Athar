@@ -1,0 +1,44 @@
+title: Agentic Offensive Framework - AI-Infra-Guard console page
+id: 55ed965a-9a38-4d54-955a-e74ad3355c88
+status: experimental
+description: |
+  Tencent's AI-Infra-Guard is an AI red-teaming and infrastructure-scanning
+  platform. The rule matches the SHA-256 of its console page given in the
+  original query. The original query's `http.files.sha256` alternative is a
+  favicon and is covered by its own rule.
+references:
+  - https://github.com/Tencent/AI-Infra-Guard
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.body.sha256: '19bc0c9515de8830dbd42aa7f7852923d71d2eec4ca788beb0b1865bdb637277'
+  condition: selection_page
+identifies:
+  product: AI-Infra-Guard
+  family: ai-infra-guard
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Authorised use by security teams (the tool is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Console page
+    expect: match
+    response:
+      http.body.sha256: '19bc0c9515de8830dbd42aa7f7852923d71d2eec4ca788beb0b1865bdb637277'
+  - name: Other page
+    expect: no_match
+    response:
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  modat: 'http.body_sha256=19bc0c9515de8830dbd42aa7f7852923d71d2eec4ca788beb0b1865bdb637277 or http.files.sha256=1c2f5c97e23371796d06b04d50070011c629eb7ccb5f7d0dab67f99c4e137aa7'

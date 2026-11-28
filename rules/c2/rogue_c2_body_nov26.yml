@@ -1,0 +1,48 @@
+title: C2 - Rogue C2 panel page
+id: 31194231-44ea-409a-9b69-696859b807fb
+status: experimental
+description: |
+  Web panel of Rogue C2, matched by the MurmurHash3 of its page body
+  (86324593). The text "Rogue C2" alone is not used: on FOFA it also matched
+  unrelated sites that mention the name. A body hash matches one build of the
+  page and stops matching when the page changes.
+references:
+  - Internal Research
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.body.mmh3: 86324593
+  condition: selection_page
+identifies:
+  product: Rogue C2
+  family: rogue-c2
+  category: c2
+confidence: medium
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Page that only mentions the name
+    expect: no_match
+    response:
+      http.body: '<p>How a Rogue C2 works</p>'
+  - name: Body hash
+    expect: match
+    response:
+      http.body.mmh3: 86324593
+  - name: Other hash
+    expect: no_match
+    response:
+      http.body.mmh3: 86324594
+      http.body: '<h1>Welcome</h1>'
+native:
+  modat: 'http.body~"Rogue C2" or http.body_mmh3=86324593'

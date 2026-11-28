@@ -1,0 +1,57 @@
+title: Offensive Tool - reverse_ssh certificate
+id: c5e34800-839a-488b-8c4a-2a74d8ede110
+status: experimental
+description: |
+  reverse_ssh's web server generates a TLS certificate that copies the
+  identity of Cloudflare: country US, organisation "Cloudflare, Inc" and a
+  common name taken from the server's configured address (genX509KeyPair in
+  pkg/mux/multiplexer.go). The original query matches that common name as
+  "ip:port", and the rule does the same. The original query's banner hash
+  has no taxonomy field and is dropped. The original queries are kept under
+  native.
+references:
+  - https://github.com/NHAS/reverse_ssh
+  - https://github.com/NHAS/reverse_ssh/blob/main/pkg/mux/multiplexer.go
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+  - tunnel
+target:
+  protocol: tcp
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.subject.o|contains: 'Cloudflare'
+    tls.cert.issuer.o|contains: 'Cloudflare'
+    tls.cert.subject.cn|re: '^[0-9.]+:[0-9]+$'
+    tls.cert.issuer.cn|re: '^[0-9.]+:[0-9]+$'
+  condition: selection_cert
+identifies:
+  product: reverse_ssh
+  family: reverse-ssh
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Generated certificate
+    expect: match
+    response:
+      tls.cert.subject.o: ['Cloudflare, Inc']
+      tls.cert.issuer.o: ['Cloudflare, Inc']
+      tls.cert.subject.cn: '203.0.113.7:3232'
+      tls.cert.issuer.cn: '203.0.113.7:3232'
+  - name: Real Cloudflare certificate
+    expect: no_match
+    response:
+      tls.cert.subject.o: ['Cloudflare, Inc.']
+      tls.cert.issuer.o: ['Cloudflare, Inc.']
+      tls.cert.subject.cn: 'example.com'
+      tls.cert.issuer.cn: 'Cloudflare TLS Issuing ECC CA 1'
+native:
+  modat: 'same_service(cert.issuer.country="US" cert.issuer.org~"Cloudflare" cert.subject.country="US" cert.subject.org~"Cloudflare" cert.issuer.cn=~"^[0-9\.]*:\d+$" cert.subject.cn=~"^[0-9\.]*:\d+$" transport="tcp" banner.sha256=a83f76d7ed0922afb08844b476b04aad877e42f8c703978302b162db6b37c212)'

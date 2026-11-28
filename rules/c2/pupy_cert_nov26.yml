@@ -1,0 +1,56 @@
+title: C2 - Pupy RAT certificate pattern
+id: 469e302d-b154-4a09-ba37-56cd34fe254e
+status: experimental
+description: |
+  Pupy RAT servers present a self-signed certificate whose organisation is ten
+  letters and whose organisational unit is "CONTROL". The rule matches that
+  shape. The engine label product="Pupy RAT" used by the original query is
+  dropped. The original queries are kept under native.
+references:
+  - https://github.com/n1nj4sec/pupy
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.subject.dn|contains: 'OU=CONTROL'
+    tls.cert.subject.o|re: '^[a-zA-Z]{10}$'
+    tls.cert.issuer.o|re: '^[a-zA-Z]{10}$'
+  condition: selection_cert
+identifies:
+  product: Pupy RAT
+  family: pupy
+  category: c2
+confidence: medium
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Self-signed certificates with a ten-letter organisation and an OU of CONTROL are rare outside Pupy
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Pupy certificate
+    expect: match
+    response:
+      tls.cert.subject.dn: 'OU=CONTROL,O=qwertyuiop'
+      tls.cert.subject.o: ['qwertyuiop']
+      tls.cert.issuer.o: ['asdfghjklz']
+  - name: Another OU
+    expect: no_match
+    response:
+      tls.cert.subject.dn: 'OU=IT,O=qwertyuiop'
+      tls.cert.subject.o: ['qwertyuiop']
+      tls.cert.issuer.o: ['asdfghjklz']
+  - name: Longer organisation
+    expect: no_match
+    response:
+      tls.cert.subject.dn: 'OU=CONTROL,O=Example Corporation'
+      tls.cert.subject.o: ['Example Corporation']
+      tls.cert.issuer.o: ['Example Corporation']
+native:
+  modat: 'same_service(service="unknown" transport="tcp" cert.subject.ou="CONTROL" cert.subject.org=~"^[a-zA-Z]{10}$" cert.issuer.org=~"^[a-zA-Z]{10}$") OR  product="Pupy RAT"'

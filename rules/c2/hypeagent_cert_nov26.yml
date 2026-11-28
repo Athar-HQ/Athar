@@ -1,0 +1,62 @@
+title: C2 - HypeAgent C2 certificate
+id: 539d4e0a-db64-4f23-91aa-35aa708d2e6d
+status: experimental
+description: |
+  HypeAgent C2 listeners present a self-signed certificate with organisation
+  "Hype", common name "Hype" and the DNS name localhost, for subject and
+  issuer alike.
+references:
+  - Internal Research
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.subject.cn: 'Hype'
+    tls.cert.issuer.cn: 'Hype'
+    tls.cert.subject.o: 'Hype'
+    tls.cert.issuer.o: 'Hype'
+    tls.cert.san: 'localhost'
+  condition: selection_cert
+identifies:
+  product: HypeAgent C2
+  family: hypeagent
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'Hype'
+      tls.cert.issuer.cn: 'Hype'
+      tls.cert.subject.o: ['Hype']
+      tls.cert.issuer.o: ['Hype']
+      tls.cert.san: ['localhost']
+  - name: Without the SAN
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'Hype'
+      tls.cert.issuer.cn: 'Hype'
+      tls.cert.subject.o: ['Hype']
+      tls.cert.issuer.o: ['Hype']
+      tls.cert.san: ['example.com']
+  - name: Other organisation
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'Hype'
+      tls.cert.issuer.cn: 'Hype'
+      tls.cert.subject.o: ['Hyper']
+      tls.cert.issuer.o: ['Hyper']
+      tls.cert.san: ['localhost']
+native:
+  modat: 'same_service(cert~''Issuer: O=Hype, CN=Hype'' cert~''Subject: O=Hype, CN=Hype'' cert~''DNS:localhost'')'

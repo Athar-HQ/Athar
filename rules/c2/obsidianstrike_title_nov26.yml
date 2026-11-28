@@ -1,0 +1,42 @@
+title: C2 - ObsidianStrike C2 panel title
+id: fc832204-b877-4545-b45c-789f354a72ac
+status: experimental
+description: |
+  Web panel of ObsidianStrike, a command-and-control framework. The rule
+  matches the page title "ObsidianStrike C2" as a substring. The title names
+  the product, so a match is specific.
+references:
+  - Internal Research
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_title:
+    http.title|contains: 'ObsidianStrike C2'
+  condition: selection_title
+identifies:
+  product: ObsidianStrike C2
+  family: obsidianstrike
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Panel
+    expect: match
+    response:
+      http.title: 'ObsidianStrike C2 - Login'
+  - name: Similar name
+    expect: no_match
+    response:
+      http.title: 'Obsidian Notes'
+native:
+  modat: 'web.title~"ObsidianStrike C2"'

@@ -1,0 +1,63 @@
+title: C2 - DeimosC2 Go 404 page and example certificate
+id: 17442472-50d4-4973-8edc-7b838dd97f4c
+status: experimental
+description: |
+  DeimosC2 serves its console over HTTPS with the Go example certificate,
+  organisation "Acme Co". The page hash in the original query is the SHA-256
+  of the plain text "404 page not found", the default 404 reply of Go web
+  frameworks such as Gin; on urlscan.io it appears on thousands of unrelated
+  sites. Together the two signals show a Go HTTPS server with the example
+  certificate, which DeimosC2 is one of, so the rule is low confidence and
+  needs another signal to confirm DeimosC2. The original queries are kept
+  under native.
+references:
+  - https://github.com/DeimosC2/DeimosC2
+  - https://github.com/frknaykc/Awesome-Malicious-Infra-Hunting-Queries
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: required
+  ports: [8443]
+detection:
+  selection_cert:
+    tls.cert.subject.o: 'Acme Co'
+    tls.cert.issuer.o: 'Acme Co'
+  selection_page:
+    http.body.sha256: '99eb12f2ab3c4866a353e098ffa3cb7a967e617c49b98480394ec5d8ea92b094'
+  condition: selection_cert and selection_page
+identifies:
+  product: DeimosC2
+  family: deimos
+  category: c2
+confidence: low
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Other Go HTTPS servers that use the example certificate and the default 404 page
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Go 404 page behind the Acme certificate
+    expect: match
+    response:
+      http.body.sha256: '99eb12f2ab3c4866a353e098ffa3cb7a967e617c49b98480394ec5d8ea92b094'
+      tls.cert.subject.o: ['Acme Co']
+      tls.cert.issuer.o: ['Acme Co']
+  - name: Acme certificate on another page
+    expect: no_match
+    response:
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+      tls.cert.subject.o: ['Acme Co']
+      tls.cert.issuer.o: ['Acme Co']
+  - name: Console page with a public certificate
+    expect: no_match
+    response:
+      http.body.sha256: '99eb12f2ab3c4866a353e098ffa3cb7a967e617c49b98480394ec5d8ea92b094'
+      tls.cert.subject.o: ['Example']
+      tls.cert.issuer.o: ['Let''s Encrypt']
+native:
+  modat: 'same_service(service="http" transport="tcp" banner.sha256=613dfd23a3e10f890cee3032b088cfcdf1bf53ed0851e192c0c93ee59b53821a web.html.sha256=99eb12f2ab3c4866a353e098ffa3cb7a967e617c49b98480394ec5d8ea92b094 cert.issuer.org="Acme Co" cert.subject.org="Acme Co" )'

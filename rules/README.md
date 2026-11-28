@@ -9,11 +9,62 @@ One folder per category, using the controlled category list from the spec:
 ```text
 rules/
 ├── c2/
+│   ├── adaptixc2_page_nov26.yml                    AdaptixC2 page
+│   ├── asyncrat_cert_nov26.yml                     AsyncRAT default server certificate
+│   ├── cobaltstrike_cert_nov26.yml                 Cobalt Strike default certificates
+│   ├── cobaltstrike_cert_sha256_nov26.yml          Cobalt Strike certificate fingerprints
+│   ├── covenant_cert_nov26.yml                     Covenant default certificate
+│   ├── covenant_title_nov26.yml                    Covenant web console title
+│   ├── cyberc2_title_nov26.yml                     CyberC2 title
+│   ├── dcrat_cert_nov26.yml                        DcRat default server certificate
+│   ├── deimos_page_nov26.yml                       DeimosC2 Go 404 page and example certificate
+│   ├── desredteam_favicon_nov26.yml                DesRedTeam favicon
+│   ├── desredteam_title_nov26.yml                  DesRedTeam and DesShell title
+│   ├── geacon_pro_cert_nov26.yml                   Geacon_Pro certificate
+│   ├── hak5_cloud_c2_favicon_nov26.yml             Hak5 Cloud C2 favicon
+│   ├── hak5_cloud_c2_page_nov26.yml                Hak5 Cloud C2 page hashes
+│   ├── hak5_cloud_c2_title_nov26.yml               Hak5 Cloud C2 title
+│   ├── havoc_page_nov26.yml                        Havoc 404 page
+│   ├── hypeagent_cert_nov26.yml                    HypeAgent C2 certificate
+│   ├── metasploit_cert_nov26.yml                   Metasploit self-signed CA certificate
+│   ├── mythic_cert_nov26.yml                       Mythic certificate organisation
+│   ├── netsupport_server_header_nov26.yml          NetSupport Gateway server header
+│   ├── nighthawk_response_nov26.yml                Nighthawk C2 default response
+│   ├── obsidianstrike_title_nov26.yml              ObsidianStrike C2 title
+│   ├── oyster_page_nov26.yml                       Oyster backdoor page hash
+│   ├── pivotc2_body_nov26.yml                      Pivot-C2 response body marker
+│   ├── pivotc2_cert_nov26.yml                      Pivot-C2 certificate
+│   ├── poshc2_cert_nov26.yml                       PoshC2 default certificate issuer
+│   ├── pupy_cert_nov26.yml                         Pupy RAT certificate pattern
+│   ├── purerat_cert_nov26.yml                      PureRAT agent certificate
+│   ├── pyramid_headers_nov26.yml                   Pyramid C2 default authentication headers
+│   ├── ransomhub_python_c2_page_nov26.yml          RansomHub Python C2 page
+│   ├── rogue_c2_body_nov26.yml                     Rogue C2 page
+│   ├── salt_typhoon_ssh_banner_nov26.yml           Salt Typhoon ClosedSSH banner
+│   ├── sliver_cert_nov26.yml                       Sliver multiplayer certificate
+│   ├── smokedham_page_nov26.yml                    SMOKEDHAM page hashes
+│   ├── spacex1337_title_nov26.yml                  Space X 1337 C2 login title
+│   ├── supershell_page_nov26.yml                   Supershell C2 page
+│   ├── tuoni_cert_nov26.yml                        Tuoni C2 certificate
+│   ├── viper_favicon_nov26.yml                     Viper C2 favicon
+│   ├── viper_title_nov26.yml                       Viper C2 page
+│   ├── voidlink_basic_auth_nov26.yml               VoidLink C2 Basic auth realm
+│   ├── vshell_favicon_nov26.yml                    Vshell C2 favicon
+│   └── vshell_title_nov26.yml                      Vshell C2 management platform
+├── malware-panel/
+│   ├── hookbot_favicon_nov26.yml                   HookBot panel favicon
+│   ├── hookbot_title_nov26.yml                     HookBot panel
+│   ├── matanbuchus_title_nov26.yml                 Matanbuchus panel login
+│   ├── meduza_favicon_nov26.yml                    Meduza Stealer panel favicon
+│   ├── meduza_title_nov26.yml                      Meduza Stealer panel
+│   └── stealc_v2_page_nov26.yml                    StealC v2 panel page hash
 ├── offensive-tool/
+│   ├── aof_ai_infra_guard_favicon_nov26.yml        AI-Infra-Guard favicon
+│   ├── aof_ai_infra_guard_page_nov26.yml           AI-Infra-Guard web console page
 │   ├── aof_artex_nov26.yml                         family rule
 │   ├── aof_artex_antifox_nov26.yml                 AntiFox variant
-│   ├── aof_artex_artex_nov26.yml                   ARTEX variant
 │   ├── aof_artex_artex_favicon_nov26.yml           ARTEX favicon
+│   ├── aof_artex_artex_nov26.yml                   ARTEX variant
 │   ├── aof_artex_basic_auth_nov26.yml              ARTEX behind Basic auth
 │   ├── aof_artex_frontend_files_nov26.yml          SHA-256 of the family's frontend stylesheets
 │   ├── aof_artex_llm_console_nov26.yml             LLM-driven console phrase
@@ -26,6 +77,7 @@ rules/
 │   ├── aof_autocve_favicon_nov26.yml               favicon, MurmurHash3
 │   ├── aof_autocve_favicon_sha256_nov26.yml        favicon, SHA-256
 │   ├── aof_cairn_nov26.yml                         console title of the Cairn fork CL-STA-1238 used
+│   ├── aof_cairn_body_nov26.yml                    Cairn upstream console
 │   ├── aof_cairn_cert_nov26.yml                    the fork's certificate, common name
 │   ├── aof_cairn_cert_org_nov26.yml                the fork's certificate, organisation
 │   ├── aof_cyberstrikeai_nov26.yml                 CyberStrikeAI title
@@ -49,8 +101,22 @@ rules/
 │   ├── aof_strix_favicon_nov26.yml                 viewer icon, MurmurHash3
 │   ├── aof_strix_favicon_sha256_nov26.yml          viewer icon, SHA-256
 │   ├── aof_strix_server_nov26.yml                  viewer Server header
-│   └── aof_xalgorix_nov26.yml                      Xalgorix dashboard title
+│   ├── aof_vulnhunter_body_nov26.yml               VulnHunter body mention
+│   ├── aof_vulnhunter_favicon_nov26.yml            VulnHunter favicon
+│   ├── aof_vulnhunter_title_nov26.yml              VulnHunter title and body
+│   ├── aof_xalgorix_nov26.yml                      Xalgorix dashboard title
+│   ├── burp_collaborator_server_nov26.yml          Burp Collaborator server header
+│   ├── interactsh_body_nov26.yml                   Interactsh server landing page
+│   ├── ligolo_ng_cert_nov26.yml                    Ligolo-ng certificate organisation
+│   ├── pywssocks_page_nov26.yml                    Pywssocks server page
+│   ├── responder_smb_nov26.yml                     Responder SMB server GUID
+│   ├── reverse_ssh_cert_nov26.yml                  reverse_ssh certificate
+│   └── wstunnel_page_nov26.yml                     wstunnel default page and certificate
 ├── phishing-kit/
+│   ├── 365stealer_body_nov26.yml                   365-Stealer panel
+│   ├── devilginx_title_nov26.yml                   Devilginx title
+│   ├── evilginx_cert_nov26.yml                     Evilginx API certificate organisation
+│   └── evilginx_title_nov26.yml                    Evilginx and evilgophish title
 └── …
 ```
 

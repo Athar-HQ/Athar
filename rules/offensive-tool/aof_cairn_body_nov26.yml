@@ -1,0 +1,56 @@
+title: Agentic Offensive Framework - Cairn upstream console
+id: 866ac0d1-5d94-4e8d-ab19-48eee9d7f04d
+related:
+  - id: de0b1c3f-b9a8-43c7-9073-36b9f91c5a70   # Agentic Offensive Framework - Cairn
+    type: similar
+status: experimental
+description: |
+  Upstream Cairn serves a single-page console whose body tag carries the
+  Alpine.js attribute x-data="cairnApp()"
+  (cairn/src/cairn/server/static/index.html in the project). The page title
+  is "Cairn". The customised fork that CL-STA-1238 used has its own rules;
+  this one finds upstream installs and forks that kept the attribute.
+references:
+  - https://github.com/oritera/Cairn
+  - https://unit42.paloaltonetworks.com/cairn-framework-ai-autonomous-attacks/
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [8000]
+detection:
+  selection_body:
+    http.body|contains: 'x-data="cairnApp()"'
+  condition: selection_body
+identifies:
+  product: Cairn
+  family: cairn
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+tests:
+  # The page structure is read from index.html in the project repository; the responses are minimal samples.
+  - name: Upstream console
+    expect: match
+    response:
+      http.title: 'Cairn'
+      http.body: '<body class="bg-slate-50" x-data="cairnApp()">'
+  - name: Fork with another title
+    expect: match
+    response:
+      http.title: 'cf作战平台'
+      http.body: '<body x-data="cairnApp()">'
+  - name: Title only
+    expect: no_match
+    response:
+      http.title: 'Cairn'
+      http.body: '<body>Cairns of Scotland</body>'
+native:
+  modat: 'same_service(protocol="http" transport="tcp" (http.title="Cairn" or http.body~"x-data=\\\"cairnApp()\\\">") )'

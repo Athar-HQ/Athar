@@ -1,0 +1,51 @@
+title: Offensive Tool - Burp Collaborator server header
+id: 051a4f4c-da3f-4e1b-b04f-21909992178f
+status: experimental
+description: |
+  Burp Collaborator is PortSwigger's out-of-band interaction server. A
+  public or private server answers HTTP with "Server: Burp Collaborator
+  https://burpcollaborator.net/" and the header "X-Collaborator-Version".
+  The original query used the engine label product="BurpSuite Collaborator",
+  which has no taxonomy field, so this rule uses the header that the label
+  is derived from. The original queries are kept under native.
+references:
+  - https://github.com/projectdiscovery/nuclei-templates/blob/main/http/technologies/burp-collaborator-detect.yaml
+  - https://brandefense.io/odin-research/reports/commercial-oast-listeners-blind-xss-panels-and-web-recon-suites/
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+  - oast
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_server:
+    http.headers.server|contains: 'Burp Collaborator'
+  condition: selection_server
+identifies:
+  product: Burp Collaborator
+  family: burp-collaborator
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - PortSwigger public Collaborator servers (oastify.com) and security teams that run their own
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Collaborator reply
+    expect: match
+    response:
+      http.status_code: 200
+      http.headers.server: 'Burp Collaborator https://burpcollaborator.net/'
+      http.headers.x-collaborator-version: '4'
+  - name: Other server
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.headers.server: 'nginx'
+native:
+  modat: 'product="BurpSuite Collaborator"'

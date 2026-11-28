@@ -1,0 +1,52 @@
+title: Agentic Offensive Framework - VulnHunter body mention
+id: b94594e4-c88d-4788-9a3d-7f3e7ddf3dc6
+status: experimental
+description: |
+  Page that mentions "VulnHunter" in its body but not in its title. This is
+  the broader half of the original query and is low confidence, since the body
+  of an unrelated page can name the tool.
+references:
+  - https://github.com/Clouditera/VulnHunter
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_body:
+    http.body|contains: 'VulnHunter'
+  filter_title:
+    http.title|contains: 'VulnHunter'
+  condition: selection_body and not filter_title
+identifies:
+  product: VulnHunter
+  family: vulnhunter
+  category: offensive-tool
+confidence: low
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Blog posts, repositories and documentation that name VulnHunter
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Console with a generic title
+    expect: match
+    response:
+      http.title: 'Dashboard'
+      http.body: '<div id="app">VulnHunter</div>'
+  - name: Title match (own rule)
+    expect: no_match
+    response:
+      http.title: 'VulnHunter'
+      http.body: '<div>VulnHunter</div>'
+  - name: Unrelated page
+    expect: no_match
+    response:
+      http.title: 'Dashboard'
+      http.body: '<div>Hunting for bugs</div>'
+native:
+  modat: 'same_service(protocol="http" transport="tcp" http.files.sha256=a81f6c8080c60ff7f045ba4c492060dda8879cc625da20a04b8356e969393048 or http.title~"VulnHunter" or http.body~"VulnHunter")'

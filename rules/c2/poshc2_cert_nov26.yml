@@ -1,0 +1,44 @@
+title: C2 - PoshC2 default certificate issuer
+id: b92c3200-03d4-4d43-baa9-498bc5017a82
+status: experimental
+description: |
+  PoshC2 servers present a certificate whose issuer common name is the fixed
+  string "P18055077". The original query also searched the engine label
+  product=PoshC2, which is dropped. The original queries are kept under
+  native.
+references:
+  - https://github.com/nettitude/PoshC2
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+  ports: [443]
+detection:
+  selection_ca:
+    tls.cert.issuer.cn: 'P18055077'
+  condition: selection_ca
+identifies:
+  product: PoshC2
+  family: poshc2
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default issuer
+    expect: match
+    response:
+      tls.cert.issuer.cn: 'P18055077'
+  - name: Other issuer
+    expect: no_match
+    response:
+      tls.cert.issuer.cn: 'P18055078'
+native:
+  modat: 'same_service(transport="tcp" cert.issuer.cn="P18055077") OR product="PoshC2"'

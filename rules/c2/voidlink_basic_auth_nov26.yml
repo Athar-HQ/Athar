@@ -1,0 +1,43 @@
+title: C2 - VoidLink C2 Basic auth realm
+id: 73d03d7c-a3eb-40bb-a2aa-3d049771a823
+status: experimental
+description: |
+  VoidLink, a Linux cloud malware framework described by Check Point Research,
+  protects its C2 panel with Basic auth whose realm is "VoidLink C2".
+references:
+  - https://research.checkpoint.com/2026/voidlink-the-cloud-native-malware-framework
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.001
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_realm:
+    http.headers.www-authenticate: 'Basic realm="VoidLink C2", charset="UTF-8"'
+  condition: selection_realm
+identifies:
+  product: VoidLink C2
+  family: voidlink
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Realm
+    expect: match
+    response:
+      http.status_code: 401
+      http.headers.www-authenticate: 'Basic realm="VoidLink C2", charset="UTF-8"'
+  - name: Other realm
+    expect: no_match
+    response:
+      http.status_code: 401
+      http.headers.www-authenticate: 'Basic realm="Restricted", charset="UTF-8"'
+native:
+  censys: 'host.services.endpoints.http.headers:(key:"Www-Authenticate" and value:"Basic realm=\"VoidLink C2\", charset=\"UTF-8\"") or web.endpoints.http.headers:(key:"Www-Authenticate" and value:"Basic realm=\"VoidLink C2\", charset=\"UTF-8\"")'

@@ -1,0 +1,41 @@
+title: Phishing Kit - 365-Stealer management page
+id: 7aaf2071-2232-4f84-a7a4-f1a7fac03d6e
+status: experimental
+description: |
+  365-Stealer, a tool for illicit consent-grant attacks on Microsoft 365,
+  serves a management page headed "Welcome to 365-Stealer".
+references:
+  - https://github.com/AlteredSecurity/365-Stealer
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.phishing-kit
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_body:
+    http.body|contains: '<h1>Welcome to 365-Stealer</h1>'
+  condition: selection_body
+identifies:
+  product: 365-Stealer
+  family: 365-stealer
+  category: phishing-kit
+confidence: high
+falsepositives:
+  - Authorised phishing simulations and red-team engagements
+  - Authorised phishing simulations
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Panel
+    expect: match
+    response:
+      http.body: '<h1>Welcome to 365-Stealer</h1>'
+  - name: Blog
+    expect: no_match
+    response:
+      http.body: '<p>We reviewed 365-Stealer.</p>'
+native:
+  modat: 'http.body~"<h1>Welcome to 365-Stealer</h1>"'

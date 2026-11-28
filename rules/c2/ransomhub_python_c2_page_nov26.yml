@@ -1,0 +1,49 @@
+title: C2 - RansomHub Python C2 page
+id: 8a6691b3-8977-4da1-9266-c68752d6e99f
+status: experimental
+description: |
+  Two page hashes from the original query for the Python-based RansomHub C2.
+  One is the body of the Pyramid 401 reply (see the Pyramid rules). The
+  original query also required a banner of hex 0000, which has no taxonomy
+  field and is dropped. The original queries are kept under native.
+references:
+  - https://hunt.io/blog/tracking-pyramid-c2-identifying-post-exploitation-servers
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.body.sha256:
+      - '537a7628eb1b2fe117c9081e65579397a4d9b63f227802cac4028f4c34e2b337'
+      - '54477efe7ddfa471efdcc83f2e1ffb5687ac9dca2bc8a2b86b253cdbb5cb9c84'
+  condition: selection_page
+identifies:
+  product: RansomHub Python C2
+  family: ransomhub-python
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: First hash
+    expect: match
+    response:
+      http.body.sha256: '537a7628eb1b2fe117c9081e65579397a4d9b63f227802cac4028f4c34e2b337'
+  - name: Pyramid 401 body
+    expect: match
+    response:
+      http.body.sha256: '54477efe7ddfa471efdcc83f2e1ffb5687ac9dca2bc8a2b86b253cdbb5cb9c84'
+  - name: Other body
+    expect: no_match
+    response:
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  modat: 'same_service(service="http" transport="tcp" (web.html.sha256=537a7628eb1b2fe117c9081e65579397a4d9b63f227802cac4028f4c34e2b337 or web.html.sha256=54477efe7ddfa471efdcc83f2e1ffb5687ac9dca2bc8a2b86b253cdbb5cb9c84)) and banner.hex=0000'

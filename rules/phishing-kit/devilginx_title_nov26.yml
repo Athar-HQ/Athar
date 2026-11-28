@@ -1,0 +1,40 @@
+title: Phishing Kit - Devilginx title
+id: d3e09eb4-ebc3-45e9-8b50-6edc7f3b1221
+status: experimental
+description: |
+  Devilginx, a phishing reverse proxy in the Evilginx family, matched by
+  "Devilginx" in the page title.
+references:
+  - Internal Research
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.phishing-kit
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_title:
+    http.title|contains: 'Devilginx'
+  condition: selection_title
+identifies:
+  product: Devilginx
+  family: evilginx
+  category: phishing-kit
+confidence: high
+falsepositives:
+  - Authorised phishing simulations and red-team engagements
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Panel
+    expect: match
+    response:
+      http.title: 'Devilginx'
+  - name: Unrelated title
+    expect: no_match
+    response:
+      http.title: 'Devil May Cry fan page'
+native:
+  modat: 'web.title~"Devilginx"'

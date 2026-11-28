@@ -1,0 +1,54 @@
+title: C2 - Pyramid C2 default authentication headers
+id: 173a8891-f798-4d0a-a9a7-844fc11b2ee0
+status: experimental
+description: |
+  Pyramid, a Python post-exploitation server used by a RansomHub affiliate,
+  answers with 401, a Python BaseHTTP server header and the Basic realm
+  "Demo Realm". The rule needs both headers.
+references:
+  - https://hunt.io/blog/tracking-pyramid-c2-identifying-post-exploitation-servers
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_headers:
+    http.headers.www-authenticate: 'Basic realm="Demo Realm"'
+    http.headers.server|startswith: 'BaseHTTP/'
+  condition: selection_headers
+identifies:
+  product: Pyramid
+  family: pyramid
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Python demo servers that copied the same example code
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Pyramid response
+    expect: match
+    response:
+      http.status_code: 401
+      http.headers.www-authenticate: 'Basic realm="Demo Realm"'
+      http.headers.server: 'BaseHTTP/0.6 Python/3.10.4'
+  - name: Other realm
+    expect: no_match
+    response:
+      http.status_code: 401
+      http.headers.www-authenticate: 'Basic realm="Restricted"'
+      http.headers.server: 'BaseHTTP/0.6 Python/3.10.4'
+  - name: Other server
+    expect: no_match
+    response:
+      http.status_code: 401
+      http.headers.www-authenticate: 'Basic realm="Demo Realm"'
+      http.headers.server: 'nginx'
+native:
+  modat: 'same_service(service="http" transport="tcp"web.headers=''WWW-Authenticate: Basic realm="Demo Realm"'' web.html.sha256=54477efe7ddfa471efdcc83f2e1ffb5687ac9dca2bc8a2b86b253cdbb5cb9c84 web.headers~"Server: BaseHTTP/")'

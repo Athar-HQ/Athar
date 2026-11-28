@@ -1,0 +1,50 @@
+title: C2 - DcRat default server certificate
+id: fb917255-64c1-4ba6-9591-50ff3c7e6c03
+status: experimental
+description: |
+  DcRat, a fork of AsyncRAT, uses the default certificate "CN=DcRat Server,
+  OU=qwqdanchun, O=DcRat By qwqdanchun, L=SH, C=CN". The rule matches the
+  common name together with the organisation.
+references:
+  - https://github.com/qwqdanchun/DcRat
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.subject.cn: 'DcRat Server'
+    tls.cert.subject.o: 'DcRat By qwqdanchun'
+  condition: selection_cert
+identifies:
+  product: DcRat
+  family: asyncrat
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'DcRat Server'
+      tls.cert.subject.o: ['DcRat By qwqdanchun']
+  - name: AsyncRAT certificate
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'AsyncRAT Server'
+      tls.cert.subject.o: ['Example']
+  - name: Common name without the organisation
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'DcRat Server'
+      tls.cert.subject.o: ['Other']
+native:
+  modat: 'cert=''CN=DcRat Server, OU=qwqdanchun, O=DcRat By qwqdanchun, L=SH, C=CN'''

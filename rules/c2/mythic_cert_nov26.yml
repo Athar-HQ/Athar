@@ -1,0 +1,46 @@
+title: C2 - Mythic certificate organisation
+id: 26e120c5-93dc-458c-87bf-8eac6f25a49c
+status: experimental
+description: |
+  Mythic's default certificate carries the organisation "Mythic" for subject
+  and issuer. The original query's other alternatives, a banner hash and the
+  engine label product="Mythic C2", have no taxonomy field and are dropped.
+references:
+  - https://github.com/its-a-feature/Mythic
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: required
+  ports: [7443]
+detection:
+  selection_cert:
+    tls.cert.subject.o: 'Mythic'
+    tls.cert.issuer.o: 'Mythic'
+  condition: selection_cert
+identifies:
+  product: Mythic
+  family: mythic
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.o: ['Mythic']
+      tls.cert.issuer.o: ['Mythic']
+  - name: Other organisation
+    expect: no_match
+    response:
+      tls.cert.subject.o: ['Mythical Co']
+      tls.cert.issuer.o: ['Mythical Co']
+native:
+  modat: 'same_service(service="http" transport="tcp" cert.issuer.org="Mythic" cert.subject.org="Mythic" ) or same_service(banner.sha256=bc7e468313dcdc814784a20b5676188d19c033a1a3d9e3ebe1ff92f006522216 product!="Mythic C2") or product="Mythic C2"'

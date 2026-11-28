@@ -1,0 +1,42 @@
+title: C2 - Oyster backdoor page hash
+id: 5ae0d240-8cfb-450c-8b4d-7b0cc90811b2
+status: experimental
+description: |
+  SHA-256 of a page served by C2 servers of the Oyster (Broomstick) backdoor.
+  A page hash matches one exact build of the page and stops matching when the
+  page changes.
+references:
+  - https://github.com/frknaykc/Awesome-Malicious-Infra-Hunting-Queries
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.001
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.body.sha256: 'f84b78e96fc74a902481247dc87434c5ce7b6130f0fa53ab5ba1f6fe1d50d377'
+  condition: selection_page
+identifies:
+  product: Oyster
+  family: oyster
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Body
+    expect: match
+    response:
+      http.body.sha256: 'f84b78e96fc74a902481247dc87434c5ce7b6130f0fa53ab5ba1f6fe1d50d377'
+  - name: Other body
+    expect: no_match
+    response:
+      http.body.sha256: '0000000000000000000000000000000000000000000000000000000000000000'
+native:
+  censys: 'host.services.endpoints.http.body_hash_sha256="f84b78e96fc74a902481247dc87434c5ce7b6130f0fa53ab5ba1f6fe1d50d377" or web.endpoints.http.body_hash_sha256="f84b78e96fc74a902481247dc87434c5ce7b6130f0fa53ab5ba1f6fe1d50d377"'

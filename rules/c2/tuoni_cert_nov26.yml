@@ -1,0 +1,46 @@
+title: C2 - Tuoni C2 certificate
+id: cc18703e-48c6-468f-b9e5-69babd3ce8b8
+status: experimental
+description: |
+  Tuoni, a C2 framework by ShellDot (Estonia) that is marketed for red-team
+  training, generates a certificate with the subject "C=Estonia, L=Tallinn,
+  O=ShellDot, OU=Tuoni". The rule matches the organisation and unit.
+references:
+  - https://docs.shelldot.com
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.subject.o: 'ShellDot'
+    tls.cert.subject.dn|contains: 'OU=Tuoni'
+  condition: selection_cert
+identifies:
+  product: Tuoni
+  family: tuoni
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Training and demo deployments by ShellDot
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.o: ['ShellDot']
+      tls.cert.subject.dn: 'OU=Tuoni,O=ShellDot,L=Tallinn,C=Estonia'
+  - name: Same organisation, other unit
+    expect: no_match
+    response:
+      tls.cert.subject.o: ['ShellDot']
+      tls.cert.subject.dn: 'OU=Web,O=ShellDot,L=Tallinn,C=Estonia'
+native:
+  modat: 'same_service(protocol="http" transport="tcp"  tls.raw~"C=Estonia, L=Tallinn, O=ShellDot, OU=Tuoni," )'

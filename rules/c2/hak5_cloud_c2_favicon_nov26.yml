@@ -1,0 +1,42 @@
+title: C2 - Hak5 Cloud C2 favicon
+id: ff17e481-1db9-4fb0-9c47-897ad74d6795
+status: experimental
+description: |
+  Favicon of Hak5 Cloud C2, the server that manages Hak5 implants, by its MD5.
+  It finds Cloud C2 servers whatever their title says; the title and page-hash
+  rules cover the other signals.
+references:
+  - Internal Research
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_icon:
+    http.favicon.md5: '57f501d6fee2fdb024795abbdb750ad5'
+  condition: selection_icon
+identifies:
+  product: Hak5 Cloud C2
+  family: hak5-cloudc2
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Cloud C2 favicon
+    expect: match
+    response:
+      http.favicon.md5: '57f501d6fee2fdb024795abbdb750ad5'
+  - name: Other favicon
+    expect: no_match
+    response:
+      http.favicon.md5: '57f501d6fee2fdb024795abbdb750ad6'
+native:
+  censys: 'host.services.endpoints.http.favicons.hash_md5="57f501d6fee2fdb024795abbdb750ad5" or ((host.services.software.product:"cloud c2" or host.services.hardware.product:"cloud c2" or host.services.operating_systems.product:"cloud c2") and (host.services.software.vendor:"Hak5" or host.services.hardware.vendor:"Hak5" or host.services.operating_systems.vendor:"Hak5")) or web.endpoints.http.favicons.hash_md5="57f501d6fee2fdb024795abbdb750ad5" or ((web.software.product:"cloud c2" or web.hardware.product:"cloud c2" or web.operating_systems.product:"cloud c2") and (web.software.vendor:"Hak5" or web.hardware.vendor:"Hak5" or web.operating_systems.vendor:"Hak5"))'

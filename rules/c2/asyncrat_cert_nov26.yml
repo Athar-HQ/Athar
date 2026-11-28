@@ -1,0 +1,53 @@
+title: C2 - AsyncRAT default server certificate
+id: f87b054d-19b5-48c8-b4a4-5b8b0ea0f4f0
+status: experimental
+description: |
+  AsyncRAT servers present a self-signed TLS certificate whose subject and
+  issuer are both "CN=AsyncRAT Server", the default name of its server
+  certificate. Finds listeners whatever the port, as long as the default
+  certificate is kept.
+references:
+  - https://github.com/NYAN-x-CAT/AsyncRAT-C-Sharp
+  - https://attack.mitre.org/software/S1087/
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: tcp
+  tls: required
+detection:
+  selection_cert:
+    tls.cert.subject.cn: 'AsyncRAT Server'
+    tls.cert.issuer.cn: 'AsyncRAT Server'
+  condition: selection_cert
+identifies:
+  product: AsyncRAT
+  family: asyncrat
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Default certificate
+    expect: match
+    response:
+      tls.cert.subject.cn: 'AsyncRAT Server'
+      tls.cert.issuer.cn: 'AsyncRAT Server'
+  - name: Subject only
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'AsyncRAT Server'
+      tls.cert.issuer.cn: 'Example CA'
+  - name: Other self-signed certificate
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'localhost'
+      tls.cert.issuer.cn: 'localhost'
+native:
+  modat: 'cert.issuer.cn=''AsyncRAT Server'' and cert.subject.cn=''AsyncRAT Server'''
+  censys: 'host.services:(cert.parsed.issuer_dn="CN=AsyncRAT Server" and cert.parsed.subject_dn="CN=AsyncRAT Server") or (web.cert.parsed.issuer_dn="CN=AsyncRAT Server" and web.cert.parsed.subject_dn="CN=AsyncRAT Server")'

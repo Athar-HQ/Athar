@@ -1,0 +1,46 @@
+title: Offensive Tool - Responder SMB server GUID
+id: 874727b4-b3b9-4ad2-99eb-4e77e7bc53e8
+status: experimental
+description: |
+  Responder, an LLMNR, NBT-NS and mDNS poisoner, answers SMB negotiation
+  with the fixed server GUID "AAAAAAAAAAAAAAAAAAAAAO6Fq/fq9gxPkoGSR23rdqk"
+  in its banner. The GUID is as given in the original query. The original
+  queries are kept under native.
+references:
+  - https://github.com/lgandx/Responder
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - security-tool
+  - credential-access
+target:
+  protocol: tcp
+  tls: none
+  ports: [445]
+detection:
+  selection_banner:
+    service.banner|contains: 'AAAAAAAAAAAAAAAAAAAAAO6Fq/fq9gxPkoGSR23rdqk'
+  condition: selection_banner
+identifies:
+  product: Responder
+  family: responder
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Authorised deployments by red teams (the tooling is dual-use)
+  - Authorised internal assessments that run Responder
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Server GUID
+    expect: match
+    response:
+      service.banner: 'server_guid: AAAAAAAAAAAAAAAAAAAAAO6Fq/fq9gxPkoGSR23rdqk'
+  - name: Other GUID
+    expect: no_match
+    response:
+      service.banner: 'server_guid: BBBBBBBBBBBBBBBBBBBBBO6Fq/fq9gxPkoGSR23rdqk'
+native:
+  modat: 'same_service(service="smb" transport="tcp" banner~"server_guid: AAAAAAAAAAAAAAAAAAAAAO6Fq/fq9gxPkoGSR23rdqk")'

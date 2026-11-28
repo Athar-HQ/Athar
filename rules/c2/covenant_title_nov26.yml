@@ -1,0 +1,54 @@
+title: C2 - Covenant web console title
+id: 4f4b26f6-d8e1-4b3a-ac98-617b47946c79
+status: experimental
+description: |
+  The Covenant web console is titled "Covenant". A bare title is common, so
+  the rule also requires the Kestrel server header that Covenant's ASP.NET
+  host sends. The original query also required the Bootstrap technology
+  label, which has no taxonomy field and is dropped. The original queries
+  are kept under native.
+references:
+  - https://github.com/cobbr/Covenant
+author: Shared by trusted source
+date: 2026-11-26
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+  ports: [7443]
+detection:
+  selection_title:
+    http.title: 'Covenant'
+    http.headers.server: 'Kestrel'
+  condition: selection_title
+identifies:
+  product: Covenant
+  family: covenant
+  category: c2
+confidence: medium
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Other ASP.NET applications titled "Covenant"
+tests:
+  # Minimal samples built from the published indicators, not captured responses.
+  - name: Console on Kestrel
+    expect: match
+    response:
+      http.title: 'Covenant'
+      http.headers.server: 'Kestrel'
+  - name: Same title behind nginx
+    expect: no_match
+    response:
+      http.title: 'Covenant'
+      http.headers.server: 'nginx'
+  - name: Church site on Kestrel
+    expect: no_match
+    response:
+      http.title: 'Covenant Church'
+      http.headers.server: 'Kestrel'
+native:
+  modat: 'same_service(cert.issuer.cn="Covenant" cert.subject.cn="Covenant" ) OR same_service(web.title="Covenant"service="http" transport="tcp" technology="Kestrel" technology="Bootstrap")'
