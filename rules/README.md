@@ -141,6 +141,9 @@ rules/
 │   ├── gophish_cert_nov26.yml                      Gophish admin default certificate
 │   ├── gophish_redirect_nov26.yml                  Gophish admin login redirect
 │   └── modlishka_cert_nov26.yml                    Modlishka generated certificate
+├── remote-access/
+│   ├── gotty_server_header_nov26.yml               GoTTY server header
+│   └── webssh_page_nov26.yml                       WebSSH client page
 └── …
 ```
 
