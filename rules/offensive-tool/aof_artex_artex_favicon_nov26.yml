@@ -15,12 +15,14 @@ description: |
   from the favicons create-next-app ships (checked against the Next.js
   repository on 2026-11-26), and on that day it matched 15 of 15 live ARTEX
   hosts. Linked as similar rather than variant-of because it does not repeat
-  the family title.
+  the family title. The ScopeWeaver fork ships the same icon, so titles that
+  start with ScopeWeaver are excluded; a ScopeWeaver console whose title was
+  changed still matches.
 references:
   - https://x.com/MalGamy12/status/2115089738403037207
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
-modified: 2026-11-26
+modified: 2026-11-27
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -33,7 +35,9 @@ target:
 detection:
   selection_icon:
     http.favicon.mmh3: -576220750
-  condition: selection_icon
+  filter_scopeweaver:
+    http.title|startswith: 'ScopeWeaver'
+  condition: selection_icon and not filter_scopeweaver
 identifies:
   product: ARTEX
   family: artex
@@ -53,6 +57,11 @@ tests:
     expect: match
     response:
       http.title: 'Dashboard'
+      http.favicon.mmh3: -576220750
+  - name: ScopeWeaver with the same icon
+    expect: no_match
+    response:
+      http.title: 'ScopeWeaver — Autonomous Penetration Testing Console'
       http.favicon.mmh3: -576220750
   - name: Family brand with its own icon
     expect: no_match

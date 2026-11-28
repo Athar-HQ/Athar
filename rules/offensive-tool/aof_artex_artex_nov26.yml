@@ -8,12 +8,14 @@ description: |
   The ARTEX-branded deployment, the most common brand of the family.
   Recognised by the family title plus either the ARTEX brand at the start of
   the title (ARTEX, ARTEX MX, ARTEX-PRO) or the ARTEX favicon. The favicon hash
-  is the one the published variant hunt excludes as the original.
+  is the one the published variant hunt excludes as the original. The
+  ScopeWeaver fork ships the same favicon, so titles that start with
+  ScopeWeaver are excluded; the ScopeWeaver rule covers them.
 references:
   - https://x.com/MalGamy12/status/2115089738403037207
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
-modified: 2026-11-26
+modified: 2026-11-27
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -35,7 +37,9 @@ detection:
     http.title|startswith: 'ARTEX'
   selection_icon:
     http.favicon.mmh3: -576220750
-  condition: selection_title and (selection_brand or selection_icon)
+  filter_scopeweaver:
+    http.title|startswith: 'ScopeWeaver'
+  condition: selection_title and (selection_brand or selection_icon) and not filter_scopeweaver
 identifies:
   product: ARTEX
   family: artex
@@ -69,6 +73,11 @@ tests:
     expect: match
     response:
       http.title: '渗透工作台 — 自主渗透测试控制台'
+      http.favicon.mmh3: -576220750
+  - name: ScopeWeaver with the same favicon
+    expect: no_match
+    response:
+      http.title: 'ScopeWeaver — Autonomous Penetration Testing Console'
       http.favicon.mmh3: -576220750
   - name: Other brand of the family
     expect: no_match
