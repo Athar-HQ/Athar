@@ -2,6 +2,7 @@ package convert
 
 import (
 	"fmt"
+	"net"
 	"net/textproto"
 	"regexp"
 	"strings"
@@ -49,6 +50,9 @@ type fieldSpec struct {
 	analyzed   bool   // Censys: ":" tokenises this field by subdomain, so contains needs a regex
 	unverified bool   // mapping marked † in spec Appendix A
 	loose      bool   // the engine field covers more than the taxonomy field, so even equality is approximate
+	noWild     bool   // Modat: the field has no wildcards
+	dnsOnly    bool   // the field holds the DNS names of tls.cert.san, not its IP addresses (see ipLike)
+	oneValue   bool   // the engine doesn't say that a list is searched one value at a time
 	note       string // known limitation, shown with every query that uses the field
 }
 
@@ -76,6 +80,8 @@ var (
 		"http.favicon.mmh3":   {name: "icon_hash", kind: exactOnly},
 		"tls.cert.subject.cn": {name: "cert.subject.cn"},
 		"tls.cert.issuer.cn":  {name: "cert.issuer.cn", unverified: true},
+		"tls.cert.subject.o":  {name: "cert.subject.org", unverified: true},
+		"tls.cert.issuer.o":   {name: "cert.issuer.org", unverified: true},
 		"tls.jarm":            {name: "jarm", kind: exactOnly},
 		"service.banner":      {name: "banner"},
 		"service.port":        {name: "port", kind: exactOnly},
@@ -131,9 +137,11 @@ var (
 		"tls.cert.issuer.cn":  {name: "cert.parsed.issuer.common_name", kind: words, regex: true, analyzed: true},
 		"tls.cert.subject.dn": {name: "cert.parsed.subject_dn", kind: words, regex: true},
 		"tls.cert.issuer.dn":  {name: "cert.parsed.issuer_dn", kind: words, regex: true},
+		"tls.cert.subject.o":  {name: "cert.parsed.subject.organization", kind: words, regex: true},
+		"tls.cert.issuer.o":   {name: "cert.parsed.issuer.organization", kind: words, regex: true},
 		"tls.cert.sha256":     {name: "cert.fingerprint_sha256", kind: exactOnly},
 		"tls.cert.sha1":       {name: "cert.fingerprint_sha1", kind: exactOnly},
-		"tls.cert.san":        {name: "cert.names", kind: words, regex: true, analyzed: true},
+		"tls.cert.san":        {name: "cert.names", kind: words, regex: true, analyzed: true, loose: true, note: "censys's cert.names holds every name in the certificate, the common name included"},
 		"tls.jarm":            {name: "jarm.fingerprint", kind: exactOnly, note: censysModuleNote},
 		"tls.ja3s":            {name: "tls.ja3s", kind: exactOnly, note: censysModuleNote},
 		"tls.ja4s":            {name: "tls.ja4s", kind: exactOnly, note: censysModuleNote},
@@ -151,11 +159,15 @@ var (
 		"http.body.sha256":    {name: "http.body_sha256", kind: exactOnly},
 		"tls.cert.subject.cn": {name: "tls.subject.common_name", regex: true},
 		"tls.cert.issuer.cn":  {name: "tls.issuer.common_name", regex: true},
-		"tls.cert.sha256":     {name: "tls.fingerprint_sha256", kind: exactOnly},
-		"tls.jarm":            {name: "tls.jarm", kind: exactOnly},
-		"tls.ja3s":            {name: "tls.ja3s", kind: exactOnly},
-		"service.banner":      {name: "banner", kind: words},
-		"service.port":        {name: "port", kind: exactOnly},
+		"tls.cert.subject.o":  {name: "tls.subject.organization", regex: true, noWild: true},
+		"tls.cert.issuer.o":   {name: "tls.issuer.organization", regex: true, noWild: true},
+		// The docs show only = on SAN fields.
+		"tls.cert.san":    {name: "tls.extensions.subject_alt_name.dns", kind: exactOnly, dnsOnly: true},
+		"tls.cert.sha256": {name: "tls.fingerprint_sha256", kind: exactOnly},
+		"tls.jarm":        {name: "tls.jarm", kind: exactOnly},
+		"tls.ja3s":        {name: "tls.ja3s", kind: exactOnly},
+		"service.banner":  {name: "banner", kind: words},
+		"service.port":    {name: "port", kind: exactOnly},
 	}
 	// urlscan fields describe the page a browser ended up on. Fields that are
 	// missing here have no counterpart: urlscan indexes no body, banner, port,
@@ -187,6 +199,9 @@ var (
 		"http.body.sha256":          {name: "html.body.hash.sha256", kind: exactOnly},
 		"tls.cert.subject.cn":       {name: "tls.cert.subject.common_name"},
 		"tls.cert.issuer.cn":        {name: "tls.cert.issuer.common_name"},
+		"tls.cert.subject.o":        {name: "tls.cert.subject.organization"},
+		"tls.cert.issuer.o":         {name: "tls.cert.issuer.organization"},
+		"tls.cert.san":              {name: "tls.cert.dns_names", dnsOnly: true, oneValue: true},
 		"tls.cert.sha256":           {name: "tls.cert.hash.sha256", kind: exactOnly},
 		"tls.jarm":                  {name: "jarm.fingerprint", kind: exactOnly},
 		"service.port":              {name: "service.port", kind: exactOnly},
@@ -298,6 +313,22 @@ func caseLost(engine string, t term) string {
 		return "" // scanner templates match as the rule does
 	}
 	return fmt.Sprintf("%s searches %q without regard to case", engine, t.value)
+}
+
+// ipLike reports whether an IP address in tls.cert.san could satisfy the
+// term. An engine field that holds only the DNS names misses such matches,
+// so the term is approximate there. Go writes an address with decimal and
+// hex digits, dots and colons only.
+func ipLike(t term) bool {
+	switch {
+	case t.op == "re":
+		return true
+	case t.op == "eq" && !t.wild:
+		return net.ParseIP(t.value) != nil
+	}
+	return !strings.ContainsFunc(t.value, func(r rune) bool {
+		return !strings.ContainsRune("0123456789abcdefABCDEF.:*?\\", r)
+	})
 }
 
 func joinNote(a, b string) string {
@@ -906,6 +937,9 @@ func (modat) term(t term) (string, Fidelity, string, bool) {
 
 	// Substring fields such as http.title.
 	if t.wild {
+		if spec.noWild {
+			return "", 0, fmt.Sprintf("%s: modat has wildcards only on fqdns and certificate common names", describe(t)), false
+		}
 		pattern := val
 		switch t.op {
 		case "contains":

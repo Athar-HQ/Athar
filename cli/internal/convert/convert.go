@@ -432,6 +432,26 @@ func (c *converter) lower(e expr) expr {
 		if !ok {
 			return c.drop(note)
 		}
+		spec := fieldTables[c.engine][x.field]
+		if spec.loose {
+			// The engine field holds more than the rule field. fieldFor
+			// already dropped the term under not.
+			f = max(f, Approximate)
+		}
+		if spec.dnsOnly && ipLike(x) {
+			// The engine misses IP addresses in the SAN. Under not that
+			// only excludes less, so the term stays.
+			f, note = max(f, Approximate), joinNote(note, fmt.Sprintf("%s's %s holds only the DNS names of the certificate, not its IP addresses", c.engine, spec.name))
+		}
+		if spec.oneValue {
+			// If the engine searches the names as one text, a pattern can
+			// span two of them, so the term may find more than the rule.
+			how := fmt.Sprintf("%s does not document whether %s is searched one name at a time", c.engine, spec.name)
+			if x.negated {
+				return c.drop(widenedNote(x, how))
+			}
+			f, note = max(f, Approximate), joinNote(note, how)
+		}
 		if how := caseLost(c.engine, x); how != "" {
 			// A search that ignores case finds more than the term, so its
 			// negation finds less.
@@ -443,7 +463,7 @@ func (c *converter) lower(e expr) expr {
 		if note != "" {
 			c.notes = append(c.notes, note)
 		}
-		if fieldTables[c.engine][x.field].unverified {
+		if spec.unverified {
 			// Nobody checked that the engine field holds what the rule
 			// field holds, so the query can't be called exact.
 			c.worse(Approximate)

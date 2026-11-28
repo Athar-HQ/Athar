@@ -64,8 +64,11 @@ Values in angle brackets are placeholders. "contains" means `field|contains: val
 | urlscan `hash:<sha256>` | A file the page loaded. Ask for the file's path (urlscan lists it under the scan's requests), declare a custom probe that fetches it, and match `http.body.sha256` in a selection with `probe: <id>`. See spec section 9 and `rules/offensive-tool/aof_artex_frontend_files_nov26.yml`. If the file is the favicon or the landing page itself, use `http.favicon.sha256` or `http.body.sha256` without a probe. |
 | FOFA `cert.subject.cn=` · Shodan `ssl.cert.subject.cn:` · ZoomEye `ssl.cert.subject.cn=` · Modat `tls.subject.common_name` · Censys `…cert.parsed.subject.common_name` · Hunt.io `tls.cert.subject.common_name` | `tls.cert.subject.cn` contains (exact for `==` or `=`). Censys runs this field and `cert.names` through a subdomain analyzer, so its `:` matches whole domain labels, not a substring. |
 | The same with `issuer` | `tls.cert.issuer.cn` |
-| Censys `…cert.names` | `tls.cert.san` |
+| FOFA `cert.subject.org=` · Modat `tls.subject.organization` · Censys `…cert.parsed.subject.organization` · Hunt.io `tls.cert.subject.organization` | `tls.cert.subject.o` contains (exact for `==` or `=`) |
+| The same with `issuer` | `tls.cert.issuer.o` |
 | Censys `…cert.parsed.subject_dn`, `…cert.parsed.issuer_dn` | `tls.cert.subject.dn`, `tls.cert.issuer.dn` |
+| Modat `tls.extensions.subject_alt_name.dns` or `.ip` · Censys `…cert.names`, `…cert.parsed.extensions.subject_alt_name.dns_names` or `.ip_addresses` · Hunt.io `tls.cert.dns_names` or `tls.cert.ip_addresses` | `tls.cert.san` (exact for `==` or `=`). It is a list and holds DNS names and IP addresses. `athar convert` writes Censys `cert.names`, which also holds the common name, so the query is approximate there; on Modat and Hunt.io it writes the DNS-name field only, so a value that could be an address converts as approximate. |
+| Shodan `ssl:` · ZoomEye `ssl=` · FOFA `cert=` · Modat `tls.raw~` (text anywhere in the certificate) | The `tls.cert.*` field where the certificate shows the text, such as `tls.cert.subject.o`. `athar convert` writes none of these searches. |
 | Censys `…cert.fingerprint_sha256` · Modat `tls.fingerprint_sha256` · Hunt.io `tls.cert.hash.sha256 ==` | `tls.cert.sha256` exact |
 | Censys `…cert.fingerprint_sha1` | `tls.cert.sha1` exact |
 | Shodan `ssl.cert.fingerprint:` | `tls.cert.sha256` exact for 64 hex characters, `tls.cert.sha1` for 40. Which hash Shodan stores there is not checked, so `athar convert` doesn't write it and the round trip on Shodan drops it. |

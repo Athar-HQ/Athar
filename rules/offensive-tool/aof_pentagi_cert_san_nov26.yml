@@ -7,12 +7,14 @@ status: experimental
 description: |
   The DNS name pentagi.local in the self-signed certificate PentAGI creates in
   scripts/entrypoint.sh (subjectAltName=DNS:pentagi.local). Complements the
-  issuer rule for the same certificate. athar convert has no engine field for
-  certificate names yet, so this rule is for the scanner and for stored data.
+  issuer rule for the same certificate. Censys, Modat and Hunt.io index
+  certificate names; on FOFA, Shodan, ZoomEye and urlscan.io this rule is for
+  the scanner and for stored data.
 references:
   - https://github.com/vxcontrol/pentagi
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
+modified: 2026-11-26
 tags:
   - attack.resource_development
   - attack.t1588.002
