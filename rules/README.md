@@ -8,6 +8,12 @@ One folder per category, using the controlled category list from the spec:
 
 ```text
 rules/
+├── ai-infrastructure/
+│   ├── chromadb_trace_header_nov26.yml             Chroma server trace header
+│   ├── jupyter_redirect_nov26.yml                  Jupyter server redirect
+│   ├── litellm_title_nov26.yml                     LiteLLM proxy API documentation title
+│   ├── mlflow_page_nov26.yml                       MLflow tracking server page
+│   └── tensorboard_page_nov26.yml                  TensorBoard page
 ├── c2/
 │   ├── adaptixc2_page_nov26.yml                    AdaptixC2 page
 │   ├── asyncrat_cert_nov26.yml                     AsyncRAT default server certificate
