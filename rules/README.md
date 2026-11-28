@@ -63,6 +63,8 @@ rules/
 │   ├── aof_ai_infra_guard_page_nov26.yml           AI-Infra-Guard web console page
 │   ├── aof_artex_nov26.yml                         family rule
 │   ├── aof_artex_antifox_nov26.yml                 AntiFox variant
+│   ├── aof_artex_antifox_favicon_nov26.yml         AntiFox favicon, MurmurHash3
+│   ├── aof_artex_antifox_favicon_sha256_nov26.yml  AntiFox favicon, SHA-256
 │   ├── aof_artex_artex_favicon_nov26.yml           ARTEX favicon
 │   ├── aof_artex_artex_nov26.yml                   ARTEX variant
 │   ├── aof_artex_basic_auth_nov26.yml              ARTEX behind Basic auth
