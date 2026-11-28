@@ -1,0 +1,60 @@
+title: Offensive Tool - SpiderFoot favicon
+id: 19703370-ea9d-4bb1-9159-a14189d56636
+related:
+  - id: b8400ab9-672b-4f93-87d2-8a0fcd455bab   # Offensive Tool - SpiderFoot web interface title
+    type: similar
+  - id: 9f3aae6a-4175-4e9a-9c11-1d6de8b65d3f   # Offensive Tool - SpiderFoot favicon (SHA-256)
+    type: similar
+status: experimental
+description: |
+  Web interface of SpiderFoot, an open-source OSINT automation tool. Matched
+  by the MurmurHash3 of its icon, spiderfoot/static/img/spiderfoot-icon.png,
+  which the header template links with rel="icon". Computed from the file in
+  the repository, which has not changed since July 2021. Finds interfaces
+  whose title was changed. The icon is only linked from the pages, not served
+  at /favicon.ico, so an interface that asks for a password shows no icon to
+  the baseline probe.
+references:
+  - https://github.com/smicallef/spiderfoot
+  - https://github.com/smicallef/spiderfoot/blob/master/spiderfoot/static/img/spiderfoot-icon.png
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.reconnaissance
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [5001]
+detection:
+  selection_icon:
+    http.favicon.mmh3: -2111417757
+  condition: selection_icon
+identifies:
+  product: SpiderFoot
+  family: spiderfoot
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised use by security teams and researchers (the tool is dual-use)
+  - Sites about the project that reuse its icon
+tests:
+  # Hash computed from the icon in the repository; athar scan read the same
+  # value on 2026-11-28 from SpiderFoot 4.0.0 started on localhost. The test
+  # responses are made up.
+  - name: Interface with a changed title
+    expect: match
+    response:
+      http.title: 'Recon'
+      http.favicon.mmh3: -2111417757
+  - name: Same title, other icon
+    expect: no_match
+    response:
+      http.title: 'SpiderFoot v4.0.0'
+      http.favicon.mmh3: 2111417757
+  - name: No icon
+    expect: no_match
+    response:
+      http.title: 'SpiderFoot v4.0.0'

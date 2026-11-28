@@ -1,0 +1,91 @@
+title: Offensive Tool - updog file server page
+id: 8092b056-c47a-4ec6-84af-e7b719b70d2e
+status: experimental
+description: |
+  updog, an open-source replacement for Python's SimpleHTTPServer that adds
+  uploads, a password and ad hoc TLS. It is a staple of penetration testing
+  cheat sheets for moving tools and loot between hosts. Its one page is a
+  directory listing whose title is "updog - " followed by the served
+  directory, and whose header shows the logo /static/images/updog.png. The
+  rule requires both: the title prefix alone would also match unrelated
+  pages. The Server header is Werkzeug's and says nothing. A server started
+  with --password shows no listing until the password is given, and does not
+  match.
+references:
+  - https://github.com/sc0tfree/updog
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.command_and_control
+  - attack.t1105
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [9090]   # updog's default port
+detection:
+  selection_page:
+    http.title|startswith: 'updog - '
+    http.body|contains: '/static/images/updog.png'
+  condition: selection_page
+identifies:
+  product: updog
+  family: updog
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised use by penetration testers, and by anyone sharing files on a local network
+tests:
+  # Captured on 2026-11-28 from updog 2.0.1 started on localhost. The headers
+  # are as received, without Content-Length; the body is cut after the page
+  # header, and the served directory is replaced in the title and heading.
+  - name: Directory listing
+    expect: match
+    raw: |
+      HTTP/1.0 200 OK
+      Server: Werkzeug/3.1.9 Python/3.12.10
+      Date: Sat, 28 Nov 2026 15:52:18 GMT
+      Content-Type: text/html; charset=utf-8
+      Connection: close
+
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+          <!-- Meta tags -->
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
+          <meta http-equiv="X-UA-Compatible" content="IE=edge">
+          <!-- Title -->
+          <title>updog - C:\srv\files</title>
+          <!-- Stylesheets -->
+          <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+          <link rel="stylesheet" href="/static/vendor/fontawesome-5.1/css/all.min.css">
+          <link rel="stylesheet" href="/static/vendor/datatable/datatables.min.css">
+          <link rel="stylesheet" href="/static/css/style.min.css">
+      </head>
+
+      <body>
+      <div class="conn">
+
+          <!-- Header -->
+          <header id="header" class="d-flex align_item_center">
+              <div onclick="document.location='/'" class="logo_p">
+                  <img src="/static/images/updog.png" alt="updog">
+              </div>
+              <div class="heading_title_p">
+                  <h2>Directory: C:\srv\files</h2>
+              </div>
+          </header>
+  # Made-up near misses.
+  - name: Blog post with a similar title
+    expect: no_match
+    response:
+      http.title: "updog - what's updog?"
+      http.body: '<article><h1>What is updog?</h1></article>'
+  - name: Page that only shows the logo
+    expect: no_match
+    response:
+      http.title: 'Tools I use'
+      http.body: '<img src="/static/images/updog.png" alt="updog">'
