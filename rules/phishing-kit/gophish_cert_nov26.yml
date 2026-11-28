@@ -40,7 +40,10 @@ confidence: high
 falsepositives:
   - Authorised phishing simulations and security awareness programmes
 tests:
-  # Certificate names are taken from CheckAndCreateSSL in util/util.go.
+  # Fields as athar scan read them on 2026-11-28 from the admin server of the
+  # Gophish v0.12.1 release, started on localhost with its default
+  # config.json; the certificate's subject and issuer were both "O=Gophish".
+  # The other tests are made up.
   - name: Generated certificate on the admin server
     expect: match
     response:

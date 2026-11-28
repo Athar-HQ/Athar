@@ -50,9 +50,9 @@ confidence: high
 falsepositives:
   - Authorised use by security teams and researchers (the tool is dual-use)
 tests:
-  # Rendered by hand from spiderfoot/templates/HEADER.tmpl with version 4.0.0
-  # and an empty docroot, body shortened; not a captured response. The Server
-  # value is the one sfwebui.py sets through the secure library.
+  # Captured on 2026-11-28 from SpiderFoot 4.0.0 (commit 0f815a2) started on
+  # localhost with "sf.py -l 127.0.0.1:5001". The headers are as received;
+  # the body is cut after the icon link and Content-Length is left out.
   - name: Scan list page
     expect: match
     extracted: { version: 4.0.0 }
@@ -60,6 +60,12 @@ tests:
       HTTP/1.1 200 OK
       Content-Type: text/html;charset=utf-8
       Server: server
+      Date: Sat, 28 Nov 2026 15:46:13 GMT
+      Strict-Transport-Security: max-age=63072000; includeSubdomains
+      X-Frame-Options: SAMEORIGIN
+      X-Xss-Protection: 0
+      X-Content-Type-Options: nosniff
+      Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; base-uri 'self'; connect-src 'self' data:; frame-src 'self' data:; img-src 'self' data:
       Referrer-Policy: no-referrer
       Cache-Control: must-revalidate
 
@@ -69,11 +75,10 @@ tests:
           <meta charset="utf-8">
           <title>SpiderFoot v4.0.0</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta name="description" content="">
+          <meta name="author" content="">
           <link rel="icon" type="image/png" href="/static/img/spiderfoot-icon.png">
-          <script type='text/javascript' src='/static/js/spiderfoot.js'></script>
-        </head>
-        <body></body>
-      </html>
+  # Made-up samples.
   - name: Development version
     expect: match
     extracted: { version: 4.1.0-dev }

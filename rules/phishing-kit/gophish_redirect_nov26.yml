@@ -50,8 +50,8 @@ falsepositives:
   - Authorised phishing simulations and security awareness programmes
   - Other Go applications built on gorilla/csrf that redirect to /login?next= and send the same one-directive policy
 tests:
-  # Reconstructed from the handler chain in controllers/route.go and
-  # middleware/middleware.go, not a captured response. The token is made up.
+  # Captured on 2026-11-28 from the admin server of the Gophish v0.12.1
+  # release, started on localhost with its default config.json.
   - name: Redirect to the login page
     expect: match
     raw: |
@@ -59,12 +59,16 @@ tests:
       Content-Security-Policy: frame-ancestors 'none';
       Content-Type: text/html; charset=utf-8
       Location: /login?next=%2F
-      Set-Cookie: _gorilla_csrf=MTcwMDAwMDAwMHxJa0ZCUVVGQlFVRkJRVUZCUFNJfA==; Path=/; Max-Age=43200; HttpOnly; Secure; SameSite=Lax
+      Set-Cookie: _gorilla_csrf=MTc5NTg4MDgzMHxJbkYwVTBadU5HaE9lbWROVWxCbFltcG1Ua0ZqYjAxeFEzUnNXRFZ2TmxZNFV6WjVXVTlDZW05UU5HTTlJZ289fCYo__Tbrl-s8iHdlbnDwpbHVIIepuDDup3qjA95Jbpd; Expires=Sun, 29 Nov 2026 03:47:10 GMT; Max-Age=43200; HttpOnly; Secure; SameSite
       Vary: Accept-Encoding
       Vary: Cookie
       X-Frame-Options: DENY
+      Date: Sat, 28 Nov 2026 15:47:10 GMT
+      Content-Length: 51
 
       <a href="/login?next=%2F">Temporary Redirect</a>.
+
+  # Made-up near misses.
   - name: Same redirect and cookie without the policy header
     expect: no_match
     raw: |

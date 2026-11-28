@@ -39,8 +39,8 @@ falsepositives:
   - Authorised red-team or research deployments (the tooling is dual-use)
   - Honeypots that copy the header
 tests:
-  # Reconstructed from the catch-all handler and change_server in
-  # server/util/listener.py, not a captured response.
+  # Captured on 2026-11-28 from the listener of an unmodified NimPlant server
+  # (commit af61429) started on localhost with the example configuration.
   - name: Catch-all answer to GET /
     expect: match
     raw: |
@@ -48,8 +48,10 @@ tests:
       Content-Type: application/json
       Content-Length: 23
       Server: NimPlant C2 Server
+      Date: Sat, 28 Nov 2026 15:46:49 GMT
 
       {"status":"Not found"}
+  # Made-up near misses.
   - name: Same body from a plain Flask application
     expect: no_match
     raw: |

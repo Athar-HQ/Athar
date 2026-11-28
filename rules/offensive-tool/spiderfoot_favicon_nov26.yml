@@ -41,7 +41,9 @@ falsepositives:
   - Authorised use by security teams and researchers (the tool is dual-use)
   - Sites about the project that reuse its icon
 tests:
-  # Hash computed from the icon in the repository, not from a live service.
+  # Hash computed from the icon in the repository; athar scan read the same
+  # value on 2026-11-28 from SpiderFoot 4.0.0 started on localhost. The test
+  # responses are made up.
   - name: Interface with a changed title
     expect: match
     response:
