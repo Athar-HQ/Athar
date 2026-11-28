@@ -107,14 +107,20 @@ rules/
 │   ├── aof_vulnhunter_title_nov26.yml              VulnHunter title and body
 │   ├── aof_xalgorix_nov26.yml                      Xalgorix dashboard title
 │   ├── burp_collaborator_server_nov26.yml          Burp Collaborator server header
+│   ├── chisel_server_nov26.yml                     Chisel server, health and version endpoints
+│   ├── frp_not_found_page_nov26.yml                frp server not-found page
+│   ├── goshs_server_header_nov26.yml               goshs server header, with version
 │   ├── interactsh_body_nov26.yml                   Interactsh server landing page
 │   ├── ligolo_ng_cert_nov26.yml                    Ligolo-ng certificate organisation
+│   ├── mitmproxy_server_header_nov26.yml           mitmproxy server header, with version
 │   ├── pywssocks_page_nov26.yml                    Pywssocks server page
 │   ├── responder_smb_nov26.yml                     Responder SMB server GUID
 │   ├── reverse_ssh_cert_nov26.yml                  reverse_ssh certificate
 │   ├── spiderfoot_favicon_nov26.yml                SpiderFoot icon, MurmurHash3
 │   ├── spiderfoot_favicon_sha256_nov26.yml         SpiderFoot icon, SHA-256
 │   ├── spiderfoot_title_nov26.yml                  SpiderFoot web interface title, with version
+│   ├── sqlmap_api_nov26.yml                        sqlmap REST API server
+│   ├── updog_page_nov26.yml                        updog file server page
 │   └── wstunnel_page_nov26.yml                     wstunnel default page and certificate
 ├── phishing-kit/
 │   ├── 365stealer_body_nov26.yml                   365-Stealer panel

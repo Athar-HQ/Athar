@@ -1,0 +1,102 @@
+title: Offensive Tool - Chisel server
+id: 5c65a633-f0b8-4e94-a925-1f2660befb88
+status: experimental
+description: |
+  Server of Chisel, an open-source TCP/UDP tunnel over HTTP and WebSocket
+  that intruders use to pivot into networks. A request that is not a tunnel
+  upgrade is answered by handleClientHandler in server/server_handler.go:
+  "/health" returns "OK", "/version" returns the build version, and anything
+  else, GET / included, returns 404 with the plain text "Not found". That
+  baseline answer is far too common to identify anything, so the rule
+  declares two custom probes and requires all three answers together. It is
+  therefore active-only: athar scan needs -probes, and search-engine queries
+  only carry the 404 and return a large superset. A server started with
+  --backend sends other requests to that backend and does not match.
+references:
+  - https://github.com/jpillora/chisel
+  - https://github.com/jpillora/chisel/blob/master/server/server_handler.go
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.command_and_control
+  - attack.t1572
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [8080]   # chisel server's default port
+probes:
+  health:
+    protocol: http
+    request:
+      method: GET
+      path: /health
+  version:
+    protocol: http
+    request:
+      method: GET
+      path: /version
+detection:
+  selection_root:
+    http.status_code: 404
+    http.body: 'Not found'
+  selection_health:
+    probe: health
+    http.status_code: 200
+    http.body|re: '^OK\n?$'
+  selection_version:
+    probe: version
+    http.status_code: 200
+    http.body|re: '^v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+\-]*\n?$'
+  condition: selection_root and selection_health and selection_version
+identifies:
+  product: Chisel
+  family: chisel
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Legitimate use by administrators and developers who tunnel through HTTP
+  - Other services that answer /health with "OK", /version with a bare version number and / with "Not found"
+tests:
+  # Captured on 2026-11-28 from chisel 1.13.0 started on localhost with
+  # "chisel server --host 127.0.0.1".
+  - name: Server without a backend
+    expect: match
+    raw: "HTTP/1.1 404 Not Found\r\nDate: Sat, 28 Nov 2026 15:52:17 GMT\r\nContent-Length: 9\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nNot found"
+    probes:
+      health:
+        raw: "HTTP/1.1 200 OK\r\nDate: Sat, 28 Nov 2026 15:52:39 GMT\r\nContent-Length: 3\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nOK\n"
+      version:
+        raw: "HTTP/1.1 200 OK\r\nDate: Sat, 28 Nov 2026 15:52:39 GMT\r\nContent-Length: 6\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n1.13.0"
+  # Made-up near misses.
+  - name: Same 404 without the probes, as a scan without -probes sees it
+    expect: no_match
+    response:
+      http.status_code: 404
+      http.body: 'Not found'
+  - name: Service with a health check and a JSON version
+    expect: no_match
+    response:
+      http.status_code: 404
+      http.body: 'Not found'
+    probes:
+      health:
+        http.status_code: 200
+        http.body: 'OK'
+      version:
+        http.status_code: 200
+        http.body: '{"version":"1.13.0"}'
+  - name: Service whose root is a page
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.body: '<html><body>Not found</body></html>'
+    probes:
+      health:
+        http.status_code: 200
+        http.body: 'OK'
+      version:
+        http.status_code: 200
+        http.body: '1.13.0'

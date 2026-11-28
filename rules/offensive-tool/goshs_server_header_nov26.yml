@@ -1,0 +1,85 @@
+title: Offensive Tool - goshs server header
+id: 32f68688-992c-4bd3-a9a9-99d7747b8e28
+status: experimental
+description: |
+  goshs, an open-source file server written for penetration testers as a
+  replacement for "python -m http.server": upload and download over HTTP,
+  WebDAV and SFTP, a clipboard, and catchers for SMB and LDAP hashes.
+  Operators use it to stage payloads and to collect files from a target.
+  Every response carries a Server header that starts with "goshs/", followed
+  by the version and, in brackets, the operating system and Go version, as
+  in "goshs/v1.1.4 (windows; go1.26.11)". The rule matches that prefix and
+  reads the version. The directory listing also has a title that starts with
+  "goshs - " and ends with the served directory, but a server that asks for
+  a password shows no page, while the header is still there.
+references:
+  - https://github.com/patrickhener/goshs
+  - https://goshs.de
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.command_and_control
+  - attack.t1105
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [8000]   # goshs's default port
+detection:
+  selection_server:
+    http.headers.server|startswith: 'goshs/'
+  condition: selection_server
+identifies:
+  product: goshs
+  family: goshs
+  category: offensive-tool
+extract:
+  version:
+    field: http.headers.server
+    regex: '^(?i:goshs)/v?(?P<version>[0-9][0-9A-Za-z.\-]*)'
+confidence: high
+falsepositives:
+  - Authorised use by penetration testers and administrators (the tool is dual-use)
+tests:
+  # Captured on 2026-11-28 from goshs v1.1.4 started on localhost. The
+  # headers are as received, without Transfer-Encoding; the body is cut after
+  # the icon link, and the served directory in the title is replaced.
+  - name: Directory listing
+    expect: match
+    extracted: { version: 1.1.4 }
+    raw: |
+      HTTP/1.1 200 OK
+      Server: goshs/v1.1.4 (windows; go1.26.11)
+      Date: Sat, 28 Nov 2026 15:52:18 GMT
+      Content-Type: text/html; charset=utf-8
+
+      <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+      <html lang="en" data-bs-theme="dark">
+
+      <head>
+          <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
+          <meta http-equiv="X-UA-Compatible" content="IE=edge">
+          <title>goshs - C:\srv\files</title>
+
+          <link rel="icon" type="image/gif" href="/images/favicon.png?static" />
+  # Made-up samples.
+  - name: Server that asks for a password
+    expect: match
+    extracted: { version: 1.1.4 }
+    response:
+      http.status_code: 401
+      http.headers.server: 'goshs/v1.1.4 (linux; go1.26.11)'
+  - name: Page about the tool
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.headers.server: 'nginx'
+      http.title: 'goshs - a simple, yet feature-rich web server'
+  - name: Other server whose name contains the word
+    expect: no_match
+    response:
+      http.headers.server: 'mygoshs/1.0'
