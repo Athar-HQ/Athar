@@ -1,0 +1,70 @@
+title: Agentic Offensive Framework - AntiFox favicon
+id: 9d1aa754-ec44-478d-8f4f-8e34625e690b
+related:
+  - id: 7f66a665-386f-490a-b4c2-8e93741c1d29   # Agentic Offensive Framework - AntiFox
+    type: similar
+  - id: 0ce69e91-baee-4475-81ee-4b8eca1a6c3b   # Agentic Offensive Framework (family)
+    type: similar
+status: experimental
+description: |
+  Favicon of the AntiFox build, matched on its own, so it also covers
+  deployments whose title no longer carries the brand, which the AntiFox
+  rule (title and certificate) misses. Because it uses one signal, confirm
+  hits with that rule. The hash was published by ReversingLabs. In the
+  stored Shodan records gathered for AntiFox on 2026-11-24, 320 of the 321
+  records had icon data and every one of them carried this same icon file
+  (SHA-256 68e261808e123d7f33675acac8ca66132fcbc4e4c70a11c5b76487736b221c68);
+  the remaining record had no icon data. That population was gathered by
+  title, so it shows the icon is stable across the observed deployments;
+  title-changed deployments are covered by the rule's design, not measured
+  separately.
+references:
+  - https://threatdefence.com/article/artex-agentic-attack-framework-detection-hunting
+author: Tomoki Murota (@reservoir-cmyk)
+date: 2026-11-28
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [443, 8787, 80]   # the AntiFox population sits mostly on 443 (Shodan, 2026-11-24)
+detection:
+  selection_icon:
+    http.favicon.mmh3: -1356779733
+  condition: selection_icon
+identifies:
+  product: AntiFox
+  family: artex
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Unrelated sites that reuse the same icon file
+  - A different icon file whose MurmurHash3 collides with this value (32-bit hash)
+tests:
+  # The match samples are built from the stored Shodan records cited in the description.
+  - name: AntiFox console
+    expect: match
+    response:
+      http.title: 'AntiFox — 自主渗透测试控制台'
+      http.favicon.mmh3: -1356779733
+  - name: Same icon behind a changed title
+    expect: match
+    response:
+      http.title: 'Dashboard'
+      http.favicon.mmh3: -1356779733
+  - name: AntiFox title with the ARTEX icon
+    expect: no_match
+    response:
+      http.title: 'AntiFox — 自主渗透测试控制台'
+      http.favicon.mmh3: -576220750
+  - name: Other icon
+    expect: no_match
+    response:
+      http.title: 'Welcome to nginx!'
+      http.favicon.mmh3: 1234567890
+native:
+  fofa: 'icon_hash="-1356779733"'
+  shodan: 'http.favicon.hash:-1356779733'

@@ -1,0 +1,47 @@
+title: Agentic Offensive Framework - AntiFox favicon (SHA-256)
+id: b9e34d85-8c0a-4c74-ace8-42503a16d8a1
+related:
+  - id: 7f66a665-386f-490a-b4c2-8e93741c1d29   # Agentic Offensive Framework - AntiFox
+    type: similar
+  - id: 9d1aa754-ec44-478d-8f4f-8e34625e690b   # Agentic Offensive Framework - AntiFox favicon
+    type: similar
+status: experimental
+description: |
+  The same icon as the AntiFox favicon rule, by its SHA-256, for engines that
+  store that hash instead of MurmurHash3 (Censys, Modat). Computed over the
+  raw icon bytes stored in the Shodan AntiFox records (the favicon data,
+  base64-decoded): all 320 records with icon data carried this one file
+  (2026-11-24).
+references:
+  - https://threatdefence.com/article/artex-agentic-attack-framework-detection-hunting
+author: Tomoki Murota (@reservoir-cmyk)
+date: 2026-11-28
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+  - aof
+target:
+  protocol: http
+  tls: auto
+  ports: [443, 8787, 80]   # same measured AntiFox population as the favicon rule (Shodan, 2026-11-24)
+detection:
+  selection_icon:
+    http.favicon.sha256: 68e261808e123d7f33675acac8ca66132fcbc4e4c70a11c5b76487736b221c68
+  condition: selection_icon
+identifies:
+  product: AntiFox
+  family: artex
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Unrelated sites that reuse the same icon file
+tests:
+  - name: Linked icon
+    expect: match
+    response:
+      http.favicon.sha256: 68e261808e123d7f33675acac8ca66132fcbc4e4c70a11c5b76487736b221c68
+  - name: Other icon
+    expect: no_match
+    response:
+      http.favicon.sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
