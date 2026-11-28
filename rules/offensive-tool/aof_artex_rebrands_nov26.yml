@@ -21,7 +21,7 @@ references:
   - https://x.com/MalGamy12/status/2124782039555547288
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
-modified: 2026-11-27
+modified: 2026-11-28
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -39,6 +39,7 @@ detection:
       - 'Autonomous Penetration Testing Console'
       - 'Console de teste de penetração autônomo'
       - 'Консоль автономного пентеста'
+      - '自律型ペネトレーションテストコンソール'
   filter_artex_icon:
     http.favicon.mmh3: -576220750
   filter_artex_brand:
@@ -52,7 +53,7 @@ identifies:
 extract:
   brand:
     field: http.title
-    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console|Console de teste de penetração autônomo|Консоль автономного пентеста))'
+    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|自律型ペネトレーションテストコンソール|(?i:Autonomous Penetration Testing Console|Console de teste de penetração autônomo|Консоль автономного пентеста))'
 confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
@@ -104,6 +105,11 @@ tests:
     response:
       http.title: 'Pentex — Console de teste de penetração autônomo'
       http.favicon.mmh3: 1234567890
+  - name: Japanese title, no favicon
+    expect: match
+    extracted: { brand: NKW }
+    response:
+      http.title: 'NKW — 自律型ペネトレーションテストコンソール'
   - name: Russian title, no favicon
     expect: match
     extracted: { brand: Pentex }

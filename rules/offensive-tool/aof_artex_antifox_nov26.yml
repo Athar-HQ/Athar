@@ -15,7 +15,7 @@ references:
   - https://x.com/SansLimit3/status/2118049610996564345
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-25
-modified: 2026-11-26
+modified: 2026-11-28
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -33,6 +33,7 @@ detection:
       - 'Autonomous Penetration Testing Console'
       - 'Console de teste de penetração autônomo'
       - 'Консоль автономного пентеста'
+      - '自律型ペネトレーションテストコンソール'
   selection_brand:
     http.title|startswith: 'AntiFox'
   selection_cert:
@@ -51,6 +52,10 @@ tests:
     expect: match
     response:
       http.title: 'AntiFox — 自主渗透测试控制台'
+  - name: AntiFox, Japanese title
+    expect: match
+    response:
+      http.title: 'AntiFox — 自律型ペネトレーションテストコンソール'
   - name: AntiFox, Portuguese title
     expect: match
     response:
