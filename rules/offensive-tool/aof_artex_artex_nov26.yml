@@ -15,7 +15,7 @@ references:
   - https://x.com/MalGamy12/status/2115089738403037207
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
-modified: 2026-11-27
+modified: 2026-11-28
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -24,7 +24,7 @@ tags:
 target:
   protocol: http
   tls: auto
-  ports: [8787, 8443, 443, 80]   # most consoles listen on 8787 (Modat, 2026-11-25)
+  ports: [8787, 8790, 8443, 443, 80]   # most consoles listen on 8787 (Modat, 2026-11-25)
 detection:
   selection_title:
     http.title|contains:
