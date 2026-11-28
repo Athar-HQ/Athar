@@ -1,0 +1,93 @@
+title: Offensive Tool - SpiderFoot web interface title
+id: b8400ab9-672b-4f93-87d2-8a0fcd455bab
+related:
+  - id: 19703370-ea9d-4bb1-9159-a14189d56636   # Offensive Tool - SpiderFoot favicon
+    type: similar
+  - id: 9f3aae6a-4175-4e9a-9c11-1d6de8b65d3f   # Offensive Tool - SpiderFoot favicon (SHA-256)
+    type: similar
+status: experimental
+description: |
+  Web interface of SpiderFoot, an open-source OSINT automation tool that
+  footprints a target with more than 200 modules. Every page starts from one
+  header template, spiderfoot/templates/HEADER.tmpl, whose title is
+  "SpiderFoot v" followed by the running version, as in "SpiderFoot v4.0.0".
+  GET / is the scan list and needs no session unless the operator created a
+  passwd file. The rule matches titles that start with "SpiderFoot v" and a
+  digit, so the hosted product ("SpiderFoot HX"), pages about the tool and
+  other names that begin the same way do not match, and reads the version
+  from the title.
+references:
+  - https://github.com/smicallef/spiderfoot
+  - https://github.com/smicallef/spiderfoot/blob/master/spiderfoot/templates/HEADER.tmpl
+author: debugactiveprocess
+date: 2026-11-28
+tags:
+  - attack.reconnaissance
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [5001]   # the port the project's README and Dockerfile start it on
+detection:
+  selection_title:
+    http.title|startswith: 'SpiderFoot v'
+  # A digit must follow, so "SpiderFoot Ventures" does not match. Engines
+  # that can't search a regex keep the prefix and return a superset.
+  selection_version:
+    http.title|re: '(?i)^SpiderFoot v[0-9]'
+  condition: selection_title and selection_version
+identifies:
+  product: SpiderFoot
+  family: spiderfoot
+  category: offensive-tool
+extract:
+  version:
+    field: http.title
+    regex: '^(?i:SpiderFoot) v(?P<version>[0-9][0-9A-Za-z.\-]*)'
+confidence: high
+falsepositives:
+  - Authorised use by security teams and researchers (the tool is dual-use)
+tests:
+  # Rendered by hand from spiderfoot/templates/HEADER.tmpl with version 4.0.0
+  # and an empty docroot, body shortened; not a captured response. The Server
+  # value is the one sfwebui.py sets through the secure library.
+  - name: Scan list page
+    expect: match
+    extracted: { version: 4.0.0 }
+    raw: |
+      HTTP/1.1 200 OK
+      Content-Type: text/html;charset=utf-8
+      Server: server
+      Referrer-Policy: no-referrer
+      Cache-Control: must-revalidate
+
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <title>SpiderFoot v4.0.0</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <link rel="icon" type="image/png" href="/static/img/spiderfoot-icon.png">
+          <script type='text/javascript' src='/static/js/spiderfoot.js'></script>
+        </head>
+        <body></body>
+      </html>
+  - name: Development version
+    expect: match
+    extracted: { version: 4.1.0-dev }
+    response:
+      http.title: 'SpiderFoot v4.1.0-dev'
+  - name: Hosted product login
+    expect: no_match
+    response:
+      http.title: 'SpiderFoot HX'
+  - name: Page about the tool
+    expect: no_match
+    response:
+      http.title: 'Installing SpiderFoot v4.0 on Kali Linux'
+  - name: Unrelated name that starts the same way
+    expect: no_match
+    response:
+      http.title: 'SpiderFoot Ventures'

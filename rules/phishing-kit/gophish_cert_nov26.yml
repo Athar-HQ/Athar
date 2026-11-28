@@ -1,0 +1,71 @@
+title: Phishing Kit - Gophish admin default certificate
+id: 185d9745-80f7-43ce-a24e-e0663be1f070
+related:
+  - id: b4ee0f2e-d170-4a14-a303-ef9234a3fddc   # Phishing Kit - Gophish admin login redirect
+    type: similar
+status: experimental
+description: |
+  Administration server of Gophish, an open-source phishing framework. When
+  it starts with TLS and finds no certificate, it creates a self-signed one
+  whose subject is only an organisation, O=Gophish, with no common name
+  (CheckAndCreateSSL in util/util.go). Subject and issuer are the same, so
+  the rule requires the organisation in both. That keeps out a certificate a
+  public CA issued to a company of that name. Forks that keep this code, such
+  as evilgophish, present the same certificate. The rule finds the admin
+  server whatever its pages look like, also behind a path the operator
+  changed, as long as the generated certificate is in use.
+references:
+  - https://github.com/gophish/gophish
+  - https://github.com/gophish/gophish/blob/master/util/util.go
+author: debugactiveprocess
+date: 2026-11-28
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.phishing-kit
+target:
+  protocol: http
+  tls: required
+  ports: [3333]   # admin_server.listen_url in the default config.json
+detection:
+  selection_cert:
+    tls.cert.subject.o: 'Gophish'
+    tls.cert.issuer.o: 'Gophish'
+  condition: selection_cert
+identifies:
+  product: Gophish
+  family: gophish
+  category: phishing-kit
+confidence: high
+falsepositives:
+  - Authorised phishing simulations and security awareness programmes
+tests:
+  # Certificate names are taken from CheckAndCreateSSL in util/util.go.
+  - name: Generated certificate on the admin server
+    expect: match
+    response:
+      http.status_code: 307
+      http.headers.location: '/login?next=%2F'
+      tls.cert.subject.o: 'Gophish'
+      tls.cert.subject.dn: 'O=Gophish'
+      tls.cert.issuer.o: 'Gophish'
+      tls.cert.issuer.dn: 'O=Gophish'
+      tls.cert.self_signed: true
+  - name: Generated certificate, pages hidden by a proxy
+    expect: match
+    response:
+      http.status_code: 404
+      tls.cert.subject.o: 'Gophish'
+      tls.cert.issuer.o: 'Gophish'
+  - name: Public CA certificate for a company of that name
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'www.gophish.example'
+      tls.cert.subject.o: 'Gophish'
+      tls.cert.issuer.o: "Let's Encrypt"
+      tls.cert.issuer.cn: 'R11'
+  - name: Organisation that only contains the name
+    expect: no_match
+    response:
+      tls.cert.subject.o: 'Gophish Training Ltd'
+      tls.cert.issuer.o: 'Gophish Training Ltd'

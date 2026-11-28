@@ -1,0 +1,68 @@
+title: C2 - NimPlant listener server header
+id: 9f314d0a-9263-4cb9-b046-7f59b3369036
+status: experimental
+description: |
+  Listener of NimPlant, an open-source C2 framework with implants written in
+  Nim. The listener is a Flask application that overwrites the Server header
+  of every response with "NimPlant C2 Server" (change_server in
+  server/util/listener.py). The string is stored compressed and hex-encoded
+  in the source, as B_IDENT, so a search of the code for the text does not
+  find it. The listener has no route for "/", so the baseline request gets
+  the catch-all answer, a 404 with the JSON body {"status":"Not found"}, and
+  that header. The rule matches the header alone: it is on every response,
+  whatever paths the operator configured, and the body is too generic to add
+  anything. A listener behind a redirector that sets its own Server header
+  does not match.
+references:
+  - https://github.com/chvancooten/NimPlant
+  - https://github.com/chvancooten/NimPlant/blob/main/server/util/listener.py
+author: debugactiveprocess
+date: 2026-11-28
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_server:
+    http.headers.server: 'NimPlant C2 Server'
+  condition: selection_server
+identifies:
+  product: NimPlant
+  family: nimplant
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised red-team or research deployments (the tooling is dual-use)
+  - Honeypots that copy the header
+tests:
+  # Reconstructed from the catch-all handler and change_server in
+  # server/util/listener.py, not a captured response.
+  - name: Catch-all answer to GET /
+    expect: match
+    raw: |
+      HTTP/1.1 404 NOT FOUND
+      Content-Type: application/json
+      Content-Length: 23
+      Server: NimPlant C2 Server
+
+      {"status":"Not found"}
+  - name: Same body from a plain Flask application
+    expect: no_match
+    raw: |
+      HTTP/1.1 404 NOT FOUND
+      Content-Type: application/json
+      Content-Length: 23
+      Server: Werkzeug/3.0.1 Python/3.11.6
+
+      {"status":"Not found"}
+  - name: Page that only mentions the name
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.headers.server: 'nginx'
+      http.title: 'NimPlant C2 Server setup guide'
+      http.body: '<h1>NimPlant C2 Server</h1>'

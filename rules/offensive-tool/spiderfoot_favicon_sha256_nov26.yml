@@ -1,0 +1,51 @@
+title: Offensive Tool - SpiderFoot favicon (SHA-256)
+id: 9f3aae6a-4175-4e9a-9c11-1d6de8b65d3f
+related:
+  - id: b8400ab9-672b-4f93-87d2-8a0fcd455bab   # Offensive Tool - SpiderFoot web interface title
+    type: similar
+  - id: 19703370-ea9d-4bb1-9159-a14189d56636   # Offensive Tool - SpiderFoot favicon
+    type: similar
+status: experimental
+description: |
+  Web interface of SpiderFoot, an open-source OSINT automation tool. Matched
+  by the SHA-256 of its icon, spiderfoot/static/img/spiderfoot-icon.png, for
+  engines that store that hash (Censys, Modat, Hunt.io). Computed from the
+  file in the repository, which has not changed since July 2021.
+references:
+  - https://github.com/smicallef/spiderfoot
+  - https://github.com/smicallef/spiderfoot/blob/master/spiderfoot/static/img/spiderfoot-icon.png
+author: debugactiveprocess
+date: 2026-11-28
+tags:
+  - attack.reconnaissance
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [5001]
+detection:
+  selection_icon:
+    http.favicon.sha256: 'c03fe54509d4da64ca4e0b7d8ef61a88077be9c4a73149862eff2bf6315e9d89'
+  condition: selection_icon
+identifies:
+  product: SpiderFoot
+  family: spiderfoot
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised use by security teams and researchers (the tool is dual-use)
+  - Sites about the project that reuse its icon
+tests:
+  # Hash computed from the icon in the repository, not from a live service.
+  - name: Interface with a changed title
+    expect: match
+    response:
+      http.title: 'Recon'
+      http.favicon.sha256: 'c03fe54509d4da64ca4e0b7d8ef61a88077be9c4a73149862eff2bf6315e9d89'
+  - name: Same title, other icon
+    expect: no_match
+    response:
+      http.title: 'SpiderFoot v4.0.0'
+      http.favicon.sha256: 'c03fe54509d4da64ca4e0b7d8ef61a88077be9c4a73149862eff2bf6315e9d80'

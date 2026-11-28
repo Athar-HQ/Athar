@@ -30,6 +30,7 @@ rules/
 │   ├── mythic_cert_nov26.yml                       Mythic certificate organisation
 │   ├── netsupport_server_header_nov26.yml          NetSupport Gateway server header
 │   ├── nighthawk_response_nov26.yml                Nighthawk C2 default response
+│   ├── nimplant_server_header_nov26.yml            NimPlant listener server header
 │   ├── obsidianstrike_title_nov26.yml              ObsidianStrike C2 title
 │   ├── oyster_page_nov26.yml                       Oyster backdoor page hash
 │   ├── pivotc2_body_nov26.yml                      Pivot-C2 response body marker
@@ -111,12 +112,17 @@ rules/
 │   ├── pywssocks_page_nov26.yml                    Pywssocks server page
 │   ├── responder_smb_nov26.yml                     Responder SMB server GUID
 │   ├── reverse_ssh_cert_nov26.yml                  reverse_ssh certificate
+│   ├── spiderfoot_favicon_nov26.yml                SpiderFoot icon, MurmurHash3
+│   ├── spiderfoot_favicon_sha256_nov26.yml         SpiderFoot icon, SHA-256
+│   ├── spiderfoot_title_nov26.yml                  SpiderFoot web interface title, with version
 │   └── wstunnel_page_nov26.yml                     wstunnel default page and certificate
 ├── phishing-kit/
 │   ├── 365stealer_body_nov26.yml                   365-Stealer panel
 │   ├── devilginx_title_nov26.yml                   Devilginx title
 │   ├── evilginx_cert_nov26.yml                     Evilginx API certificate organisation
-│   └── evilginx_title_nov26.yml                    Evilginx and evilgophish title
+│   ├── evilginx_title_nov26.yml                    Evilginx and evilgophish title
+│   ├── gophish_cert_nov26.yml                      Gophish admin default certificate
+│   └── gophish_redirect_nov26.yml                  Gophish admin login redirect
 └── …
 ```
 
