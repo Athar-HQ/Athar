@@ -1,0 +1,82 @@
+title: Offensive Tool - frp server not-found page
+id: 6c25bfef-6959-4a95-a905-99a47f9d5f34
+status: experimental
+description: |
+  HTTP virtual-host port of an frp server (frps). frp is an open-source
+  reverse proxy that exposes services behind NAT; intruders use it to reach
+  internal hosts and to publish their own services. When a request names a
+  host that no client has registered, which is what a request by IP address
+  does, frps answers 404 with a built-in page that ends in "The server is
+  powered by frp" with a link to the project (NotFound in
+  pkg/util/vhost/resource.go). The rule matches that link. An operator can
+  replace the page with custom404Page; such servers do not match.
+references:
+  - https://github.com/fatedier/frp
+  - https://github.com/fatedier/frp/blob/dev/pkg/util/vhost/resource.go
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.command_and_control
+  - attack.t1572
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.status_code: 404
+    http.body|contains: 'The server is powered by <a href="https://github.com/fatedier/frp">frp</a>'
+  condition: selection_page
+identifies:
+  product: frp
+  family: frp
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Legitimate use is common; developers and administrators run frp to publish services from behind NAT
+tests:
+  # Captured on 2026-11-28 from frps 0.72.0 started on localhost with a
+  # vhostHTTPPort and no client connected.
+  - name: Request for a host no client registered
+    expect: match
+    raw: |
+      HTTP/1.1 404 Not Found
+      Date: Sat, 28 Nov 2026 15:52:17 GMT
+      Content-Length: 489
+      Content-Type: text/html; charset=utf-8
+
+      <!DOCTYPE html>
+      <html>
+      <head>
+      <title>Not Found</title>
+      <style>
+          body {
+              width: 35em;
+              margin: 0 auto;
+              font-family: Tahoma, Verdana, Arial, sans-serif;
+          }
+      </style>
+      </head>
+      <body>
+      <h1>The page you requested was not found.</h1>
+      <p>Sorry, the page you are looking for is currently unavailable.<br/>
+      Please try again later.</p>
+      <p>The server is powered by <a href="https://github.com/fatedier/frp">frp</a>.</p>
+      <p><em>Faithfully yours, frp.</em></p>
+      </body>
+      </html>
+  # Made-up near misses.
+  - name: nginx page the frp page is modelled on
+    expect: no_match
+    response:
+      http.status_code: 404
+      http.title: 'Not Found'
+      http.body: '<h1>The page you requested was not found.</h1><p>Sorry, the page you are looking for is currently unavailable.<br/>Please try again later.</p><p><em>Faithfully yours, nginx.</em></p>'
+  - name: Article that links to the project
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.title: 'Exposing a home server with frp'
+      http.body: '<p>The server is powered by <a href="https://github.com/fatedier/frp">frp</a>, a fast reverse proxy.</p>'
