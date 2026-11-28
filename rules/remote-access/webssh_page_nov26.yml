@@ -1,0 +1,72 @@
+title: Remote Access - WebSSH client page
+id: b4f61d83-9dcf-46d8-8ff8-961d77f0e095
+status: experimental
+description: |
+  WebSSH, an open-source web application that works as an SSH client: the
+  visitor enters a host, a user name and a password or key, and the server
+  opens the SSH connection and relays the terminal to the browser. Its one
+  page is titled "WebSSH" and loads the terminal stylesheet
+  static/css/xterm.min.css. The rule requires both, because the bare title
+  is shared by other products of that name. An exposed instance lets anyone
+  open SSH connections from the server's address, into the network behind it
+  as well.
+references:
+  - https://github.com/huashengdun/webssh
+  - https://pypi.org/project/webssh/
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.command_and_control
+  - attack.t1219
+  - attack.t1090
+  - category.remote-access
+target:
+  protocol: http
+  tls: auto
+  ports: [8888]   # wssh's default port
+detection:
+  selection_page:
+    http.title: 'WebSSH'
+    http.body|contains: 'static/css/xterm.min.css'
+  condition: selection_page
+identifies:
+  product: WebSSH
+  family: webssh
+  category: remote-access
+confidence: high
+falsepositives:
+  - Legitimate use by administrators who offer SSH access through a browser
+tests:
+  # Captured on 2026-11-28 from wssh (webssh from PyPI) started on localhost.
+  # The headers are as received, without Content-Length; the body is cut
+  # after the stylesheet links.
+  - name: Connection form
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      Server: TornadoServer
+      Content-Type: text/html; charset=UTF-8
+      Date: Sat, 28 Nov 2026 16:16:56 GMT
+      Etag: "a9239834b307895327f5178e1ec3c5752b4d1825"
+      Set-Cookie: _xsrf=2|c3e62324|b1ad55f956a15b0fe4955254ed4e7b9a|1795882616; Path=/
+
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+      <meta charset="UTF-8">
+      <title> WebSSH </title>
+      <link href="static/img/favicon.png" rel="icon" type="image/png">
+      <link href="static/css/bootstrap.min.css" rel="stylesheet" type="text/css"/>
+      <link href="static/css/xterm.min.css" rel="stylesheet" type="text/css"/>
+      <link href="static/css/fullscreen.min.css" rel="stylesheet" type="text/css"/>
+  # Made-up near misses.
+  - name: Other product with the same title
+    expect: no_match
+    response:
+      http.title: 'WebSSH'
+      http.body: '<div id="app"></div><script src="/js/app.js"></script>'
+  - name: Terminal page with another title
+    expect: no_match
+    response:
+      http.title: 'Web Terminal'
+      http.body: '<link href="static/css/xterm.min.css" rel="stylesheet" type="text/css"/>'

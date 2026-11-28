@@ -1,0 +1,75 @@
+title: Remote Access - GoTTY server header
+id: 9b472ae3-b33f-4222-b61c-38f30687a3b5
+status: experimental
+description: |
+  GoTTY, an open-source tool that shares a terminal as a web application:
+  it runs a command, usually a shell, and gives its terminal to whoever
+  opens the page. Every response carries the header "Server: GoTTY". The
+  rule matches that header. The page title is the command and the host
+  name, as in "bash@host", so it differs on every server. GoTTY has no
+  authentication unless the operator adds a credential, and with
+  --permit-write an exposed instance is an unauthenticated shell.
+references:
+  - https://github.com/sorenisanerd/gotty
+  - https://github.com/yudai/gotty
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.command_and_control
+  - attack.t1219
+  - category.remote-access
+target:
+  protocol: http
+  tls: auto
+  ports: [8080]   # GoTTY's default port
+detection:
+  selection_server:
+    http.headers.server: 'GoTTY'
+  condition: selection_server
+identifies:
+  product: GoTTY
+  family: gotty
+  category: remote-access
+confidence: high
+falsepositives:
+  - Legitimate use by administrators who share a terminal on purpose
+tests:
+  # Captured on 2026-11-28 from GoTTY (sorenisanerd fork, master) started on
+  # localhost. The headers are as received, without Content-Length; the body
+  # is cut after the icon links, and the host name in the title is replaced.
+  - name: Terminal page
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      Content-Security-Policy: frame-ancestors 'none'
+      Server: GoTTY
+      Vary: Accept-Encoding
+      X-Frame-Options: DENY
+      Date: Sat, 28 Nov 2026 16:11:47 GMT
+      Content-Type: text/html; charset=utf-8
+
+      <!doctype html>
+      <html>
+
+      <head>
+        <title>cmd@host</title>
+        <link rel="manifest" href="manifest.json" crossorigin="use-credentials">
+
+        <link rel="icon" href="favicon.ico">
+        <link rel="icon" href="icon.svg" type="image/svg+xml">
+  # Made-up samples.
+  - name: Server that asks for a credential
+    expect: match
+    response:
+      http.status_code: 401
+      http.headers.server: 'GoTTY'
+      http.headers.www-authenticate: 'Basic realm="GoTTY"'
+  - name: Project page
+    expect: no_match
+    response:
+      http.headers.server: 'GitHub.com'
+      http.title: 'GoTTY - Share your terminal as a web application'
+  - name: Server whose name only starts the same way
+    expect: no_match
+    response:
+      http.headers.server: 'GoTTYProxy/2.0'

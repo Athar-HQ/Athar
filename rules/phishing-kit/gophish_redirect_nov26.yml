@@ -1,0 +1,102 @@
+title: Phishing Kit - Gophish admin login redirect
+id: b4ee0f2e-d170-4a14-a303-ef9234a3fddc
+related:
+  - id: 185d9745-80f7-43ce-a24e-e0663be1f070   # Phishing Kit - Gophish admin default certificate
+    type: similar
+status: experimental
+description: |
+  Administration server of Gophish, an open-source phishing framework.
+  Without a session, GET / does not show a page: RequireLogin
+  (middleware/middleware.go) answers 307 with the location /login?next=%2F.
+  The baseline probe follows no redirect, so the title "Gophish - Login" is
+  never seen, and the rule matches the redirect itself. Three more defaults
+  ride on that response and make it specific (registerRoutes in
+  controllers/route.go): the gorilla/csrf cookie _gorilla_csrf, which is set
+  on every request that brings none, and the two headers ApplySecurityHeaders
+  adds, Content-Security-Policy "frame-ancestors 'none';" and
+  X-Frame-Options DENY. The rule requires the status, the location, the
+  cookie and the policy together. Each of them alone is common; another Go
+  application would have to share the same login path, the same CSRF library
+  and the same one-directive policy to match. Forks that keep this code, such
+  as evilgophish, match too. Older releases that sent no policy header do
+  not; the certificate rule covers them.
+references:
+  - https://github.com/gophish/gophish
+  - https://github.com/gophish/gophish/blob/master/middleware/middleware.go
+  - https://github.com/gophish/gophish/blob/master/controllers/route.go
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - category.phishing-kit
+target:
+  protocol: http
+  tls: auto
+  ports: [3333]   # admin_server.listen_url in the default config.json
+detection:
+  selection_redirect:
+    http.status_code: 307
+    http.headers.location: '/login\?next=%2F'   # \? is a literal question mark, not Sigma's wildcard
+    http.headers.set-cookie|startswith: '_gorilla_csrf='
+    http.headers.content-security-policy: "frame-ancestors 'none';"
+  condition: selection_redirect
+identifies:
+  product: Gophish
+  family: gophish
+  category: phishing-kit
+confidence: medium
+falsepositives:
+  - Authorised phishing simulations and security awareness programmes
+  - Other Go applications built on gorilla/csrf that redirect to /login?next= and send the same one-directive policy
+tests:
+  # Captured on 2026-11-28 from the admin server of the Gophish v0.12.1
+  # release, started on localhost with its default config.json.
+  - name: Redirect to the login page
+    expect: match
+    raw: |
+      HTTP/1.1 307 Temporary Redirect
+      Content-Security-Policy: frame-ancestors 'none';
+      Content-Type: text/html; charset=utf-8
+      Location: /login?next=%2F
+      Set-Cookie: _gorilla_csrf=MTc5NTg4MDgzMHxJbkYwVTBadU5HaE9lbWROVWxCbFltcG1Ua0ZqYjAxeFEzUnNXRFZ2TmxZNFV6WjVXVTlDZW05UU5HTTlJZ289fCYo__Tbrl-s8iHdlbnDwpbHVIIepuDDup3qjA95Jbpd; Expires=Sun, 29 Nov 2026 03:47:10 GMT; Max-Age=43200; HttpOnly; Secure; SameSite
+      Vary: Accept-Encoding
+      Vary: Cookie
+      X-Frame-Options: DENY
+      Date: Sat, 28 Nov 2026 15:47:10 GMT
+      Content-Length: 51
+
+      <a href="/login?next=%2F">Temporary Redirect</a>.
+
+  # Made-up near misses.
+  - name: Same redirect and cookie without the policy header
+    expect: no_match
+    raw: |
+      HTTP/1.1 307 Temporary Redirect
+      Content-Type: text/html; charset=utf-8
+      Location: /login?next=%2F
+      Set-Cookie: _gorilla_csrf=MTcwMDAwMDAwMHxJa0ZCUVVGQlFVRkJRVUZCUFNJfA==; Path=/; HttpOnly
+
+      <a href="/login?next=%2F">Temporary Redirect</a>.
+  - name: Other application redirecting to its login page
+    expect: no_match
+    raw: |
+      HTTP/1.1 302 Found
+      Content-Security-Policy: frame-ancestors 'none';
+      Location: /login?next=%2F
+      Set-Cookie: session=eyJfZnJlc2giOmZhbHNlfQ; HttpOnly; Path=/
+
+  - name: Location that differs in the character after login
+    expect: no_match
+    response:
+      http.status_code: 307
+      http.headers.location: '/login/next=%2F'
+      http.headers.set-cookie: '_gorilla_csrf=MTcwMDAwMDAwMHxJa0ZCUVVGQlFVRkJRVUZCUFNJfA==; Path=/; HttpOnly'
+      http.headers.content-security-policy: "frame-ancestors 'none';"
+  - name: Login page itself, as a crawler that follows redirects records it
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.title: 'Gophish - Login'
+      http.headers.set-cookie: '_gorilla_csrf=MTcwMDAwMDAwMHxJa0ZCUVVGQlFVRkJRVUZCUFNJfA==; Path=/; HttpOnly'
+      http.headers.content-security-policy: "frame-ancestors 'none';"

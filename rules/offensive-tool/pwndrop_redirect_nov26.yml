@@ -1,0 +1,56 @@
+title: Offensive Tool - pwndrop default redirect
+id: 5e7c04ae-f5fb-4c84-b6d4-0470c5df9288
+status: experimental
+description: |
+  pwndrop, an open-source self-hosted file hosting service made for red
+  teams: it serves payloads over HTTP and WebDAV at links the operator
+  chooses and hides everything else. A request for any other path, GET /
+  included, is answered 302 to the configured redirect URL. Its default,
+  written to the database on first start (RedirectUrl in storage/db.go), is
+  the video https://www.youtube.com/watch?v=oHg5SJYRHA0. The rule matches a
+  302 to exactly that address. Operators are meant to change it, and other
+  sites redirect to the same video as a joke, hence the medium confidence.
+references:
+  - https://github.com/kgretzky/pwndrop
+  - https://github.com/kgretzky/pwndrop/blob/master/storage/db.go
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.resource_development
+  - attack.t1608.001
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [80, 443]
+detection:
+  selection_redirect:
+    http.status_code: 302
+    http.headers.location: 'https://www.youtube.com/watch\?v=oHg5SJYRHA0'   # \? is a literal question mark
+  condition: selection_redirect
+identifies:
+  product: pwndrop
+  family: pwndrop
+  category: offensive-tool
+confidence: medium
+falsepositives:
+  - Other servers that redirect their root to the same video
+  - Authorised red-team deployments (the tooling is dual-use)
+tests:
+  # Captured on 2026-11-28 from pwndrop (master) started on localhost with a
+  # fresh database.
+  - name: Default redirect
+    expect: match
+    raw: "HTTP/1.1 302 Found\r\nContent-Type: text/html; charset=utf-8\r\nLocation: https://www.youtube.com/watch?v=oHg5SJYRHA0\r\nDate: Sat, 28 Nov 2026 16:11:47 GMT\r\nContent-Length: 66\r\n\r\n<a href=\"https://www.youtube.com/watch?v=oHg5SJYRHA0\">Found</a>.\n\n"
+  # Made-up near misses.
+  - name: Redirect to another video
+    expect: no_match
+    response:
+      http.status_code: 302
+      http.headers.location: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+  - name: Page that links to the video
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.body: '<a href="https://www.youtube.com/watch?v=oHg5SJYRHA0">watch</a>'
