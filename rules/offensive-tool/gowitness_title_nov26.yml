@@ -1,0 +1,73 @@
+title: Offensive Tool - gowitness report server
+id: 465d812f-c3a2-422e-9a01-dc03b60d6841
+status: experimental
+description: |
+  Report server of gowitness, an open-source tool that takes screenshots of
+  web interfaces in bulk during reconnaissance. "gowitness report server"
+  serves a web application to browse the results; its page is titled
+  "gowitness - a golang screenshotting tool by @leonjza". The rule matches
+  that title. The server has no authentication, so an exposed one shows
+  every target the operator scanned, with screenshots, headers and
+  technologies.
+references:
+  - https://github.com/sensepost/gowitness
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.reconnaissance
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [7171]   # default port of "gowitness report server"
+detection:
+  selection_title:
+    http.title: 'gowitness - a golang screenshotting tool by @leonjza'
+  condition: selection_title
+identifies:
+  product: gowitness
+  vendor: SensePost
+  family: gowitness
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised use by penetration testers and attack-surface teams (the tool is dual-use)
+tests:
+  # Captured on 2026-11-28 from "gowitness report server" (latest release)
+  # started on localhost with an empty database.
+  - name: Report application
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      Accept-Ranges: bytes
+      Content-Type: text/html; charset=utf-8
+      Date: Sat, 28 Nov 2026 16:06:23 GMT
+
+      <!doctype html>
+      <html lang="en">
+
+      <head>
+        <meta charset="UTF-8" />
+        <link rel="icon" type="image/svg+xml" href="/favico.ico" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>gowitness - a golang screenshotting tool by @leonjza</title>
+        <script type="module" crossorigin src="/assets/index-nz1qtcrk.js"></script>
+        <link rel="stylesheet" crossorigin href="/assets/index-BDnCvx5Z.css">
+      </head>
+
+      <body>
+        <div id="root"></div>
+      </body>
+
+      </html>
+  # Made-up near misses.
+  - name: Project page on a code host
+    expect: no_match
+    response:
+      http.title: 'sensepost/gowitness: gowitness - a golang, web screenshot utility using Chrome Headless'
+  - name: Blog post about the tool
+    expect: no_match
+    response:
+      http.title: 'gowitness'

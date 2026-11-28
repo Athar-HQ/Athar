@@ -116,9 +116,13 @@ rules/
 │   ├── chisel_server_nov26.yml                     Chisel server, health and version endpoints
 │   ├── frp_not_found_page_nov26.yml                frp server not-found page
 │   ├── goshs_server_header_nov26.yml               goshs server header, with version
+│   ├── gowitness_title_nov26.yml                   gowitness report server title
 │   ├── interactsh_body_nov26.yml                   Interactsh server landing page
 │   ├── ligolo_ng_cert_nov26.yml                    Ligolo-ng certificate organisation
 │   ├── mitmproxy_server_header_nov26.yml           mitmproxy server header, with version
+│   ├── nps_error_page_nov26.yml                    nps server error page
+│   ├── nps_web_redirect_nov26.yml                  nps web management redirect
+│   ├── pwndrop_redirect_nov26.yml                  pwndrop default redirect
 │   ├── pywssocks_page_nov26.yml                    Pywssocks server page
 │   ├── responder_smb_nov26.yml                     Responder SMB server GUID
 │   ├── reverse_ssh_cert_nov26.yml                  reverse_ssh certificate
@@ -127,6 +131,7 @@ rules/
 │   ├── spiderfoot_title_nov26.yml                  SpiderFoot web interface title, with version
 │   ├── sqlmap_api_nov26.yml                        sqlmap REST API server
 │   ├── updog_page_nov26.yml                        updog file server page
+│   ├── uploadserver_page_nov26.yml                 uploadserver directory listing
 │   └── wstunnel_page_nov26.yml                     wstunnel default page and certificate
 ├── phishing-kit/
 │   ├── 365stealer_body_nov26.yml                   365-Stealer panel
