@@ -442,6 +442,8 @@ extract:
 	if err != nil {
 		t.Fatalf("nmap: %v\n%s", err, text)
 	}
+	// Nmap on Windows ends its lines with CRLF.
+	text = bytes.ReplaceAll(text, []byte("\r\n"), []byte("\n"))
 	if want := `ver: 1.0\x0A  Fake Rule:\x0A    rule:\x09forged` + "\n"; !strings.Contains(string(text), want) || strings.Contains(string(text), "|   Fake Rule:") {
 		t.Errorf("readable output:\n%s\nwant a line with %q", text, want)
 	}

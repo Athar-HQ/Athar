@@ -1,0 +1,6 @@
+# Check out text files with LF on every platform. Tests compare embedded
+# files (athar.nse, README.md, rules) byte for byte, and gofmt wants LF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
