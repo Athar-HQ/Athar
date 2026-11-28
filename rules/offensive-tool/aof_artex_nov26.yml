@@ -5,10 +5,11 @@ description: |
   Web console of an agentic offensive framework (AOF) that is deployed under
   many brand names (ARTEX, AntiFox, NKW, LMTex, MiniHunter, SHRIKE, SKARN,
   GOOGTEX and others). The family is named after ARTEX, its most common brand.
-  Every brand keeps the same title suffix in one of five languages: Chinese
+  Every brand keeps the same title suffix in one of six languages: Chinese
   '自主渗透测试控制台' (most common), Korean '자율 침투 테스트 콘솔', English 'Autonomous
   Penetration Testing Console', Brazilian Portuguese 'Console de teste de
-  penetração autônomo' or Russian 'Консоль автономного пентеста'. The brand
+  penetração autônomo', Russian 'Консоль автономного пентеста' or Japanese
+  '自律型ペネトレーションテストコンソール'. The brand
   comes before the suffix, separated by an em dash, a colon or a middle dot.
   Matching the suffix instead of the brand is what finds the rebrands.
 references:
@@ -16,7 +17,7 @@ references:
   - https://x.com/SansLimit3/status/2118049610996564345
 author: Gameel Ali (@MalGamy12)
 date: 2026-11-24
-modified: 2026-11-26
+modified: 2026-11-28
 tags:
   - attack.resource_development
   - attack.t1588.002
@@ -34,6 +35,7 @@ detection:
       - 'Autonomous Penetration Testing Console'
       - 'Console de teste de penetração autônomo'
       - 'Консоль автономного пентеста'
+      - '自律型ペネトレーションテストコンソール'
   condition: selection_title
 identifies:
   family: artex
@@ -41,7 +43,7 @@ identifies:
 extract:
   brand:
     field: http.title
-    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|(?i:Autonomous Penetration Testing Console|Console de teste de penetração autônomo|Консоль автономного пентеста))'
+    regex: '^(?P<brand>.+?)\s*[—–\-:·]\s*(?:自主渗透测试控制台|자율 침투 테스트 콘솔|自律型ペネトレーションテストコンソール|(?i:Autonomous Penetration Testing Console|Console de teste de penetração autônomo|Консоль автономного пентеста))'
 confidence: high
 falsepositives:
   - Authorised deployments by red teams (the tooling is dual-use)
@@ -93,6 +95,14 @@ tests:
     extracted: { brand: Pentex }
     response:
       http.title: 'Pentex: Консоль автономного пентеста'
+  # From the Shodan stored record (2026-11-20): ARTEX 0.3.16 on port 8787,
+  # favicon MurmurHash3 -1898746557, the family's default icon on Shodan.
+  - name: ARTEX, Japanese title
+    expect: match
+    extracted: { brand: ARTEX }
+    response:
+      http.title: 'ARTEX — 自律型ペネトレーションテストコンソール'
+      http.favicon.mmh3: -1898746557
   - name: Chinese pentest services page
     expect: no_match
     response:
@@ -101,9 +111,24 @@ tests:
     expect: no_match
     response:
       http.title: 'Penetration Testing Services | Example Corp'
+  - name: Japanese pentest vendor page
+    expect: no_match
+    response:
+      http.title: 'ペネトレーションテストサービス | 例示セキュリティ株式会社'
+  # Near misses observed on Shodan (2026-11-24): pages of the ARTEX project
+  # itself that are not consoles and carry none of the family suffixes.
+  - name: ARTEX Gateway page
+    expect: no_match
+    response:
+      http.title: 'ARTEX Gateway'
+      http.headers.server: 'nginx'
+  - name: ARTEX Proxy Pool page
+    expect: no_match
+    response:
+      http.title: 'ARTEX Proxy Pool'
 native:
   # Modat (2026-11-26): the Portuguese, Russian, Chinese and English titles.
   modat: 'same_service(protocol="http" transport="tcp" (web.title~"Console de teste de penetração autônomo" OR web.title~"Консоль автономного пентеста" OR web.title~"自主渗透测试控制台" or web.title~"Autonomous Penetration Testing Console"))'
-  shodan: 'title:"自主渗透测试控制台","자율 침투 테스트 콘솔"'
+  shodan: 'title:"自主渗透测试控制台","자율 침투 테스트 콘솔","自律型ペネトレーションテストコンソール"'
   censys: 'host.services.endpoints.http.html_title=~".*自主渗透测试控制台"'
   fofa: 'title="自主渗透测试控制台"'
