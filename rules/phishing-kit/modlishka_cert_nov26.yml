@@ -1,0 +1,70 @@
+title: Phishing Kit - Modlishka generated certificate
+id: c12c4b00-a393-400d-9a66-c629105b2ed6
+status: experimental
+description: |
+  Modlishka, an open-source reverse proxy for phishing that relays a real
+  site to the victim and captures credentials and session cookies, second
+  factors included. When the operator supplies no certificate, its autocert
+  plugin (plugin/autocert.go) issues one for the phishing domain at start-up:
+  the subject carries the organisation "Mother Nature" and the country
+  "Earth", and it is signed by a CA embedded in the source whose every name
+  field is "pl". The rule requires the subject organisation and the issuer's
+  organisation and common name together. It finds a proxy whatever site it
+  relays, because the certificate does not depend on the target. Operators
+  who install a real certificate for their domain do not match.
+references:
+  - https://github.com/drk1wi/Modlishka
+  - https://github.com/drk1wi/Modlishka/blob/master/plugin/autocert.go
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.credential_access
+  - attack.t1557
+  - attack.resource_development
+  - attack.t1588.002
+  - category.phishing-kit
+target:
+  protocol: http
+  tls: required
+  ports: [443]
+detection:
+  selection_cert:
+    tls.cert.subject.o: 'Mother Nature'
+    tls.cert.issuer.o: 'pl'
+    tls.cert.issuer.cn: 'pl'
+  condition: selection_cert
+identifies:
+  product: Modlishka
+  family: modlishka
+  category: phishing-kit
+confidence: high
+falsepositives:
+  - Authorised phishing simulations and red-team engagements
+tests:
+  # Names as openssl printed them on 2026-11-28 for the certificate of
+  # Modlishka (latest release) started on localhost with -proxyDomain
+  # loopback.modlishka.io and no certificate of its own. athar scan matched
+  # the rule on that listener. The other tests are made up.
+  - name: Certificate issued by the autocert plugin
+    expect: match
+    response:
+      http.status_code: 302
+      tls.cert.subject.cn: 'loopback.modlishka.io'
+      tls.cert.subject.o: 'Mother Nature'
+      tls.cert.issuer.cn: 'pl'
+      tls.cert.issuer.o: 'pl'
+      tls.cert.san: ['loopback.modlishka.io', '*.loopback.modlishka.io']
+  - name: Same subject organisation from another issuer
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'shop.example'
+      tls.cert.subject.o: 'Mother Nature'
+      tls.cert.issuer.cn: 'R11'
+      tls.cert.issuer.o: "Let's Encrypt"
+  - name: Polish test CA with another subject
+    expect: no_match
+    response:
+      tls.cert.subject.cn: 'localhost'
+      tls.cert.subject.o: 'Example'
+      tls.cert.issuer.cn: 'pl'
+      tls.cert.issuer.o: 'pl'

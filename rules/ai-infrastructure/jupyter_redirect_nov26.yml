@@ -1,0 +1,71 @@
+title: AI Infrastructure - Jupyter server redirect
+id: 4b0269ae-d2b5-4122-ab32-36039dfbc366
+status: experimental
+description: |
+  Jupyter Notebook or JupyterLab server, the interactive computing
+  environment most machine-learning work is done in. GET / shows no page:
+  the server answers 302 and sends the browser to its default interface,
+  "/tree?" for Notebook and "/lab?" for JupyterLab. The trailing question
+  mark, an empty query string, is how jupyter_server builds that redirect.
+  The baseline probe follows no redirect, so the rule matches the redirect
+  itself together with the Tornado Server header. Both are generic on their
+  own, hence the medium confidence. A server reachable without its token
+  gives whoever finds it a shell on the host.
+references:
+  - https://github.com/jupyter-server/jupyter_server
+  - https://github.com/jupyter/notebook
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - category.ai-infrastructure
+target:
+  protocol: http
+  tls: auto
+  ports: [8888]   # default port of Jupyter servers
+detection:
+  selection_redirect:
+    http.status_code: 302
+    http.headers.location:
+      - '/tree\?'   # \? is a literal question mark, not Sigma's wildcard
+      - '/lab\?'
+    http.headers.server|startswith: 'TornadoServer/'
+  condition: selection_redirect
+identifies:
+  product: Jupyter
+  vendor: Project Jupyter
+  family: jupyter
+  category: ai-infrastructure
+confidence: medium
+falsepositives:
+  - Other Tornado applications that redirect their root to /tree or /lab with an empty query string
+tests:
+  # Captured on 2026-11-28 from Jupyter Notebook 7.6.5 (jupyter_server
+  # 2.21.1) started on localhost.
+  - name: Notebook redirecting to its file browser
+    expect: match
+    raw: "HTTP/1.1 302 Found\r\nServer: TornadoServer/6.6.1\r\nContent-Type: text/html; charset=UTF-8\r\nDate: Sat, 28 Nov 2026 16:05:06 GMT\r\nLocation: /tree?\r\nContent-Length: 0\r\n\r\n"
+  # Made-up samples.
+  - name: JupyterLab redirecting to its interface
+    expect: match
+    response:
+      http.status_code: 302
+      http.headers.location: '/lab?'
+      http.headers.server: 'TornadoServer/6.4.2'
+  - name: Tornado application redirecting to its login page
+    expect: no_match
+    response:
+      http.status_code: 302
+      http.headers.location: '/login?next=%2F'
+      http.headers.server: 'TornadoServer/6.6.1'
+  - name: Location with a path below tree
+    expect: no_match
+    response:
+      http.status_code: 302
+      http.headers.location: '/tree/docs'
+      http.headers.server: 'TornadoServer/6.6.1'
+  - name: Same redirect from another server
+    expect: no_match
+    response:
+      http.status_code: 302
+      http.headers.location: '/tree?'
+      http.headers.server: 'nginx'

@@ -1,0 +1,62 @@
+title: Offensive Tool - nps server error page
+id: 4da6da61-bbe3-46c0-bd9f-14889af1b313
+related:
+  - id: b886fe09-f291-4030-bed3-680ccc3598c6   # Offensive Tool - nps web management redirect
+    type: similar
+status: experimental
+description: |
+  HTTP proxy port of an nps server. nps is an open-source intranet
+  penetration proxy that tunnels TCP, UDP, HTTP and SOCKS5 traffic to hosts
+  behind NAT, widely used by intruders to keep access to internal networks.
+  A request for a host name that no client has registered, which is what a
+  request by IP address is, gets the error page in
+  web/static/page/error.html: titled "nps error", with the line
+  "404 not found,power by nps" and a link to ehang.io/nps. The server sends
+  it as a bare status line with no headers at all. The rule matches the
+  link text. An operator can edit the page file; such servers do not match.
+references:
+  - https://github.com/ehang-io/nps
+  - https://github.com/ehang-io/nps/blob/master/web/static/page/error.html
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.command_and_control
+  - attack.t1572
+  - attack.t1090
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+detection:
+  selection_page:
+    http.status_code: 404
+    http.body|contains: 'power by <a href="//ehang.io/nps">nps</a>'
+  condition: selection_page
+identifies:
+  product: nps
+  family: nps
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Legitimate use by administrators and developers who publish services from behind NAT
+tests:
+  # Captured on 2026-11-28 from the http_proxy_port of nps (master) started
+  # on localhost with its sample nps.conf. The status line ends in a bare
+  # line feed and no header follows; the body has CRLF line ends.
+  - name: Request for a host no client registered
+    expect: match
+    raw: "HTTP/1.1 404 Not Found\n\n<!DOCTYPE html>\r\n<html lang=\"en\">\r\n<head>\r\n    <meta charset=\"UTF-8\">\r\n    <title>nps error</title>\r\n</head>\r\n<body>\r\n404 not found,power by <a href=\"//ehang.io/nps\">nps</a>\r\n</body>\r\n</html>"
+  # Made-up near misses.
+  - name: Generic 404 page
+    expect: no_match
+    response:
+      http.status_code: 404
+      http.title: '404 Not Found'
+      http.body: '<h1>404 not found</h1><hr>nginx'
+  - name: Page that links to the project
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.body: '<p>Tunnel provided by <a href="https://ehang.io/nps">nps</a></p>'

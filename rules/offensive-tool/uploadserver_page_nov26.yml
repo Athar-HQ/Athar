@@ -1,0 +1,95 @@
+title: Offensive Tool - uploadserver directory listing
+id: cd23f88e-970b-4823-b61b-bde9ee9764de
+status: experimental
+description: |
+  uploadserver, a Python module that extends "python -m http.server" with a
+  file upload page. Penetration testing guides recommend it for pulling
+  files off a target with nothing but curl. It serves Python's standard
+  directory listing and injects its own lines into it, each block wrapped in
+  the HTML comment "Injected by uploadserver", with a link to /upload. The
+  rule matches that comment. The title and Server header are the standard
+  library's and identify nothing.
+references:
+  - https://github.com/Densaugeo/uploadserver
+  - https://pypi.org/project/uploadserver/
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.exfiltration
+  - attack.command_and_control
+  - attack.t1105
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [8000]   # default port, as for http.server
+detection:
+  selection_page:
+    http.body|contains: '<!-- Injected by uploadserver -->'
+  condition: selection_page
+identifies:
+  product: uploadserver
+  family: uploadserver
+  category: offensive-tool
+confidence: high
+falsepositives:
+  - Authorised use by penetration testers, and by anyone moving files on a local network
+tests:
+  # Captured on 2026-11-28 from uploadserver started on localhost in an
+  # empty directory with "python -m uploadserver".
+  - name: Directory listing with the upload link
+    expect: match
+    raw: |
+      HTTP/1.0 200 OK
+      Server: SimpleHTTP/0.6 Python/3.12.10
+      Date: Sat, 28 Nov 2026 16:05:06 GMT
+      Content-type: text/html; charset=utf-8
+
+      <!DOCTYPE HTML>
+      <html lang="en">
+      <head>
+      <meta charset="utf-8">
+      <title>Directory listing for /</title>
+      <!-- Injected by uploadserver -->
+      <meta name="viewport" content="width=device-width" />
+      <meta name="color-scheme" content="light dark">
+      <!-- End injection by uploadserver -->
+      </head>
+      <body>
+      <h1>Directory listing for /</h1>
+      <hr>
+      <!-- Injected by uploadserver -->
+      <a href="/upload">File Upload</a>
+      (provided by uploadserver, all files go to server root)
+      <hr>
+      <!-- End injection by uploadserver -->
+      <ul>
+      </ul>
+      <hr>
+      </body>
+      </html>
+  # Made-up near miss.
+  - name: Plain http.server listing
+    expect: no_match
+    raw: |
+      HTTP/1.0 200 OK
+      Server: SimpleHTTP/0.6 Python/3.12.10
+      Content-type: text/html; charset=utf-8
+
+      <!DOCTYPE HTML>
+      <html lang="en">
+      <head>
+      <meta charset="utf-8">
+      <title>Directory listing for /</title>
+      </head>
+      <body>
+      <h1>Directory listing for /</h1>
+      <hr>
+      <ul>
+      <li><a href="upload/">upload/</a></li>
+      </ul>
+      <hr>
+      </body>
+      </html>

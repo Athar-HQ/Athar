@@ -1,0 +1,100 @@
+title: Offensive Tool - mitmproxy server header
+id: 71132ab7-4614-4527-9384-ca508a64187b
+status: experimental
+description: |
+  mitmproxy, an open-source intercepting proxy for HTTP, HTTPS and WebSocket
+  traffic. Both of its listeners name the tool and its version in the Server
+  header, as in "mitmproxy 12.3.1". The proxy listener sends it with the
+  error page a plain GET / gets, 502 Bad Gateway with "Request destination
+  unknown", because such a request names no upstream. The web interface of
+  mitmweb sends it with every response, including the 403 page that asks for
+  the token. The rule matches the header on either listener and reads the
+  version. An exposed proxy listener relays traffic for whoever finds it, and
+  an exposed web interface shows the intercepted flows to whoever has the
+  token.
+references:
+  - https://github.com/mitmproxy/mitmproxy
+  - https://docs.mitmproxy.org/stable/
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.credential_access
+  - attack.collection
+  - attack.t1557
+  - attack.resource_development
+  - attack.t1588.002
+  - category.offensive-tool
+target:
+  protocol: http
+  tls: auto
+  ports: [8080, 8081]   # default proxy listener and mitmweb interface
+detection:
+  selection_server:
+    http.headers.server|startswith: 'mitmproxy '
+  condition: selection_server
+identifies:
+  product: mitmproxy
+  family: mitmproxy
+  category: offensive-tool
+extract:
+  version:
+    field: http.headers.server
+    regex: '^(?i:mitmproxy) (?P<version>[0-9][0-9A-Za-z.\-]*)'
+confidence: high
+falsepositives:
+  - Legitimate use is common; developers and testers run mitmproxy to debug their own traffic
+tests:
+  # Both captured on 2026-11-28 from mitmweb 12.3.1 started on localhost. The
+  # body of the web interface's page is cut after the title, and its
+  # Content-Length is left out.
+  - name: Proxy listener, request without a destination
+    expect: match
+    extracted: { version: 12.3.1 }
+    raw: |
+      HTTP/1.1 502 Bad Gateway
+      Server: mitmproxy 12.3.1
+      Connection: close
+      Content-Type: text/html
+
+      <html>
+      <head>
+          <title>502 Bad Gateway</title>
+      </head>
+      <body>
+          <h1>502 Bad Gateway</h1>
+          <p>Connection killed: Request destination unknown. Unable to figure out where this request should be forwarded to.</p>
+      </body>
+      </html>
+  - name: Web interface asking for the token
+    expect: match
+    extracted: { version: 12.3.1 }
+    raw: |
+      HTTP/1.1 403 Forbidden
+      Server: mitmproxy 12.3.1
+      Content-Type: text/html; charset=UTF-8
+      Date: Sat, 28 Nov 2026 15:52:18 GMT
+      X-Frame-Options: DENY
+      X-Xss-Protection: 1; mode=block
+      X-Content-Type-Options: nosniff
+      Content-Security-Policy: default-src 'self'; connect-src 'self' ws:; img-src 'self' data:; style-src   'self' 'unsafe-inline'
+      Vary: Accept-Encoding
+      Set-Cookie: _mitmproxy_xsrf=2|24a25b6b|4f444a2959292fd2bc3c9d73b6d663e9|1795881138; Path=/; SameSite=Strict
+
+      <!doctype html>
+      <html lang="en">
+      <head>
+      <meta charset="utf-8">
+      <title>mitmproxy</title>
+  # Made-up near misses.
+  - name: Project website
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.headers.server: 'nginx'
+      http.title: 'mitmproxy - an interactive HTTPS proxy'
+  - name: Site reached through the proxy
+    expect: no_match
+    response:
+      http.status_code: 200
+      http.headers.server: 'Apache'
+      http.headers.via: '1.1 mitmproxy'

@@ -8,9 +8,16 @@ One folder per category, using the controlled category list from the spec:
 
 ```text
 rules/
+├── ai-infrastructure/
+│   ├── chromadb_trace_header_nov26.yml             Chroma server trace header
+│   ├── jupyter_redirect_nov26.yml                  Jupyter server redirect
+│   ├── litellm_title_nov26.yml                     LiteLLM proxy API documentation title
+│   ├── mlflow_page_nov26.yml                       MLflow tracking server page
+│   └── tensorboard_page_nov26.yml                  TensorBoard page
 ├── c2/
 │   ├── adaptixc2_page_nov26.yml                    AdaptixC2 page
 │   ├── asyncrat_cert_nov26.yml                     AsyncRAT default server certificate
+│   ├── caldera_title_nov26.yml                     MITRE Caldera web interface title
 │   ├── cobaltstrike_cert_nov26.yml                 Cobalt Strike default certificates
 │   ├── cobaltstrike_cert_sha256_nov26.yml          Cobalt Strike certificate fingerprints
 │   ├── covenant_cert_nov26.yml                     Covenant default certificate
@@ -30,6 +37,7 @@ rules/
 │   ├── mythic_cert_nov26.yml                       Mythic certificate organisation
 │   ├── netsupport_server_header_nov26.yml          NetSupport Gateway server header
 │   ├── nighthawk_response_nov26.yml                Nighthawk C2 default response
+│   ├── nimplant_server_header_nov26.yml            NimPlant listener server header
 │   ├── obsidianstrike_title_nov26.yml              ObsidianStrike C2 title
 │   ├── oyster_page_nov26.yml                       Oyster backdoor page hash
 │   ├── pivotc2_body_nov26.yml                      Pivot-C2 response body marker
@@ -106,17 +114,37 @@ rules/
 │   ├── aof_vulnhunter_title_nov26.yml              VulnHunter title and body
 │   ├── aof_xalgorix_nov26.yml                      Xalgorix dashboard title
 │   ├── burp_collaborator_server_nov26.yml          Burp Collaborator server header
+│   ├── chisel_server_nov26.yml                     Chisel server, health and version endpoints
+│   ├── frp_not_found_page_nov26.yml                frp server not-found page
+│   ├── goshs_server_header_nov26.yml               goshs server header, with version
+│   ├── gowitness_title_nov26.yml                   gowitness report server title
 │   ├── interactsh_body_nov26.yml                   Interactsh server landing page
 │   ├── ligolo_ng_cert_nov26.yml                    Ligolo-ng certificate organisation
+│   ├── mitmproxy_server_header_nov26.yml           mitmproxy server header, with version
+│   ├── nps_error_page_nov26.yml                    nps server error page
+│   ├── nps_web_redirect_nov26.yml                  nps web management redirect
+│   ├── pwndrop_redirect_nov26.yml                  pwndrop default redirect
 │   ├── pywssocks_page_nov26.yml                    Pywssocks server page
 │   ├── responder_smb_nov26.yml                     Responder SMB server GUID
 │   ├── reverse_ssh_cert_nov26.yml                  reverse_ssh certificate
+│   ├── spiderfoot_favicon_nov26.yml                SpiderFoot icon, MurmurHash3
+│   ├── spiderfoot_favicon_sha256_nov26.yml         SpiderFoot icon, SHA-256
+│   ├── spiderfoot_title_nov26.yml                  SpiderFoot web interface title, with version
+│   ├── sqlmap_api_nov26.yml                        sqlmap REST API server
+│   ├── updog_page_nov26.yml                        updog file server page
+│   ├── uploadserver_page_nov26.yml                 uploadserver directory listing
 │   └── wstunnel_page_nov26.yml                     wstunnel default page and certificate
 ├── phishing-kit/
 │   ├── 365stealer_body_nov26.yml                   365-Stealer panel
 │   ├── devilginx_title_nov26.yml                   Devilginx title
 │   ├── evilginx_cert_nov26.yml                     Evilginx API certificate organisation
-│   └── evilginx_title_nov26.yml                    Evilginx and evilgophish title
+│   ├── evilginx_title_nov26.yml                    Evilginx and evilgophish title
+│   ├── gophish_cert_nov26.yml                      Gophish admin default certificate
+│   ├── gophish_redirect_nov26.yml                  Gophish admin login redirect
+│   └── modlishka_cert_nov26.yml                    Modlishka generated certificate
+├── remote-access/
+│   ├── gotty_server_header_nov26.yml               GoTTY server header
+│   └── webssh_page_nov26.yml                       WebSSH client page
 └── …
 ```
 

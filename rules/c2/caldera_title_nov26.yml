@@ -1,0 +1,74 @@
+title: C2 - MITRE Caldera web interface
+id: 2e53604b-3cd7-497c-9ac5-b7fccc0d25c4
+status: experimental
+description: |
+  Web interface of MITRE Caldera, an open-source adversary emulation
+  platform: a server that deploys agents to hosts and runs ATT&CK techniques
+  on them, with its own C2 channels over HTTP, TCP, WebSocket and DNS. In
+  version 5 the interface is a single-page application supplied by the Magma
+  plugin, and GET / serves its shell, titled "Magma | Caldera", without a
+  session. The rule matches that title. Releases before 5 have another
+  interface and are not covered. The sample configuration that
+  --insecure loads has well-known default credentials, so an exposed server
+  is often open to anyone, agents included.
+references:
+  - https://github.com/mitre/caldera
+  - https://github.com/mitre/magma
+author: Ialle Teixeira
+date: 2026-11-28
+tags:
+  - attack.resource_development
+  - attack.t1588.002
+  - attack.command_and_control
+  - category.c2
+target:
+  protocol: http
+  tls: auto
+  ports: [8888]   # port in conf/default.yml
+detection:
+  selection_title:
+    http.title: 'Magma | Caldera'
+  condition: selection_title
+identifies:
+  product: Caldera
+  vendor: MITRE
+  family: caldera
+  category: c2
+confidence: high
+falsepositives:
+  - Authorised adversary emulation by red and purple teams (the tooling is dual-use)
+tests:
+  # Captured on 2026-11-28 from Caldera (master, version 5) started on
+  # localhost with the Magma interface built from source.
+  - name: Interface shell
+    expect: match
+    raw: |
+      HTTP/1.1 200 OK
+      Content-Type: text/html; charset=utf-8
+      Date: Sat, 28 Nov 2026 16:16:56 GMT
+      Server: Python/3.12 aiohttp/3.14.4
+
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <link rel="icon" type="module" href="/assets/favicon-DCFkBZHR.ico" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Magma | Caldera</title>
+          <script type="module" crossorigin src="/assets/index-D9SXREwE.js"></script>
+          <link rel="stylesheet" crossorigin href="/assets/index-DvVFoRtk.css">
+        </head>
+        <body>
+          <div id="app"></div>
+
+        </body>
+      </html>
+  # Made-up near misses.
+  - name: Documentation site
+    expect: no_match
+    response:
+      http.title: 'Welcome to Caldera’s documentation! — caldera documentation'
+  - name: Unrelated site named Caldera
+    expect: no_match
+    response:
+      http.title: 'Caldera | Hot tubs and spas'
