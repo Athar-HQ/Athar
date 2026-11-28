@@ -17,6 +17,7 @@ rules/
 ├── c2/
 │   ├── adaptixc2_page_nov26.yml                    AdaptixC2 page
 │   ├── asyncrat_cert_nov26.yml                     AsyncRAT default server certificate
+│   ├── caldera_title_nov26.yml                     MITRE Caldera web interface title
 │   ├── cobaltstrike_cert_nov26.yml                 Cobalt Strike default certificates
 │   ├── cobaltstrike_cert_sha256_nov26.yml          Cobalt Strike certificate fingerprints
 │   ├── covenant_cert_nov26.yml                     Covenant default certificate
